@@ -100,6 +100,15 @@ in
       '';
     };
 
+    lockScreen = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Allow the KDE screen locker. Off by default: access is gated by whatever fronts Selkies,
+        and the locker greeter renders gray here and cannot be unlocked without a user password.
+      '';
+    };
+
     waylandSocketIndex = lib.mkOption {
       type = lib.types.ints.unsigned;
       default = 1;
@@ -241,6 +250,21 @@ in
     # System-wide defaults; a user's own ~/.config overrides them.
     environment.etc."xdg/powerdevilrc".text = powerdevilrc;
     environment.etc."xdg/ksmserverrc".text = ksmserverrc;
+
+    # Autolock would start the (unusable) greeter before anyone connects; also block manual locking.
+    environment.etc."xdg/kscreenlockerrc" = lib.mkIf (!cfg.lockScreen) {
+      text = ''
+        [Daemon]
+        Autolock=false
+        LockOnResume=false
+      '';
+    };
+    environment.etc."xdg/kdeglobals" = lib.mkIf (!cfg.lockScreen) {
+      text = ''
+        [KDE Action Restrictions]
+        action/lock_screen=false
+      '';
+    };
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
     programs.firefox.enable = lib.mkDefault true;
