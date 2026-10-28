@@ -1,11 +1,12 @@
 # Prebuilt manylinux_2_28 wheel (cp313); it bundles libpulse, libFLAC etc. itself.
-{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook
+{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook, pythonOlder, pythonAtLeast
 , libx11, libxext, libxcb, libice, libsm }:
 
 buildPythonPackage rec {
   pname = "pcmflux";
   version = "2.2.0";
   format = "wheel";
+  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # cp313 wheel
 
   src = fetchPypi {
     inherit pname version format;

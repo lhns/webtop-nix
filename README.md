@@ -34,7 +34,7 @@ Status: prebuilt wheels now; building pixelflux/pcmflux/selkies from source is p
 }
 ```
 
-Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address`,
+Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareRendering`, `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 What the module sets up:

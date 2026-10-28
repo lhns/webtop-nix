@@ -26,13 +26,17 @@ let
     loginMode=restorePreviousLogout
   '';
 
-  startSession = pkgs.writeShellScript "webtop-start-session" ''
-    for _ in $(seq 1 600); do
-      [ -S "${runtimeDir}/${selkiesSocket}" ] && break
-      sleep 0.1
-    done
-    exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
-  '';
+  startSession = pkgs.writeShellApplication {
+    name = "webtop-start-session";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = ''
+      for _ in $(seq 1 600); do
+        [ -S "${runtimeDir}/${selkiesSocket}" ] && break
+        sleep 0.1
+      done
+      exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
+    '';
+  };
 in
 {
   options.services.webtop = {
@@ -58,8 +62,12 @@ in
 
     address = lib.mkOption {
       type = lib.types.str;
-      default = "0.0.0.0";
-      description = "Address Selkies listens on (its own default is loopback only).";
+      default = "127.0.0.1";
+      description = ''
+        Address Selkies listens on. Its own authentication is disabled, so anything
+        exposing it beyond loopback needs an authenticating proxy in front. Deployments
+        set this explicitly.
+      '';
     };
 
     openFirewall = lib.mkOption {
@@ -158,7 +166,7 @@ in
         User = cfg.user;
         PAMName = "login";
         StandardInput = "null";
-        ExecStart = startSession;
+        ExecStart = lib.getExe startSession;
         Restart = "on-failure";
         RestartSec = 2;
       };

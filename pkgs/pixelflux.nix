@@ -1,5 +1,5 @@
 # Prebuilt manylinux_2_28 wheel (cp313); a source build can replace it later.
-{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook, stdenv
+{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook, pythonOlder, pythonAtLeast, stdenv
 , libgbm, pixman, libxkbcommon, libGL, wayland, libx11, libxcb, libva, vulkan-loader
 }:
 
@@ -7,6 +7,7 @@ buildPythonPackage rec {
   pname = "pixelflux";
   version = "2.2.1";
   format = "wheel";
+  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # cp313 wheel
 
   src = fetchPypi {
     inherit pname version format;

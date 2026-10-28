@@ -1,5 +1,5 @@
 # The wheel already bundles the built web client (selkies/selkies_web).
-{ lib, buildPythonPackage, fetchPypi
+{ lib, buildPythonPackage, fetchPypi, pythonOlder, pythonAtLeast
 , pixelflux, pcmflux
 , prometheus-client, msgpack, psutil, watchdog, pillow, pulsectl-asyncio
 , dnspython, cffi, cryptography, google-crc32c, pyee, pylibsrtp, pyopenssl
@@ -10,6 +10,7 @@ buildPythonPackage rec {
   pname = "selkies";
   version = "2.1.0";
   format = "wheel";
+  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # needs the cp313 wheels
 
   src = fetchPypi {
     inherit pname version format;
