@@ -1,0 +1,18 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: nix flake check
+        run: nix flake check --no-build
+      - name: build packages and module eval check
+        run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval -L
