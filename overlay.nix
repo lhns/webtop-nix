@@ -3,7 +3,8 @@ final: prev: {
     (pyFinal: pyPrev: {
       pixelflux = pyFinal.callPackage ./pkgs/pixelflux.nix { };
       pcmflux = pyFinal.callPackage ./pkgs/pcmflux.nix { };
-      selkies = pyFinal.callPackage ./pkgs/selkies.nix { };
+      # inherit: python3Packages has its own (removed) `mesa` alias.
+      selkies = pyFinal.callPackage ./pkgs/selkies.nix { inherit (final) mesa; };
     })
   ];
 
