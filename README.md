@@ -35,15 +35,16 @@ Status: prebuilt wheels now; building pixelflux/pcmflux/selkies from source is p
 ```
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
-`openFirewall`, `softwareRendering`, `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`openFirewall`, `softwareRendering` (`true`: KWin QPainter and `LIBGL_ALWAYS_SOFTWARE`), `seat` (`""` in containers, else `seat0`),
+`waylandSocketIndex` (`1`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 What the module sets up:
 
 - Plasma 6, no display manager; the user is lingered so its manager starts at boot.
-- `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-1`; basic auth is off, so put
+- `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start); basic auth is off, so put
   an authenticating proxy in front.
-- `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, seat0), nested in `wayland-1`.
-- PipeWire with PulseAudio for pcmflux, upower, polkit rule for power-off/reboot/suspend,
+- `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, `seat`), nested in that socket once its lock is held.
+- PipeWire with PulseAudio for pcmflux and a null sink `output` (default sink; Selkies streams `output.monitor`), upower, polkit rule for power-off/reboot/suspend,
   Firefox, fonts.
 - `/etc/xdg` defaults, overridable per user: PowerDevil idle action "nothing", session restore
   "restore previous session".

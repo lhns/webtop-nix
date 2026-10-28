@@ -7,7 +7,9 @@ let
   uid = toString cfg.uid;
   runtimeDir = "/run/user/${uid}";
   # Selkies' compositor; KWin then takes the default wayland-0 for itself.
-  selkiesSocket = "wayland-1";
+  selkiesSocket = "wayland-${toString cfg.waylandSocketIndex}";
+  # Sink Selkies streams the monitor of; apps play to it as the default sink.
+  sinkName = "output";
 
   powerdevilrc = ''
     [AC][SuspendAndShutdown]
@@ -28,10 +30,13 @@ let
 
   startSession = pkgs.writeShellApplication {
     name = "webtop-start-session";
-    runtimeInputs = [ pkgs.coreutils ];
+    runtimeInputs = [ pkgs.coreutils pkgs.util-linux ];
     text = ''
+      # Live = socket present and its .lock held by the compositor; a socket left over from a
+      # previous run (kept /run/user) would otherwise pass and KWin could take the name itself.
+      sock="${runtimeDir}/${selkiesSocket}"
       for _ in $(seq 1 600); do
-        [ -S "${runtimeDir}/${selkiesSocket}" ] && break
+        [ -S "$sock" ] && [ -e "$sock.lock" ] && ! flock -n "$sock.lock" true && break
         sleep 0.1
       done
       exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
@@ -79,7 +84,29 @@ in
     softwareRendering = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Make KWin composite with QPainter (for hosts without a GPU).";
+      description = ''
+        For hosts without a GPU: KWin composites with QPainter and Mesa goes straight to
+        llvmpipe (LIBGL_ALWAYS_SOFTWARE) instead of trying zink/dri2 first.
+      '';
+    };
+
+    seat = lib.mkOption {
+      type = lib.types.str;
+      default = if config.boot.isContainer then "" else "seat0";
+      defaultText = lib.literalExpression ''if config.boot.isContainer then "" else "seat0"'';
+      description = ''
+        logind seat of the session (XDG_SEAT). Empty for none: seat0 has no VTs in a
+        container, so logind rejects a session on it.
+      '';
+    };
+
+    waylandSocketIndex = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 1;
+      description = ''
+        Selkies' compositor socket is `wayland-<index>`, which the session waits for and
+        nests in. Keep it above 0: KWin's own socket is auto-picked from wayland-0 up.
+      '';
     };
 
     package = lib.mkOption {
@@ -122,6 +149,19 @@ in
       pulse.enable = lib.mkDefault true;
     };
 
+    # A pod or VM has no sound card: a virtual default sink for apps, whose monitor Selkies streams.
+    services.pipewire.extraConfig.pipewire."90-webtop-output"."context.objects" = [{
+      factory = "adapter";
+      args = {
+        "factory.name" = "support.null-audio-sink";
+        "node.name" = sinkName;
+        "node.description" = "Browser audio";
+        "media.class" = "Audio/Sink";
+        "audio.position" = "FL,FR";
+        "priority.session" = 2000;
+      };
+    }];
+
     systemd.tmpfiles.rules = [ "d /tmp/.X11-unix 1777 root root -" ];
 
     systemd.user.services.selkies = {
@@ -131,13 +171,20 @@ in
       path = [ pkgs.wl-clipboard pkgs.pulseaudio ];
       environment = {
         SELKIES_WAYLAND = "true";
-        SELKIES_WAYLAND_SOCKET_INDEX = "1";
+        # pixelflux auto-picks the first free wayland-N from the index up; see startSession.
+        SELKIES_WAYLAND_SOCKET_INDEX = toString cfg.waylandSocketIndex;
+        # The monitor of the null sink below.
+        SELKIES_AUDIO_DEVICE_NAME = "${sinkName}.monitor";
+        # pixelflux's cursor loader reads only XCURSOR_PATH (else a placeholder cursor).
+        XCURSOR_PATH = "/run/current-system/sw/share/icons:/run/current-system/sw/share/pixmaps";
         SELKIES_ADDR = cfg.address;
         SELKIES_PORT = toString cfg.port;
         # Authentication is the job of whatever fronts this port.
         SELKIES_ENABLE_BASIC_AUTH = "false";
       } // cfg.extraEnvironment;
       serviceConfig = {
+        # Stale sockets would make pixelflux auto-pick a later name than the session waits for.
+        ExecStartPre = "${pkgs.runtimeShell} -c 'rm -f ${runtimeDir}/wayland-*'";
         ExecStart = lib.getExe cfg.package;
         Restart = "on-failure";
         RestartSec = 2;
@@ -152,7 +199,7 @@ in
       environment = {
         XDG_SESSION_TYPE = "wayland";
         XDG_SESSION_CLASS = "user";
-        XDG_SEAT = "seat0";
+        XDG_SEAT = cfg.seat;
         XDG_RUNTIME_DIR = runtimeDir;
         WAYLAND_DISPLAY = selkiesSocket;
         XDG_CURRENT_DESKTOP = "KDE";
@@ -161,7 +208,10 @@ in
         QT_QPA_PLATFORM = "wayland";
         KWIN_WAYLAND_NO_PERMISSION_CHECKS = "1";
         MOZ_ENABLE_WAYLAND = "1";
-      } // lib.optionalAttrs cfg.softwareRendering { KWIN_COMPOSE = "Q"; };
+      } // lib.optionalAttrs cfg.softwareRendering {
+        KWIN_COMPOSE = "Q";
+        LIBGL_ALWAYS_SOFTWARE = "1";
+      };
       serviceConfig = {
         User = cfg.user;
         PAMName = "login";
