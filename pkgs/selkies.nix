@@ -27,7 +27,6 @@ buildPythonPackage rec {
     aiohttp aiofiles uvloop nvidia-ml-py
   ];
 
-
   pythonImportsCheck = [ "selkies" ];
 
   meta = {

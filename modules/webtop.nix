@@ -71,7 +71,7 @@ in
     softwareRendering = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Make KWin composite with QPainter (no GPU in the container).";
+      description = "Make KWin composite with QPainter (for hosts without a GPU).";
     };
 
     package = lib.mkOption {
@@ -105,13 +105,13 @@ in
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
-    hardware.graphics.enable = true;
-    services.upower.enable = true;
-    security.rtkit.enable = true;
+    hardware.graphics.enable = lib.mkDefault true;
+    services.upower.enable = lib.mkDefault true;
+    security.rtkit.enable = lib.mkDefault true;
     services.pipewire = {
-      enable = true;
-      alsa.enable = true;
-      pulse.enable = true;
+      enable = lib.mkDefault true;
+      alsa.enable = lib.mkDefault true;
+      pulse.enable = lib.mkDefault true;
     };
 
     systemd.tmpfiles.rules = [ "d /tmp/.X11-unix 1777 root root -" ];
@@ -185,7 +185,7 @@ in
     environment.etc."xdg/ksmserverrc".text = ksmserverrc;
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
-    programs.firefox.enable = true;
+    programs.firefox.enable = lib.mkDefault true;
     environment.systemPackages = [ cfg.package ];
   };
 }

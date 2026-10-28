@@ -1,8 +1,6 @@
 # Prebuilt manylinux_2_28 wheel (cp313); a source build can replace it later.
 { lib, buildPythonPackage, fetchPypi, autoPatchelfHook, stdenv
-, libgbm, libdrm, pixman, libxkbcommon, libGL, wayland, libx11, libxcb, libxext
-, libxfixes, libxrandr, libxcursor, libxtst, libva, libinput, systemdLibs, seatd
-, libpulseaudio, libxshmfence, pipewire, vulkan-loader
+, libgbm, pixman, libxkbcommon, libGL, wayland, libx11, libxcb, libva, vulkan-loader
 }:
 
 buildPythonPackage rec {
@@ -20,16 +18,11 @@ buildPythonPackage rec {
   };
 
   nativeBuildInputs = [ autoPatchelfHook ];
-  buildInputs = [
-    stdenv.cc.cc.lib libgbm libdrm pixman libxkbcommon libGL wayland libx11 libxcb
-    libxext libxfixes libxrandr libxcursor libxtst libva libinput systemdLibs seatd
-    libpulseaudio libxshmfence
-  ];
+  # The extension's DT_NEEDED libraries.
+  buildInputs = [ stdenv.cc.cc.lib libgbm pixman libxkbcommon ];
 
-  # dlopen()ed at runtime (EGL/GBM/VA-API/PipeWire/Vulkan), invisible to autoPatchelf.
-  runtimeDependencies = [
-    libGL libgbm libva pipewire vulkan-loader wayland libx11 libxkbcommon pixman libxcb
-  ];
+  # dlopen()ed at runtime (EGL, VA-API, Vulkan, wayland-server, X11), invisible to autoPatchelf.
+  runtimeDependencies = [ libGL libva vulkan-loader wayland libx11 libxcb ];
 
   pythonImportsCheck = [ "pixelflux" ];
 

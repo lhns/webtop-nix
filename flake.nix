@@ -30,7 +30,6 @@
               modules = [
                 self.nixosModules.webtop
                 {
-                  nixpkgs.overlays = [ self.overlays.default ];
                   services.webtop.enable = true;
                   boot.loader.grub.enable = false;
                   fileSystems."/" = { device = "none"; fsType = "tmpfs"; };

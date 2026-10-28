@@ -1,5 +1,5 @@
 # Prebuilt manylinux_2_28 wheel (cp313); it bundles libpulse, libFLAC etc. itself.
-{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook, stdenv
+{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook
 , libx11, libxext, libxcb, libice, libsm }:
 
 buildPythonPackage rec {
@@ -17,7 +17,7 @@ buildPythonPackage rec {
   };
 
   nativeBuildInputs = [ autoPatchelfHook ];
-  buildInputs = [ stdenv.cc.cc.lib libx11 libxext libxcb libice libsm ];
+  buildInputs = [ libx11 libxext libxcb libice libsm ];
 
   pythonImportsCheck = [ "pcmflux" ];
 

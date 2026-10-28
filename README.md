@@ -2,12 +2,12 @@
 
 Nix packages and a NixOS module for a browser-streamed Plasma 6 desktop: [Selkies](https://github.com/selkies-project/selkies)
 (with its pixelflux Wayland compositor/encoder and pcmflux audio) streams a KWin session to a web page.
-Nothing here is site-specific; container and cluster wiring belong in the consuming repo.
+Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
 `packages.x86_64-linux.{pixelflux,pcmflux,selkies}` and `overlays.default` (adds the same three
-attributes, plus `python313Packages.*`).
+attributes, and the packages in `pythonPackagesExtensions`; the wheels are cp313, so only `python313Packages` builds).
 
 | package | version | source |
 | --- | --- | --- |
