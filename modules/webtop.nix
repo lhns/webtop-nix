@@ -182,7 +182,7 @@ in
         SELKIES_WAYLAND = "true";
         # pixelflux auto-picks the first free wayland-N from the index up; see startSession.
         SELKIES_WAYLAND_SOCKET_INDEX = toString cfg.waylandSocketIndex;
-        # The monitor of the null sink below.
+        # The monitor of the null sink defined above.
         SELKIES_AUDIO_DEVICE_NAME = "${sinkName}.monitor";
         # pixelflux's cursor loader reads only XCURSOR_PATH (else a placeholder cursor).
         XCURSOR_PATH = "/run/current-system/sw/share/icons:/run/current-system/sw/share/pixmaps";

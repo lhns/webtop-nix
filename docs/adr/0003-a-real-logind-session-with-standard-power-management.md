@@ -26,3 +26,8 @@ on a headless machine.
 - The module behaves like a desktop machine and knows nothing about where it runs.
 - Environments without real suspend (e.g. containers) must decide themselves what suspend means.
 - The defaults never shut a session down on their own; users opt in to idle shutdown.
+
+## Amendment 2026-10-29
+
+The session's seat is the `seat` option: `seat0` on a machine, none in a container (seat0 has no
+VTs there, so logind rejects the session).
