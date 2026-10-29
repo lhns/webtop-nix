@@ -13,6 +13,7 @@
 
       packages.${system} = {
         inherit (pkgs) pixelflux pcmflux selkies;
+        kwin = pkgs.kwinSoftwarePresentation;
         default = pkgs.selkies;
       };
 
