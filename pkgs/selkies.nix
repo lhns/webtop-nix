@@ -4,7 +4,14 @@
 , prometheus-client, msgpack, psutil, watchdog, pillow, pulsectl-asyncio
 , dnspython, cffi, cryptography, google-crc32c, pyee, pylibsrtp, pyopenssl
 , aiohttp, aiofiles, uvloop, nvidia-ml-py
+, wayland, libglvnd, mesa, libdrm, libva, vulkan-loader, libxkbcommon, pixman, libx11, libxcb
 }:
+
+let
+  # pixelflux dlopens these by soname (libwayland-server.so even unversioned), which its RUNPATH
+  # does not cover: without them its compositor fails to start.
+  dlopenLibs = [ wayland libglvnd mesa libdrm libva vulkan-loader libxkbcommon pixman libx11 libxcb ];
+in
 
 buildPythonPackage rec {
   pname = "selkies";
@@ -27,6 +34,8 @@ buildPythonPackage rec {
     dnspython cffi cryptography google-crc32c pyee pylibsrtp pyopenssl
     aiohttp aiofiles uvloop nvidia-ml-py
   ];
+
+  makeWrapperArgs = [ "--prefix" "LD_LIBRARY_PATH" ":" (lib.makeLibraryPath dlopenLibs) ];
 
   pythonImportsCheck = [ "selkies" ];
 
