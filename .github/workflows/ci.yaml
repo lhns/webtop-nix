@@ -55,7 +55,9 @@ jobs:
           path: ~/kwin-cache
           key: ${{ steps.kwin.outputs.key }}
 
-      - name: nix flake check
-        run: nix flake check --no-build -L
+      # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
+      # references (import from derivation), which needs a build.
+      - name: evaluate the VM test
+        run: nix eval --raw .#checks.x86_64-linux.vm.drvPath
       - name: build packages and module eval check
         run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval -L

@@ -62,7 +62,7 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 
 ## Tests
 
-`nix flake check --no-build` evaluates everything, including `checks.x86_64-linux.module-eval`.
+`nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.x86_64-linux.vm` boots the module and needs KVM to run.
 
