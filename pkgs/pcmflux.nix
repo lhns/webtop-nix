@@ -1,24 +1,32 @@
-# Prebuilt manylinux_2_28 wheel (cp313); it bundles libpulse, libFLAC etc. itself.
-{ lib, buildPythonPackage, fetchPypi, autoPatchelfHook, pythonOlder, pythonAtLeast
-, libx11, libxext, libxcb, libice, libsm }:
+{ lib, buildPythonPackage, fetchFromGitHub, rustPlatform, setuptools, setuptools-rust
+, pkg-config, cmake, libpulseaudio }:
 
-buildPythonPackage rec {
+buildPythonPackage (finalAttrs: {
   pname = "pcmflux";
   version = "2.2.0";
-  format = "wheel";
-  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # cp313 wheel
+  pyproject = true;
 
-  src = fetchPypi {
-    inherit pname version format;
-    dist = "cp313";
-    python = "cp313";
-    abi = "cp313";
-    platform = "manylinux_2_28_x86_64";
-    hash = "sha256-1lnwscfLyBhvfpnAtNv6yBcQ1BB6IKDJUlWvNM4vKoM=";
+  src = fetchFromGitHub {
+    owner = "selkies-project";
+    repo = "pcmflux";
+    # The commit that released the version on PyPI.
+    rev = "c5070c8e0a2fc34e2024a0a091901c6e49847201";
+    hash = "sha256-V1Cf1ueIGYvz4RhtGiVqfanbVb0+ORMKs3bdTF5NXkA=";
   };
 
-  nativeBuildInputs = [ autoPatchelfHook ];
-  buildInputs = [ libx11 libxext libxcb libice libsm ];
+  # The crate sits in a subdirectory; setup.py reads its Cargo.toml.
+  cargoRoot = "pcmflux";
+  cargoDeps = rustPlatform.fetchCargoVendor {
+    inherit (finalAttrs) pname version src cargoRoot;
+    hash = "sha256-paTzlXyaToXIFZHFqXGtg3jHFvxF8cbEITCksFc4kGM=";
+  };
+
+  build-system = [ setuptools setuptools-rust ];
+
+  nativeBuildInputs = [ rustPlatform.cargoSetupHook rustPlatform.rust.cargo rustPlatform.rust.rustc pkg-config cmake ];
+  # opusic-sys builds its vendored libopus with cmake.
+  dontUseCmakeConfigure = true;
+  buildInputs = [ libpulseaudio ];
 
   pythonImportsCheck = [ "pcmflux" ];
 
@@ -27,6 +35,5 @@ buildPythonPackage rec {
     homepage = "https://github.com/selkies-project/pcmflux";
     license = lib.licenses.mpl20;
     platforms = [ "x86_64-linux" ];
-    sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
-}
+})
