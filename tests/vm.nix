@@ -7,6 +7,8 @@ pkgs.testers.runNixOSTest {
   nodes.machine = { ... }: {
     imports = [ self.nixosModules.webtop ];
     services.webtop.enable = true;
+    # DIAGNOSTIC: is a missing session bus address why startplasma fails here?
+    systemd.services.webtop-session.environment.DBUS_SESSION_BUS_ADDRESS = "unix:path=/run/user/1000/bus";
     virtualisation.memorySize = 4096;
     virtualisation.cores = 2;
   };
