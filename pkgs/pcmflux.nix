@@ -18,7 +18,7 @@ buildPythonPackage (finalAttrs: {
   cargoRoot = "pcmflux";
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit (finalAttrs) pname version src cargoRoot;
-    hash = lib.fakeHash;
+    hash = "sha256-paTzlXyaToXIFZHFqXGtg3jHFvxF8cbEITCksFc4kGM=";
   };
 
   build-system = [ setuptools setuptools-rust ];

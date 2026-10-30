@@ -23,7 +23,7 @@ buildPythonPackage (finalAttrs: {
   cargoRoot = "pixelflux";
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit (finalAttrs) pname version src cargoRoot;
-    hash = lib.fakeHash;
+    hash = "sha256-Remoa/neCXwW7obl2i3k9plP6kCnZoaSi0aGL5E6z0Y=";
   };
 
   build-system = [ setuptools setuptools-rust ];
