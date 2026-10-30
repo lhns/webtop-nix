@@ -35,7 +35,7 @@ Status: prebuilt wheels now; building pixelflux/pcmflux/selkies from source is p
 ```
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
-`openFirewall`, `softwareRendering` (`true`: KWin QPainter and `LIBGL_ALWAYS_SOFTWARE`), `seat` (`""` in containers, else `seat0`),
+`openFirewall`, `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 What the module sets up:
@@ -49,9 +49,21 @@ What the module sets up:
 - `/etc/xdg` defaults, overridable per user: PowerDevil idle action "nothing", session restore
   "restore previous session".
 
+## KWin without a GPU
+
+KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
+render device (gray screen). With `kwinSoftwarePresentation` (default on) the module grafts
+`packages.x86_64-linux.kwin` over `kdePackages.kwin` using `system.replaceDependencies`: KWin plus
+[LinuxServer's patch](pkgs/kwin/kwin-6.8-software-shm-presentation.patch), which renders with llvmpipe into
+memfd buffers and presents over `wl_shm`; with a GPU nothing changes. Plasma's other packages are
+not rebuilt, but evaluating the system builds the stock one first. The patch targets KWin 6.8.x and
+`pkgs/kwin.nix` fails the evaluation on other minor versions; on Plasma 6.7 set the option to `false`
+([ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
+
 ## Tests
 
-`nix flake check --no-build` evaluates everything, including `checks.x86_64-linux.module-eval`.
+`nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
+Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.x86_64-linux.vm` boots the module and needs KVM to run.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0.

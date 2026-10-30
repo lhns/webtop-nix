@@ -1,0 +1,429 @@
+Vendored from LinuxServer's selkies-layers, commit 4553b776b14e6a6e8255d764c7db860f61140eb4:
+https://github.com/linuxserver/selkies-layers/blob/4553b776b14e6a6e8255d764c7db860f61140eb4/patches/arch/arch/kwin/kwin-6.8-software-shm-presentation.patch
+Unmodified below the line. The repository declares no licence; the patch is a derivative of KWin
+(GPL-2.0-or-later) and is used and distributed under KWin's licence.
+Applies to KWin 6.8.x (verified 6.8.0 to 6.8.2); pkgs/kwin.nix refuses other minor versions.
+-----
+
+kwin 6.8: render nested sessions in software when the host takes no dmabufs
+
+6.8 dropped QPainter compositing, so a kwin nested under a compositor that
+renders with pixman (pixelflux on a host without a GPU) finds no render device
+and cannot start: the host advertises no zwp_linux_dmabuf_v1, and kwin's own
+software device needs /dev/udmabuf, which containers rarely get.
+
+Let it render through llvmpipe anyway, and hand the frames to the host as
+wl_shm buffers:
+
+1. Where /dev/udmabuf can't be opened, a software render device is created on
+   demand whose buffers are plain memfds. llvmpipe imports a dmabuf by mapping
+   it, so it takes the memfd as a linear dmabuf just the same, and renders into
+   it with no copies. Nothing outside this process can import those buffers,
+   so the device has no device id, is never offered to clients for dmabufs
+   (they share over wl_shm, as with 6.7's QPainter), and screencasts stream it
+   as memfds.
+
+2. Buffers from the udmabuf allocator expose their memfd as shm attributes,
+   sized to the picture without the allocator's padding.
+
+3. The Wayland backend falls back to the software device when the host takes
+   dmabufs from no device kwin can use and there is no GPU to render on, and
+   then presents through wl_shm in linear ARGB8888/XRGB8888, which every
+   compositor accepts. With a GPU nothing changes.
+
+Only adds functions to exported classes, so the library stays compatible with
+the stock kwin_wayland executable and plugins of the same version.
+
+Applies to kwin 6.8.x (verified against v6.8.0).
+
+--- a/src/backends/wayland/wayland_backend.cpp
++++ b/src/backends/wayland/wayland_backend.cpp
+@@ -449,6 +449,22 @@ bool WaylandBackend::initialize()
+         m_renderDevice = GpuManager::self()->compatibleRenderDevice(dmabuf->mainDevice());
+     }
+ 
++    // With no device the host takes dmabufs from, and no GPU to render on either, render
++    // in software and hand the frames over as wl_shm buffers. Without /dev/udmabuf, the
++    // software device works on plain memfds.
++    if (!m_renderDevice && std::ranges::all_of(GpuManager::self()->renderDevices(), &RenderDevice::isSoftwareDevice)) {
++        m_renderDevice = GpuManager::self()->softwareDevice();
++        if (!m_renderDevice) {
++            if (auto device = RenderDevice::createMemfdSoftwareDevice()) {
++                m_renderDevice = device.get();
++                GpuManager::self()->addDevice(std::move(device));
++            }
++        }
++        if (m_renderDevice) {
++            qCInfo(KWIN_WAYLAND_BACKEND, "Rendering in software on %s, presenting through wl_shm", qPrintable(m_renderDevice->path()));
++        }
++    }
++
+     createOutputs();
+ 
+     m_seat = std::make_unique<WaylandSeat>(m_display->seat(), this);
+@@ -608,7 +624,7 @@ void WaylandBackend::togglePointerLock()
+ QList<CompositingType> WaylandBackend::supportedCompositors() const
+ {
+     QList<CompositingType> ret;
+-    if (m_display->linuxDmabuf() && m_renderDevice) {
++    if (m_renderDevice) {
+         ret.append(OpenGLCompositing);
+     }
+     return ret;
+@@ -666,7 +682,7 @@ wl_buffer *WaylandBackend::importBuffer(GraphicsBuffer *graphicsBuffer)
+     auto &buffer = m_buffers[graphicsBuffer];
+     if (!buffer) {
+         wl_buffer *handle = nullptr;
+-        if (graphicsBuffer->dmabufAttributes()) {
++        if (graphicsBuffer->dmabufAttributes() && !presentsThroughShm()) {
+             handle = m_display->linuxDmabuf()->importBuffer(graphicsBuffer);
+         } else if (const ShmAttributes *attributes = graphicsBuffer->shmAttributes()) {
+             handle = importShmBuffer(m_display.get(), attributes);
+@@ -703,6 +719,12 @@ RenderDevice *WaylandBackend::renderDevice() const
+     return m_renderDevice;
+ }
+ 
++bool WaylandBackend::presentsThroughShm() const
++{
++    WaylandClient::LinuxDmabufV1 *dmabuf = m_display->linuxDmabuf();
++    return !dmabuf || !m_renderDevice || GpuManager::self()->compatibleRenderDevice(dmabuf->mainDevice()) != m_renderDevice;
++}
++
+ WaylandBuffer::WaylandBuffer(wl_buffer *handle, GraphicsBuffer *graphicsBuffer)
+     : m_graphicsBuffer(graphicsBuffer)
+     , m_handle(handle)
+--- a/src/backends/wayland/wayland_backend.h
++++ b/src/backends/wayland/wayland_backend.h
+@@ -252,6 +252,11 @@ public:
+         m_eglBackend = eglBackend;
+     }
+     RenderDevice *renderDevice() const;
++    /**
++     * @returns whether frames go to the host compositor as wl_shm buffers, because
++     *          it takes no dmabufs from the device kwin renders with
++     */
++    bool presentsThroughShm() const;
+ 
+ Q_SIGNALS:
+     void pointerLockChanged(bool locked);
+--- a/src/backends/wayland/wayland_egl_backend.cpp
++++ b/src/backends/wayland/wayland_egl_backend.cpp
+@@ -38,6 +38,18 @@ namespace Wayland
+ 
+ static const bool bufferAgeEnabled = qEnvironmentVariable("KWIN_USE_BUFFER_AGE") != QStringLiteral("0");
+ 
++static FormatModifierMap presentableFormats(WaylandBackend *backend)
++{
++    if (backend->presentsThroughShm()) {
++        // wl_shm buffers are linear, and every compositor takes these two formats
++        FormatModifierMap formats;
++        formats.insert(DRM_FORMAT_ARGB8888, ModifierList{DRM_FORMAT_MOD_LINEAR});
++        formats.insert(DRM_FORMAT_XRGB8888, ModifierList{DRM_FORMAT_MOD_LINEAR});
++        return formats;
++    }
++    return backend->display()->linuxDmabuf()->formats();
++}
++
+ WaylandEglLayer::WaylandEglLayer(WaylandOutput *output, WaylandEglBackend *backend, OutputLayerType type, int zpos)
+     : WaylandLayer(output, type, zpos)
+     , m_backend(backend)
+@@ -67,7 +79,7 @@ std::optional<OutputLayerBeginFrameInfo> WaylandEglLayer::beginFrame(OutputFrame
+ 
+     const QSize nativeSize = targetRect().size();
+     if (!m_swapchain || m_swapchain->size() != nativeSize) {
+-        const FormatModifierMap formatTable = m_backend->backend()->display()->linuxDmabuf()->formats();
++        const FormatModifierMap formatTable = presentableFormats(m_backend->backend());
+         const auto suitableFormats = filterAndSortFormats(formatTable, m_requiredAlphaBits, m_output->colorPowerTradeoff());
+         for (const auto &candidate : suitableFormats) {
+             auto it = formatTable.constFind(candidate.drmFormat);
+@@ -151,7 +163,7 @@ bool WaylandEglLayer::importScanoutBuffer(GraphicsBuffer *buffer, const std::sha
+ 
+ FormatModifierMap WaylandEglLayer::supportedDrmFormats() const
+ {
+-    return m_backend->backend()->display()->linuxDmabuf()->formats();
++    return presentableFormats(m_backend->backend());
+ }
+ 
+ void WaylandEglLayer::releaseBuffers()
+@@ -180,7 +192,7 @@ std::optional<OutputLayerBeginFrameInfo> WaylandEglCursorLayer::beginFrame(Outpu
+ 
+     const auto bufferSize = targetRect().size();
+     if (!m_swapchain || m_swapchain->size() != bufferSize) {
+-        const FormatModifierMap formatTable = m_backend->backend()->display()->linuxDmabuf()->formats();
++        const FormatModifierMap formatTable = presentableFormats(m_backend->backend());
+         const auto suitableFormats = filterAndSortFormats(formatTable, m_requiredAlphaBits, m_output->colorPowerTradeoff());
+         for (const auto &candidate : suitableFormats) {
+             auto it = formatTable.constFind(candidate.drmFormat);
+--- a/src/core/renderdevice.cpp
++++ b/src/core/renderdevice.cpp
+@@ -97,7 +97,7 @@ RenderDevice::RenderDevice(std::unique_ptr<UDmabufAllocator> &&allocator, std::u
+     : m_udmabufAllocator(std::move(allocator))
+     , m_display(std::move(display))
+     , m_vulkanInstance(createVulkanInstance(m_vulkanContext))
+-    , m_path(QStringLiteral("/dev/udmabuf"))
++    , m_path(deviceId ? QStringLiteral("/dev/udmabuf") : QStringLiteral("memfd"))
+     , m_deviceId(deviceId)
+ {
+     createVulkanDevice();
+@@ -368,7 +368,7 @@ std::unique_ptr<RenderDevice> RenderDevice::open(const QString &path, int authen
+     return std::make_unique<RenderDevice>(std::move(drmDevice), std::move(eglDisplay));
+ }
+ 
+-std::unique_ptr<RenderDevice> RenderDevice::createSoftwareDevice(dev_t deviceId)
++static std::unique_ptr<EglDisplay> createSoftwareEglDisplay()
+ {
+     EGLint numDevices = 0;
+     if (eglQueryDevicesEXT(0, nullptr, &numDevices) != EGL_TRUE) {
+@@ -386,13 +386,32 @@ std::unique_ptr<RenderDevice> RenderDevice::createSoftwareDevice(dev_t deviceId)
+     if (it == devices.end()) {
+         return nullptr;
+     }
+-    auto eglDisplay = EglDisplay::create(eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, *it, nullptr), nullptr);
++    return EglDisplay::create(eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, *it, nullptr), nullptr);
++}
++
++std::unique_ptr<RenderDevice> RenderDevice::createSoftwareDevice(dev_t deviceId)
++{
++    auto eglDisplay = createSoftwareEglDisplay();
+     if (!eglDisplay) {
+         return nullptr;
+     }
+     return std::make_unique<RenderDevice>(std::make_unique<UDmabufAllocator>(), std::move(eglDisplay), deviceId);
+ }
+ 
++std::unique_ptr<RenderDevice> RenderDevice::createMemfdSoftwareDevice()
++{
++    auto eglDisplay = createSoftwareEglDisplay();
++    if (!eglDisplay) {
++        return nullptr;
++    }
++    return std::make_unique<RenderDevice>(std::make_unique<MemfdDmabufAllocator>(), std::move(eglDisplay), 0);
++}
++
++bool RenderDevice::isMemfdDevice() const
++{
++    return !m_device && m_deviceId == 0;
++}
++
+ bool RenderDevice::isSoftwareDevice() const
+ {
+     return m_display->isSoftwareRenderer() && (!m_vulkanDevice || m_vulkanDevice->isSoftwareRenderer());
+--- a/src/core/renderdevice.h
++++ b/src/core/renderdevice.h
+@@ -84,6 +84,12 @@ public:
+      */
+     bool isSoftwareDevice() const;
+ 
++    /**
++     * @returns if this is the device from createMemfdSoftwareDevice, whose buffers
++     *          nothing outside this process can import as dmabufs
++     */
++    bool isMemfdDevice() const;
++
+     /**
+      * @returns if this device is definitely an internal GPU. May have false negatives,
+      *          depending on driver support for Vulkan and EGL_EXT_device_type.
+@@ -99,6 +105,13 @@ public:
+      *          and a software renderer for OpenGL and Vulkan
+      */
+     static std::unique_ptr<RenderDevice> createSoftwareDevice(dev_t deviceId);
++    /**
++     * @returns a software RenderDevice like createSoftwareDevice, for when /dev/udmabuf
++     *          can't be opened: its buffers are memfds that the software renderer imports
++     *          as dmabufs by mapping them, and that can be shared over wl_shm. It has no
++     *          device id, so it must never be advertised to clients for dmabufs.
++     */
++    static std::unique_ptr<RenderDevice> createMemfdSoftwareDevice();
+ 
+ private:
+     void handleVulkanDeviceLoss();
+--- a/src/core/udmabufallocator.cpp
++++ b/src/core/udmabufallocator.cpp
+@@ -29,7 +29,7 @@ class UdmabufGraphicsBuffer : public GraphicsBuffer
+     Q_OBJECT
+ 
+ public:
+-    explicit UdmabufGraphicsBuffer(DmaBufAttributes &&attributes, MemoryMap &&map);
++    explicit UdmabufGraphicsBuffer(DmaBufAttributes &&attributes, ShmAttributes &&shmAttributes, MemoryMap &&map);
+ 
+     Map map(MapFlags flags) override;
+     void unmap() override;
+@@ -37,19 +37,22 @@ public:
+     QSize size() const override;
+     bool hasAlphaChannel() const override;
+     const DmaBufAttributes *dmabufAttributes() const override;
++    const ShmAttributes *shmAttributes() const override;
+     uint32_t format() const override;
+     uint64_t modifier() const override;
+     uint32_t pitch() const override;
+ 
+ private:
+     const DmaBufAttributes m_attributes;
++    const ShmAttributes m_shmAttributes;
+     const bool m_hasAlphaChannel;
+     MemoryMap m_memoryMap;
+     uint32_t m_mapCount = 0;
+ };
+ 
+-UdmabufGraphicsBuffer::UdmabufGraphicsBuffer(DmaBufAttributes &&attributes, MemoryMap &&memoryMap)
++UdmabufGraphicsBuffer::UdmabufGraphicsBuffer(DmaBufAttributes &&attributes, ShmAttributes &&shmAttributes, MemoryMap &&memoryMap)
+     : m_attributes(std::move(attributes))
++    , m_shmAttributes(std::move(shmAttributes))
+     , m_hasAlphaChannel(alphaChannelFromDrmFormat(attributes.format))
+     , m_memoryMap(std::move(memoryMap))
+ {
+@@ -100,6 +103,12 @@ const DmaBufAttributes *UdmabufGraphicsBuffer::dmabufAttributes() const
+     return &m_attributes;
+ }
+ 
++const ShmAttributes *UdmabufGraphicsBuffer::shmAttributes() const
++{
++    // The memory behind the dmabuf is this memfd, so the buffer can be shared over wl_shm too
++    return &m_shmAttributes;
++}
++
+ uint32_t UdmabufGraphicsBuffer::format() const
+ {
+     return m_attributes.format;
+@@ -119,18 +128,11 @@ UDmabufAllocator::UDmabufAllocator()
+ {
+ }
+ 
+-GraphicsBuffer *UDmabufAllocator::allocate(const GraphicsBufferOptions &options)
+-{
+-    if (!options.modifiers.contains(DRM_FORMAT_MOD_LINEAR)) {
+-        return nullptr;
+-    }
+-    return allocate(options.format, options.size);
+-}
+-
+-GraphicsBuffer *UDmabufAllocator::allocate(uint32_t format, const QSize &size)
++static GraphicsBuffer *allocateBuffer(uint32_t format, const QSize &size, bool memfdFallback)
+ {
+ #if HAVE_MEMFD && defined(Q_OS_LINUX)
+-    if (!GpuManager::self()->udmabuf().isValid()) {
++    const bool haveUdmabuf = GpuManager::self()->udmabuf().isValid();
++    if (!haveUdmabuf && !memfdFallback) {
+         return nullptr;
+     }
+     auto info = FormatInfo::get(format);
+@@ -139,10 +141,10 @@ GraphicsBuffer *UDmabufAllocator::allocate(uint32_t format, const QSize &size)
+     }
+     // padding to 64 pixels is required to work around a crash in llvmpipe:
+     // https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16447
+-    const int paddedWidth = align(size.width(), 64);
+-    const int paddedHeight = align(size.height(), 64);
+-    const int stride = align(paddedWidth * info->bitsPerPixel / 8, 256);
+-    const int bufferSize = align(paddedHeight * stride, getpagesize());
++    const int paddedWidth = GraphicsBufferAllocator::align(size.width(), 64);
++    const int paddedHeight = GraphicsBufferAllocator::align(size.height(), 64);
++    const int stride = GraphicsBufferAllocator::align(paddedWidth * info->bitsPerPixel / 8, 256);
++    const int bufferSize = GraphicsBufferAllocator::align(paddedHeight * stride, getpagesize());
+ 
+     FileDescriptor fd = FileDescriptor(memfd_create("udmabuf", MFD_CLOEXEC | MFD_ALLOW_SEALING));
+     if (!fd.isValid()) {
+@@ -172,16 +174,56 @@ GraphicsBuffer *UDmabufAllocator::allocate(uint32_t format, const QSize &size)
+         .size = QSize(size.width(), paddedHeight),
+         .format = format,
+     };
+-    auto dmabufAttributes = GpuManager::self()->createUdmabuf(&attributes);
++    std::optional<DmaBufAttributes> dmabufAttributes;
++    if (haveUdmabuf) {
++        dmabufAttributes = GpuManager::self()->createUdmabuf(&attributes);
++    } else {
++        // llvmpipe imports a dmabuf by mapping it, which works on the memfd just as well
++        DmaBufAttributes memfd;
++        memfd.planeCount = 1;
++        memfd.width = size.width();
++        memfd.format = format;
++        memfd.modifier = DRM_FORMAT_MOD_LINEAR;
++        memfd.device = 0;
++        memfd.fd[0] = attributes.fd.duplicate();
++        memfd.offset[0] = 0;
++        memfd.pitch[0] = stride;
++        if (memfd.fd[0].isValid()) {
++            dmabufAttributes = std::move(memfd);
++        }
++    }
+     if (!dmabufAttributes) {
+         return nullptr;
+     }
+     dmabufAttributes->height = size.height();
+-    return new UdmabufGraphicsBuffer(std::move(*dmabufAttributes), std::move(memoryMap));
++    // shared over wl_shm, the buffer has to be exactly the picture, without the padding
++    attributes.size.setHeight(size.height());
++    return new UdmabufGraphicsBuffer(std::move(*dmabufAttributes), std::move(attributes), std::move(memoryMap));
+ #else
+     return nullptr;
+ #endif
+ }
+ 
++GraphicsBuffer *UDmabufAllocator::allocate(const GraphicsBufferOptions &options)
++{
++    if (!options.modifiers.contains(DRM_FORMAT_MOD_LINEAR)) {
++        return nullptr;
++    }
++    return allocateBuffer(options.format, options.size, false);
++}
++
++GraphicsBuffer *UDmabufAllocator::allocate(uint32_t format, const QSize &size)
++{
++    return allocateBuffer(format, size, false);
++}
++
++GraphicsBuffer *MemfdDmabufAllocator::allocate(const GraphicsBufferOptions &options)
++{
++    if (!options.modifiers.contains(DRM_FORMAT_MOD_LINEAR)) {
++        return nullptr;
++    }
++    return allocateBuffer(options.format, options.size, true);
++}
++
+ }
+ #include "udmabufallocator.moc"
+--- a/src/core/udmabufallocator.h
++++ b/src/core/udmabufallocator.h
+@@ -20,4 +20,16 @@ public:
+     static GraphicsBuffer *allocate(uint32_t format, const QSize &size);
+ };
+ 
++/**
++ * Allocates like UDmabufAllocator, but hands out the memfd itself as the dmabuf
++ * where /dev/udmabuf can't be opened. Only a software renderer that maps dmabufs
++ * (llvmpipe) can import such a buffer, and nothing outside this process can, so
++ * it serves only the software render device created for that case.
++ */
++class MemfdDmabufAllocator : public UDmabufAllocator
++{
++public:
++    GraphicsBuffer *allocate(const GraphicsBufferOptions &options) override;
++};
++
+ }
+--- a/src/opengl/eglbackend.cpp
++++ b/src/opengl/eglbackend.cpp
+@@ -103,6 +103,11 @@ static const auto s_dmabufV6Env = environmentVariableBoolValue("KWIN_ALLOW_DMABU
+ 
+ void EglBackend::updateDmabufTranches()
+ {
++    if (m_renderDevice->isMemfdDevice()) {
++        // Nothing but this process can import its buffers as dmabufs,
++        // so clients are left to share theirs over wl_shm
++        return;
++    }
+     auto filterFormats = [this](RenderDevice *device, VulkanDevice *vkDevice, std::optional<uint32_t> bpc) {
+         FormatModifierMap set;
+         auto allFormats = device->eglDisplay()->allSupportedDrmFormats();
+--- a/src/plugins/screencast/screencaststream.cpp
++++ b/src/plugins/screencast/screencaststream.cpp
+@@ -897,6 +897,10 @@ void ScreenCastStream::setCursorMode(ScreencastV1Interface::CursorMode mode)
+ 
+ std::optional<ScreenCastDmaBufTextureParams> ScreenCastStream::testCreateDmaBuf(RenderDevice *device, const QSize &size, quint32 format, const ModifierList &modifiers)
+ {
++    if (device->isMemfdDevice()) {
++        // its buffers are no dmabufs to anyone else, so the stream shares memfds
++        return std::nullopt;
++    }
+     GraphicsBuffer *buffer = device->allocator()->allocate(GraphicsBufferOptions{
+         .size = size,
+         .format = format,

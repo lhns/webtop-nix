@@ -8,6 +8,9 @@ final: prev: {
     })
   ];
 
+  # Not kdePackages.kwin itself: overriding that would rebuild everything that depends on it.
+  kwinSoftwarePresentation = final.callPackage ./pkgs/kwin.nix { };
+
   # Pinned to 3.13: the wheels below are cp313.
   pixelflux = final.python313Packages.pixelflux;
   pcmflux = final.python313Packages.pcmflux;

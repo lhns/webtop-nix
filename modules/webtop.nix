@@ -85,8 +85,20 @@ in
       type = lib.types.bool;
       default = true;
       description = ''
-        For hosts without a GPU: KWin composites with QPainter and Mesa goes straight to
-        llvmpipe (LIBGL_ALWAYS_SOFTWARE) instead of trying zink/dri2 first.
+        For hosts without a GPU: Mesa goes straight to llvmpipe (LIBGL_ALWAYS_SOFTWARE) instead
+        of trying zink/dri2 first. KWin 6.8 also needs `kwinSoftwarePresentation`.
+      '';
+    };
+
+    kwinSoftwarePresentation = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Replace KWin by a build with LinuxServer's software-presentation patch, without rebuilding
+        its dependents. Needed on GPU-less hosts (pods) with Plasma 6.8 or later: KWin 6.8 has no
+        QPainter compositing, and nested under Selkies' CPU-only compositor it finds no render
+        device ("requires compositing", gray screen). With a GPU the patch changes nothing.
+        The patch targets KWin 6.8.x; on Plasma 6.7 set this to false.
       '';
     };
 
@@ -145,7 +157,15 @@ in
     };
 
     services.desktopManager.plasma6.enable = true;
+
     services.displayManager.enable = lib.mkForce false;
+
+    # A graft: the rewritten system keeps plasma-workspace and the rest as built by nixpkgs. Note that
+    # evaluating the system builds the stock one first (replaceDependencies reads its references).
+    system.replaceDependencies.replacements = lib.mkIf cfg.kwinSoftwarePresentation [{
+      oldDependency = pkgs.kdePackages.kwin;
+      newDependency = pkgs.kwinSoftwarePresentation;
+    }];
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
@@ -218,7 +238,6 @@ in
         KWIN_WAYLAND_NO_PERMISSION_CHECKS = "1";
         MOZ_ENABLE_WAYLAND = "1";
       } // lib.optionalAttrs cfg.softwareRendering {
-        KWIN_COMPOSE = "Q";
         LIBGL_ALWAYS_SOFTWARE = "1";
       };
       serviceConfig = {
