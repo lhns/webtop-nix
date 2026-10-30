@@ -16,7 +16,7 @@ buildPythonPackage (finalAttrs: {
     repo = "pixelflux";
     # The commit that released the version on PyPI.
     rev = "67b6d833fc8eba87f9b15fb4cb3382d923a2fe56";
-    hash = lib.fakeHash;
+    hash = "sha256-NusvXgm2HMvsQbNnV5mLOxwWRH9WHMNv3DnyAGjYo2c=";
   };
 
   # The crate sits in a subdirectory; setup.py reads its Cargo.toml.

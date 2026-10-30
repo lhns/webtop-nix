@@ -11,7 +11,7 @@ buildPythonPackage (finalAttrs: {
     repo = "pcmflux";
     # The commit that released the version on PyPI.
     rev = "c5070c8e0a2fc34e2024a0a091901c6e49847201";
-    hash = lib.fakeHash;
+    hash = "sha256-V1Cf1ueIGYvz4RhtGiVqfanbVb0+ORMKs3bdTF5NXkA=";
   };
 
   # The crate sits in a subdirectory; setup.py reads its Cargo.toml.
