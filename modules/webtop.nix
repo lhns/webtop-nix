@@ -263,6 +263,8 @@ in
         XDG_SESSION_CLASS = "user";
         XDG_SEAT = cfg.seat;
         XDG_RUNTIME_DIR = runtimeDir;
+        # pam_systemd does not always export it; without it startplasma fails with "Could not start D-Bus".
+        DBUS_SESSION_BUS_ADDRESS = "unix:path=${runtimeDir}/bus";
         WAYLAND_DISPLAY = selkiesSocket;
         XDG_CURRENT_DESKTOP = "KDE";
         KDE_FULL_SESSION = "true";
