@@ -13,7 +13,7 @@ concurrency:
 jobs:
   nix:
     runs-on: ubuntu-latest
-    # A cold run builds KWin (~1 h); with the cache it takes minutes.
+    # A cold run builds KWin (25–45 min); with the cache it takes minutes.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
