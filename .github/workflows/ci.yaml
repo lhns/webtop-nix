@@ -6,15 +6,28 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   nix:
     runs-on: ubuntu-latest
+    # A cold run builds KWin (~1 h); with the cache it takes minutes.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
       # Evaluating the module realises the stock Plasma closure (the KWin graft reads its references).
       - name: free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      # The VM test needs /dev/kvm, and the Nix daemon only offers the kvm feature if it exists when it starts.
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       # The cache below is a local binary cache of the patched KWin closure (the rest of the build comes from
       # cache.nixos.org). Signatures are not checked: only this repo's workflows write that cache.
@@ -60,8 +73,6 @@ jobs:
           key: ${{ steps.kwin.outputs.key }}
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
-      # references (import from derivation), which needs a build.
-      - name: evaluate the VM test
-        run: nix eval --raw .#checks.x86_64-linux.vm.drvPath
-      - name: build packages and module eval check
-        run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval -L
+      # references (import from derivation), which needs a build. The VM test boots it, so it also covers eval.
+      - name: build packages and checks
+        run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval .#checks.x86_64-linux.vm -L

@@ -64,6 +64,8 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 
 `nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
-`checks.x86_64-linux.vm` boots the module and needs KVM to run.
+`checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
+
+Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0.
