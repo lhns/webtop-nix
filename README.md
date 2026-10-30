@@ -7,15 +7,15 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 ## Packages
 
 `packages.x86_64-linux.{pixelflux,pcmflux,selkies}` and `overlays.default` (adds the same three
-attributes, and the packages in `pythonPackagesExtensions`; the wheels are cp313, so only `python313Packages` builds).
+attributes, and the packages in `pythonPackagesExtensions`; the selkies wheel is cp313, so only `python313Packages` builds).
 
 | package | version | source |
 | --- | --- | --- |
-| pixelflux | 2.2.1 | PyPI cp313 manylinux_2_28 wheel, `autoPatchelfHook` |
-| pcmflux | 2.2.0 | PyPI cp313 manylinux_2_28 wheel, `autoPatchelfHook` |
+| pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
+| pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
 | selkies | 2.1.0 | PyPI wheel (bundles the built web client) |
 
-Status: prebuilt wheels now; building pixelflux/pcmflux/selkies from source is planned.
+Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
 
 ## Usage
 
@@ -66,4 +66,4 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.x86_64-linux.vm` boots the module and needs KVM to run.
 
-Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0.
+Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0 (the pixelflux build also links GPL-2.0-or-later libx264 and x265, so the built extension is GPL-2.0-or-later).
