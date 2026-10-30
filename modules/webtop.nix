@@ -130,6 +130,33 @@ in
       '';
     };
 
+    clipboard = lib.mkOption {
+      type = lib.types.enum [ "true" "in" "out" "false" ];
+      default = "true";
+      description = ''
+        Clipboard direction (SELKIES_ENABLE_CLIPBOARD): `"true"` both ways, `"in"` browser to
+        desktop only, `"out"` desktop to browser only, `"false"` off.
+      '';
+    };
+
+    fileTransfers = lib.mkOption {
+      type = lib.types.listOf (lib.types.enum [ "upload" "download" ]);
+      default = [ "upload" "download" ];
+      description = "Allowed file transfer directions (SELKIES_FILE_TRANSFERS); empty disables transfers.";
+    };
+
+    fileManagerPath = lib.mkOption {
+      type = lib.types.str;
+      default = "~/Desktop";
+      description = "Directory uploads land in and downloads are served from (SELKIES_FILE_MANAGER_PATH); created at start.";
+    };
+
+    browserCursors = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Draw the cursor in the browser (CSS cursors) instead of into the video (SELKIES_USE_BROWSER_CURSORS).";
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = pkgs.selkies;
@@ -210,6 +237,12 @@ in
         SELKIES_PORT = toString cfg.port;
         # Authentication is the job of whatever fronts this port.
         SELKIES_ENABLE_BASIC_AUTH = "false";
+        # No SELKIES_SUBFOLDER: a gateway prefix is stripped before it reaches us and the web client
+        # derives it from the page URL; setting it would make Selkies expect it on every route.
+        SELKIES_ENABLE_CLIPBOARD = cfg.clipboard;
+        SELKIES_FILE_TRANSFERS = if cfg.fileTransfers == [ ] then "none" else lib.concatStringsSep "," cfg.fileTransfers;
+        SELKIES_FILE_MANAGER_PATH = cfg.fileManagerPath;
+        SELKIES_USE_BROWSER_CURSORS = lib.boolToString cfg.browserCursors;
       } // cfg.extraEnvironment;
       serviceConfig = {
         # Stale sockets would make pixelflux auto-pick a later name than the session waits for.
