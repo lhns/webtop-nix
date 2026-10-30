@@ -36,7 +36,8 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
-`lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~/Desktop`), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 What the module sets up:
 
@@ -44,6 +45,7 @@ What the module sets up:
 - `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start); basic auth is off, so put
   an authenticating proxy in front.
 - `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, `seat`), nested in that socket once its lock is held.
+- No `SELKIES_SUBFOLDER`: behind a path-prefixing gateway that strips the prefix, the web client derives it from the page URL.
 - PipeWire with PulseAudio for pcmflux and a null sink `output` (default sink; Selkies streams `output.monitor`), upower, polkit rule for power-off/reboot/suspend,
   Firefox, fonts.
 - `/etc/xdg` defaults, overridable per user: PowerDevil idle action "nothing", session restore
@@ -64,6 +66,8 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 
 `nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
-`checks.x86_64-linux.vm` boots the module and needs KVM to run.
+`checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
+
+Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0 (the pixelflux build also links GPL-2.0-or-later libx264 and x265, so the built extension is GPL-2.0-or-later).
