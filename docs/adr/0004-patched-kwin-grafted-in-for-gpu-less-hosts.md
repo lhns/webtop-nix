@@ -23,7 +23,7 @@ reports "requires compositing" and the screen stays gray. Staying on Plasma 6.7 
 
 ## Consequences
 
-- Plasma follows nixpkgs again; the cost is one KWin build (about an hour on a CI runner) per KWin or
+- Plasma follows nixpkgs again; the cost is one KWin build (25–45 minutes on a GitHub runner) per KWin or
   nixpkgs change, so consumers should cache it (`packages.<system>.kwin`).
 - `replaceDependencies` reads the stock system's references, so evaluating a system builds the stock
   one first.
