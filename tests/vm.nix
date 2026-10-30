@@ -16,5 +16,12 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_open_port(8082)
     machine.succeed("curl -sf http://localhost:8082/ | grep -qi '<html'")
     machine.wait_for_unit("webtop-session.service")
+
+    # A gray screen is KWin up but not compositing (no render device); the session unit still looks healthy.
+    machine.wait_until_succeeds(
+        "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
+        "busctl --user get-property org.kde.KWin /Compositor org.kde.kwin.Compositing active | grep -qx 'b true'",
+        timeout=180,
+    )
   '';
 }
