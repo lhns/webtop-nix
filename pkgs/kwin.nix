@@ -10,5 +10,8 @@ in
 assert lib.assertMsg (lib.versions.majorMinor (lib.getVersion stock) == "6.8")
   "pkgs/kwin.nix: the patch targets KWin 6.8.x, nixpkgs has ${lib.getVersion stock}; set services.webtop.kwinSoftwarePresentation = false on Plasma 6.7 or refresh the patch";
 stock.overrideAttrs (old: {
-  patches = (old.patches or [ ]) ++ [ ./kwin/kwin-6.8-software-shm-presentation.patch ];
+  patches = (old.patches or [ ]) ++ [
+    ./kwin/kwin-6.8-software-shm-presentation.patch
+    ./kwin/kwin-6.8-shm-presentation-finish.patch
+  ];
 })

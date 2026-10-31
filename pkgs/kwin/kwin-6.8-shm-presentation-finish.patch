@@ -1,0 +1,53 @@
+kwin 6.8: finish rendering before presenting through wl_shm
+
+Applies after kwin-6.8-software-shm-presentation.patch. On the memfd software device (no
+/dev/udmabuf) llvmpipe exposes no native fences, so endFrame's glFlush only queues the frame to
+llvmpipe's rasterizer threads, and the wl_shm buffer is committed while they still write into
+it. The host reads tiles of the new frame mixed with the buffer's previous contents. With
+/dev/udmabuf the native fence fd already makes llvmpipe finish (lp_fence_get_fd), which is
+why only the memfd fallback shows it.
+-----
+
+diff --git a/src/backends/wayland/wayland_egl_backend.cpp b/src/backends/wayland/wayland_egl_backend.cpp
+index 2b2a5fee24..d6d16e16cb 100644
+--- a/src/backends/wayland/wayland_egl_backend.cpp
++++ b/src/backends/wayland/wayland_egl_backend.cpp
+@@ -38,6 +38,18 @@ namespace Wayland
+ 
+ static const bool bufferAgeEnabled = qEnvironmentVariable("KWIN_USE_BUFFER_AGE") != QStringLiteral("0");
+ 
++// Finishes rendering before a buffer goes to the host. A wl_shm buffer carries no fence: the
++// host reads it as soon as it is committed, while a software renderer may still be filling it
++// on its worker threads, which hands over frames with tiles of an older one.
++static void finishRendering(WaylandBackend *backend)
++{
++    if (backend->presentsThroughShm()) {
++        glFinish();
++    } else {
++        glFlush();
++    }
++}
++
+ static FormatModifierMap presentableFormats(WaylandBackend *backend)
+ {
+     if (backend->presentsThroughShm()) {
+@@ -133,8 +145,7 @@ bool WaylandEglLayer::endFrame(const Region &renderedDeviceRegion, const Region
+         m_query->end();
+         frame->addRenderTimeQuery(std::move(m_query));
+     }
+-    // Flush rendering commands to the dmabuf.
+-    glFlush();
++    finishRendering(m_backend->backend());
+     EGLNativeFence releaseFence{m_backend->eglDisplayObject()};
+ 
+     // The damage is where the picture changed, and the picture is composed the way the user
+@@ -238,8 +249,7 @@ bool WaylandEglCursorLayer::endFrame(const Region &renderedDeviceRegion, const R
+         m_query->end();
+         frame->addRenderTimeQuery(std::move(m_query));
+     }
+-    // Flush rendering commands to the dmabuf.
+-    glFlush();
++    finishRendering(m_backend->backend());
+ 
+     wl_buffer *buffer = m_backend->backend()->importBuffer(m_buffer->buffer());
+     Q_ASSERT(buffer);
