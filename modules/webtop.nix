@@ -218,8 +218,6 @@ in
       };
     }];
 
-    systemd.tmpfiles.rules = [ "d /tmp/.X11-unix 1777 root root -" ];
-
     systemd.user.services.selkies = {
       description = "Selkies streaming server (pixelflux compositor, pcmflux audio)";
       wantedBy = [ "default.target" ];
