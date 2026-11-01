@@ -153,6 +153,6 @@ pkgs.testers.runNixOSTest {
         timeout=900,
     ))
     machine.succeed("journalctl -b --no-pager -o short-monotonic | grep -iE 'screen|display2|layout|probe|virtual|aborting' > /tmp/out/journal-filtered.txt || true")
-    machine.copy_from_vm("/tmp/out", "")
+    machine.copy_from_machine("/tmp/out")
   '';
 }
