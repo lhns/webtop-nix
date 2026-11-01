@@ -163,11 +163,7 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_unit("selkies.service", "user")
     machine.wait_for_open_port(8082)
     machine.wait_for_unit("webtop-session.service")
-    machine.wait_until_succeeds(
-        "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
-        "busctl --user get-property org.kde.KWin /Compositor org.kde.kwin.Compositing active | grep -qx 'b true'",
-        timeout=180,
-    )
+    ${import ./wait-compositing.nix}
     machine.sleep(20)  # let Plasma settle
     status, output = machine.execute(
         "PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers} "

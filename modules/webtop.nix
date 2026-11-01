@@ -244,8 +244,9 @@ in
         SELKIES_USE_BROWSER_CURSORS = lib.boolToString cfg.browserCursors;
       } // cfg.extraEnvironment;
       serviceConfig = {
-        # Stale sockets would make pixelflux auto-pick a later name than the session waits for.
-        ExecStartPre = "${pkgs.runtimeShell} -c 'rm -f ${runtimeDir}/wayland-*'";
+        # A stale socket would make pixelflux auto-pick a later name than the session waits for.
+        # Only our own: KWin's live socket sits next to it.
+        ExecStartPre = "${pkgs.runtimeShell} -c 'rm -f ${runtimeDir}/${selkiesSocket} ${runtimeDir}/${selkiesSocket}.lock'";
         ExecStart = lib.getExe cfg.package;
         Restart = "on-failure";
         RestartSec = 2;
