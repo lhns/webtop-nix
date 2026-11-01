@@ -4,13 +4,7 @@
 , prometheus-client, msgpack, psutil, watchdog, pillow, pulsectl-asyncio
 , dnspython, cffi, cryptography, google-crc32c, pyee, pylibsrtp, pyopenssl
 , aiohttp, aiofiles, uvloop, nvidia-ml-py
-, wayland, libglvnd, mesa, libdrm, libva, vulkan-loader, libxkbcommon, pixman, libx11, libxcb
 }:
-
-let
-  # Libraries pixelflux dlopens by soname; partly redundant with the RUNPATH pkgs/pixelflux.nix sets.
-  dlopenLibs = [ wayland libglvnd mesa libdrm libva vulkan-loader libxkbcommon pixman libx11 libxcb ];
-in
 
 buildPythonPackage rec {
   pname = "selkies";
@@ -33,8 +27,6 @@ buildPythonPackage rec {
     dnspython cffi cryptography google-crc32c pyee pylibsrtp pyopenssl
     aiohttp aiofiles uvloop nvidia-ml-py
   ];
-
-  makeWrapperArgs = [ "--prefix" "LD_LIBRARY_PATH" ":" (lib.makeLibraryPath dlopenLibs) ];
 
   # A second display page can connect without the primary page (single-app streaming); for upstream.
   postInstall = ''

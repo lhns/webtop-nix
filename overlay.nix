@@ -1,10 +1,10 @@
 final: prev: {
   pythonPackagesExtensions = (prev.pythonPackagesExtensions or [ ]) ++ [
     (pyFinal: pyPrev: {
-      pixelflux = pyFinal.callPackage ./pkgs/pixelflux.nix { };
-      pcmflux = pyFinal.callPackage ./pkgs/pcmflux.nix { };
       # inherit: python3Packages has its own (removed) `mesa` alias.
-      selkies = pyFinal.callPackage ./pkgs/selkies.nix { inherit (final) mesa; };
+      pixelflux = pyFinal.callPackage ./pkgs/pixelflux.nix { inherit (final) mesa; };
+      pcmflux = pyFinal.callPackage ./pkgs/pcmflux.nix { };
+      selkies = pyFinal.callPackage ./pkgs/selkies.nix { };
     })
   ];
 

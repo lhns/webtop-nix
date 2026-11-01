@@ -2,7 +2,7 @@
 { lib, buildPythonPackage, fetchFromGitHub, rustPlatform, setuptools, setuptools-rust, patchelf
 , pkg-config, cmake, nasm, python
 , libgbm, pixman, libxkbcommon, libdrm, libinput, systemdLibs, wayland, libx11, libxcb, libxext, libxfixes
-, libGL, libva, vulkan-loader
+, libGL, mesa, libva, vulkan-loader
 , x264, x265, libvpx, svt-av1, dav1d, libde265
 }:
 
@@ -41,9 +41,12 @@ buildPythonPackage (finalAttrs: {
   ];
 
   # dlopen()ed at runtime (EGL, VA-API, Vulkan, wayland-server, X11): found through the extension's RUNPATH.
+  # The linked libraries are listed too, so selkies needs no LD_LIBRARY_PATH wrapper.
   postFixup = ''
     for so in $out/${python.sitePackages}/pixelflux*.so; do
-      patchelf --add-rpath ${lib.makeLibraryPath [ libGL libva vulkan-loader wayland libx11 libxcb ]} "$so"
+      patchelf --add-rpath ${lib.makeLibraryPath [
+        libGL mesa libva vulkan-loader wayland libx11 libxcb libdrm libxkbcommon pixman
+      ]} "$so"
     done
   '';
 
