@@ -5,6 +5,37 @@
 
 let
   py = pkgs.python3.withPackages (ps: [ ps.playwright ps.pillow ]);
+  # Selkies lays out a second display only beside a connected primary page. This lays it out
+  # beside the primary screen at its last size when no primary page is connected.
+  soloPatch = pkgs.writeText "selkies-solo-secondary.py" ''
+    import sys
+    path = sys.argv[1]
+    src = open(path).read()
+    anchor = "                layouts[secondary_id] = computed['secondary']\n"
+    assert src.count(anchor) == 1, "anchor"
+    src = src.replace(anchor, anchor + """
+            elif secondary_client:
+                prev = (getattr(self, 'display_layouts', None) or {}).get('primary') or {}
+                p_w, p_h = prev.get('w') or 1280, prev.get('h') or 720
+                s_w, s_h = secondary_client.get('width', 0), secondary_client.get('height', 0)
+                position = secondary_client.get('position', 'right')
+                if position not in ('right', 'left', 'up', 'down'):
+                    position = 'right'
+                if s_w > 0 and s_h > 0:
+                    computed, total_width, total_height = compute_dual_layout(
+                        (p_w, p_h), (s_w, s_h), position
+                    )
+                    layouts['primary'] = computed['primary']
+                    layouts[secondary_id] = computed['secondary']
+                    data_logger.info("Secondary-only layout: primary screen kept at %dx%d" % (p_w, p_h))
+    """)
+    open(path, "w").write(src)
+  '';
+  selkiesSolo = pkgs.selkies.overridePythonAttrs (old: {
+    postInstall = (old.postInstall or "") + ''
+      ${pkgs.python3}/bin/python3 ${soloPatch} $out/lib/python*/site-packages/selkies/websockets_mode.py
+    '';
+  });
   # Sends every window of the probe app to the newest screen, fullscreen and focused.
   placeScript = pkgs.writeText "place-probe.js" ''
     const screens = workspace.screens;
@@ -74,15 +105,46 @@ let
         note(f"runtime dir: {sorted(os.listdir('/run/user/1000'))}, KWin socket: {KWIN}")
         note("screens at start:\n" + screens())
 
+        def probe_input(page, tag):
+            # A probe app on the newest screen, then a click and keys through the display2 page.
+            log = f"{OUT}/wev-{tag}.log"
+            subprocess.Popen(
+                f"runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY={KWIN} "
+                f"${pkgs.coreutils}/bin/stdbuf -oL ${pkgs.wev}/bin/wev > {log} 2>&1", shell=True)
+            time.sleep(5)
+            sid = user(f"busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss ${placeScript} probe-{tag}")
+            note(f"  loadScript: {sid}")
+            try:
+                n = sid.split()[-1]
+                note("  run: " + user(f"busctl --user call org.kde.KWin /Scripting/Script{n} org.kde.kwin.Script run"))
+            except Exception as e:
+                note(f"  run failed: {e}")
+            time.sleep(5)
+            shot(page, f"{tag}-probe")
+            mark(f"{tag}-input")
+            page.mouse.move(500, 300)
+            page.mouse.click(512, 320)
+            time.sleep(1)
+            page.keyboard.type("kq")
+            time.sleep(3)
+            shot(page, f"{tag}-after-input")
+            text = open(log).read()
+            note(f"  wev pointer enter events: {text.count('wl_pointer] enter')}")
+            note(f"  wev button events: {text.count('wl_pointer] button')}")
+            note(f"  wev key events: {text.count('wl_keyboard] key')}")
+            subprocess.run(["pkill", "-f", "bin/wev"])
+            time.sleep(2)
+
         # (a) the second display alone
         mark("phase-a-start")
         ctx_b, page_b = open_page("#display2-right", 1024, 640, "a-display2")
         time.sleep(30)
         note("phase a (display2, no primary): screens:\n" + screens())
         shot(page_b, "a-display2")
+        probe_input(page_b, "a-display2")
         ctx_b.close()
         mark("phase-a-end")
-        time.sleep(5)
+        time.sleep(8)
 
         # (b) primary first, then the second display
         mark("phase-b-start")
@@ -94,33 +156,7 @@ let
         note("phase b (primary + display2): screens:\n" + screens())
         shot(page_a, "b-primary")
         shot(page_b, "b-display2")
-
-        # Input: a probe app on the newest screen, then a click and keys through the display2 page.
-        wev = subprocess.Popen(
-            f"runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY={KWIN} "
-            f"${pkgs.wev}/bin/wev > {OUT}/wev.log 2>&1", shell=True)
-        time.sleep(5)
-        sid = user("busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss ${placeScript} probe")
-        note(f"  loadScript: {sid}")
-        try:
-            n = sid.split()[-1]
-            note("  run: " + user(f"busctl --user call org.kde.KWin /Scripting/Script{n} org.kde.kwin.Script run"))
-        except Exception as e:
-            note(f"  run failed: {e}")
-        time.sleep(5)
-        shot(page_b, "b-display2-probe")
-        mark("phase-b-input")
-        page_b.mouse.move(500, 300)
-        page_b.mouse.click(512, 320)
-        time.sleep(1)
-        page_b.keyboard.type("kq")
-        time.sleep(3)
-        shot(page_b, "b-display2-after-input")
-        log = open(f"{OUT}/wev.log").read()
-        note(f"  wev pointer enter events: {log.count('wl_pointer] enter')}")
-        note(f"  wev button events: {log.count('wl_pointer] button')}")
-        note(f"  wev key events: {log.count('wl_keyboard] key')}")
-        wev.terminate()
+        probe_input(page_b, "b-display2")
         mark("phase-b-end")
         browser.close()
 
@@ -134,6 +170,7 @@ pkgs.testers.runNixOSTest {
   nodes.machine = { ... }: {
     imports = [ self.nixosModules.webtop ];
     services.webtop.enable = true;
+    services.webtop.package = selkiesSolo;
     # The page decodes JPEG with no codec dependency; the headless browser has no H.264.
     services.webtop.extraEnvironment.SELKIES_ENCODER = "jpeg";
     environment.systemPackages = [ pkgs.wev pkgs.kdePackages.libkscreen ];
