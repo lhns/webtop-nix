@@ -8,8 +8,7 @@
 }:
 
 let
-  # Libraries pixelflux dlopens by soname. Overlaps the RUNPATH pkgs/pixelflux.nix sets; mesa, libdrm,
-  # libxkbcommon and pixman are only here.
+  # Libraries pixelflux dlopens by soname; partly redundant with the RUNPATH pkgs/pixelflux.nix sets.
   dlopenLibs = [ wayland libglvnd mesa libdrm libva vulkan-loader libxkbcommon pixman libx11 libxcb ];
 in
 
