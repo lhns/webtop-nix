@@ -13,8 +13,8 @@ final: prev: {
 
   webtop-app-screen = final.callPackage ./pkgs/app-screen { };
 
-  # Pinned to 3.13, the Python these are built and tested with (the selkies wheel itself is pure Python).
-  pixelflux = final.python313Packages.pixelflux;
-  pcmflux = final.python313Packages.pcmflux;
-  selkies = final.python313Packages.toPythonApplication final.python313Packages.selkies;
+  # Default Python of the nixpkgs in use.
+  pixelflux = final.python3Packages.pixelflux;
+  pcmflux = final.python3Packages.pcmflux;
+  selkies = final.python3Packages.toPythonApplication final.python3Packages.selkies;
 }

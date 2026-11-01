@@ -8,7 +8,7 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 `packages.x86_64-linux.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` and `overlays.default` (adds the same
 attributes, `kwin` as `kwinSoftwarePresentation`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
-ones come from `python313Packages`, the tested interpreter).
+ones come from `python3Packages`, nixpkgs' default interpreter).
 
 | package | version | source |
 | --- | --- | --- |
