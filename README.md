@@ -58,7 +58,8 @@ KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compos
 render device (gray screen). With `kwinSoftwarePresentation` (default on) the module grafts
 `packages.x86_64-linux.kwin` over `kdePackages.kwin` using `system.replaceDependencies`: KWin plus
 [LinuxServer's patch](pkgs/kwin/kwin-6.8-software-shm-presentation.patch), which renders with llvmpipe into
-memfd buffers and presents over `wl_shm`; with a GPU nothing changes. Plasma's other packages are
+memfd buffers and presents over `wl_shm` ([finishing each frame first](pkgs/kwin/kwin-6.8-shm-presentation-finish.patch));
+with a GPU nothing changes. Plasma's other packages are
 not rebuilt, but evaluating the system builds the stock one first. The patch targets KWin 6.8.x and
 `pkgs/kwin.nix` fails the evaluation on other minor versions; on Plasma 6.7 set the option to `false`
 ([ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
