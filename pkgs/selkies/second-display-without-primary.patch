@@ -1,0 +1,50 @@
+Selkies: lay out a second display when no primary page is connected (Wayland)
+
+Against Selkies 2.1.0 (unchanged on main 58b6c35). Applied to the wheel by pkgs/selkies.nix;
+written for upstream, see docs/upstream/selkies-second-display-without-primary.md.
+-----
+
+--- a/src/selkies/websockets_mode.py
++++ b/src/selkies/websockets_mode.py
+@@ -6198,6 +6198,19 @@
+         except Exception as e:
+             data_logger.error(f"Wayland resize_output failed: {e}")
+ 
++    async def _wayland_primary_screen_size(self) -> tuple[int, int]:
++        """The size the primary's screen (output 0) has now; (0, 0) when unknown."""
++        module = self._wayland_control_module()
++        if module is None:
++            return 0, 0
++        try:
++            outputs = {o[0]: o for o in await asyncio.to_thread(module.list_outputs)}
++        except Exception as e:
++            data_logger.debug(f"Wayland screen size read failed: {e}")
++            return 0, 0
++        screen = outputs.get(WAYLAND_SCREEN_OUTPUT_ID)
++        return (int(screen[3]), int(screen[4])) if screen else (0, 0)
++
+     async def _scale_wayland_screen(self) -> None:
+         """Give the primary's screen (output 0) the primary's capture scale, at
+         the size it has.
+@@ -6609,6 +6622,21 @@
+             if p_w > 0 and p_h > 0 and s_w > 0 and s_h > 0:
+                 computed, total_width, total_height = compute_dual_layout(
+                     (p_w, p_h), (s_w, s_h), position
++                )
++                layouts['primary'] = computed['primary']
++                layouts[secondary_id] = computed['secondary']
++        elif secondary_client and IS_WAYLAND:
++            # No primary page: its screen persists at the size it has, and the
++            # secondary extends it as it would beside a connected primary.
++            p_w, p_h = await self._wayland_primary_screen_size()
++            s_w, s_h = secondary_client.get('width', 0), secondary_client.get('height', 0)
++            position = secondary_client.get('position', 'right')
++            if position not in ('right', 'left', 'up', 'down'):
++                data_logger.warning(f"Invalid display position '{position}'; falling back to 'right'.")
++                position = 'right'
++            if p_w > 0 and p_h > 0 and s_w > 0 and s_h > 0:
++                computed, total_width, total_height = compute_dual_layout(
++                    (p_w, p_h), (s_w, s_h), position
+                 )
+                 layouts['primary'] = computed['primary']
+                 layouts[secondary_id] = computed['secondary']

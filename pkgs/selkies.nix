@@ -1,5 +1,5 @@
 # The wheel already bundles the built web client (selkies/selkies_web).
-{ lib, buildPythonPackage, fetchPypi, pythonOlder, pythonAtLeast
+{ lib, buildPythonPackage, fetchPypi, pythonOlder, pythonAtLeast, python
 , pixelflux, pcmflux
 , prometheus-client, msgpack, psutil, watchdog, pillow, pulsectl-asyncio
 , dnspython, cffi, cryptography, google-crc32c, pyee, pylibsrtp, pyopenssl
@@ -36,6 +36,12 @@ buildPythonPackage rec {
   ];
 
   makeWrapperArgs = [ "--prefix" "LD_LIBRARY_PATH" ":" (lib.makeLibraryPath dlopenLibs) ];
+
+  # A second display page can connect without the primary page (single-app streaming); for upstream.
+  postInstall = ''
+    patch -p2 -d $out/${python.sitePackages} < ${./selkies/second-display-without-primary.patch}
+    rm -f $out/${python.sitePackages}/selkies/__pycache__/websockets_mode.*.pyc
+  '';
 
   pythonImportsCheck = [ "selkies" ];
 
