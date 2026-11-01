@@ -34,9 +34,13 @@ let
         summary.write(line + "\n")
         summary.flush()
 
+    # KWin's own socket: the one besides Selkies' wayland-1.
+    KWIN = next((n for n in sorted(os.listdir("/run/user/1000"))
+                 if n.startswith("wayland-") and not n.endswith(".lock") and n != "wayland-1"), "wayland-0")
+
     def user(cmd):
         env = ("XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
-               "WAYLAND_DISPLAY=wayland-0")
+               f"WAYLAND_DISPLAY={KWIN} QT_QPA_PLATFORM=wayland")
         r = subprocess.run(f"runuser -u user -- env {env} {cmd}", shell=True, capture_output=True, text=True)
         return (r.stdout + r.stderr).strip()
 
@@ -67,6 +71,7 @@ let
             page.goto(URL + fragment)
             return ctx, page
 
+        note(f"runtime dir: {sorted(os.listdir('/run/user/1000'))}, KWin socket: {KWIN}")
         note("screens at start:\n" + screens())
 
         # (a) the second display alone
@@ -92,7 +97,7 @@ let
 
         # Input: a probe app on the newest screen, then a click and keys through the display2 page.
         wev = subprocess.Popen(
-            "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 "
+            f"runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY={KWIN} "
             f"${pkgs.wev}/bin/wev > {OUT}/wev.log 2>&1", shell=True)
         time.sleep(5)
         sid = user("busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss ${placeScript} probe")
