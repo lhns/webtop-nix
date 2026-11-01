@@ -76,3 +76,15 @@ jobs:
       # references (import from derivation), which needs a build. The VM test boots it, so it also covers eval.
       - name: build packages and checks
         run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval .#checks.x86_64-linux.vm -L
+
+      # Spike: second display on nested KWin; records evidence rather than asserting.
+      - name: second display probe
+        run: |
+          nix build .#checks.x86_64-linux.second-display -L -o second-display
+          cp -rL second-display probe
+          cat probe/out/summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: second-display-probe
+          path: probe

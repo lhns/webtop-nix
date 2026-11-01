@@ -42,6 +42,7 @@
           pkgs.writeText "module-eval" (builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath);
         inherit (self.packages.${system}) pixelflux pcmflux selkies;
         vm = import ./tests/vm.nix { inherit pkgs self; };
+        second-display = import ./tests/second-display.nix { inherit pkgs self; };
       };
     };
 }
