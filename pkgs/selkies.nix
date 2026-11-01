@@ -8,8 +8,7 @@
 }:
 
 let
-  # pixelflux dlopens these by soname (libwayland-server.so even unversioned), which its RUNPATH
-  # does not cover: without them its compositor fails to start.
+  # Libraries pixelflux dlopens by soname; partly redundant with the RUNPATH pkgs/pixelflux.nix sets.
   dlopenLibs = [ wayland libglvnd mesa libdrm libva vulkan-loader libxkbcommon pixman libx11 libxcb ];
 in
 
@@ -17,7 +16,7 @@ buildPythonPackage rec {
   pname = "selkies";
   version = "2.1.0";
   format = "wheel";
-  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # needs the cp313 wheels
+  disabled = pythonOlder "3.13" || pythonAtLeast "3.14"; # tested on 3.13 only (overlay.nix)
 
   src = fetchPypi {
     inherit pname version format;

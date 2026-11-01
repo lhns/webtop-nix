@@ -98,7 +98,8 @@ in
         its dependents. Needed on GPU-less hosts (pods) with Plasma 6.8 or later: KWin 6.8 has no
         QPainter compositing, and nested under Selkies' CPU-only compositor it finds no render
         device ("requires compositing", gray screen). With a GPU the patch changes nothing.
-        The patch targets KWin 6.8.x; on Plasma 6.7 set this to false.
+        The same build carries the KWin patch Selkies' second display needs, so turning this off
+        also loses that. The patch targets KWin 6.8.x; on Plasma 6.7 set this to false.
       '';
     };
 
@@ -217,8 +218,6 @@ in
         "priority.session" = 2000;
       };
     }];
-
-    systemd.tmpfiles.rules = [ "d /tmp/.X11-unix 1777 root root -" ];
 
     systemd.user.services.selkies = {
       description = "Selkies streaming server (pixelflux compositor, pcmflux audio)";

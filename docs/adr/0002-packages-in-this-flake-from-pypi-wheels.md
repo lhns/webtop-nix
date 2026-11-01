@@ -22,3 +22,8 @@ wheel already contains the built web client.
   hashes.
 - Runtime libraries pixelflux loads with `dlopen` must be listed explicitly; a missing one fails at
   runtime, not at build time.
+
+## Amendment 2026-11-01
+
+pixelflux and pcmflux are built from source at the commits that released their wheels; only selkies
+is still a wheel, and it is pure Python. The overlay keeps Python 3.13 as the tested interpreter.
