@@ -1,5 +1,6 @@
 # KWin with LinuxServer's software-presentation patch: without a GPU, a nested KWin 6.8 renders
 # with llvmpipe into memfd buffers and presents them to the host over wl_shm (6.8 dropped QPainter).
+# Plus the per-device kde_output_device_v2 globals pixelflux needs to grow a second screen.
 # Only adds functions to libkwin, so the module grafts this over the stock kwin
 # (services.webtop.kwinSoftwarePresentation) instead of rebuilding its dependents.
 { lib, kdePackages }:
@@ -13,5 +14,6 @@ stock.overrideAttrs (old: {
   patches = (old.patches or [ ]) ++ [
     ./kwin/kwin-6.8-software-shm-presentation.patch
     ./kwin/kwin-6.8-shm-presentation-finish.patch
+    ./kwin/kwin-6.7-output-device-globals.patch
   ];
 })
