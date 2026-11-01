@@ -7,7 +7,7 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 ## Packages
 
 `packages.x86_64-linux.{pixelflux,pcmflux,selkies}` and `overlays.default` (adds the same three
-attributes, and the packages in `pythonPackagesExtensions`; the selkies wheel is cp313, so only `python313Packages` builds).
+attributes, and the packages in `pythonPackagesExtensions`; pinned to `python313Packages`, the tested interpreter).
 
 | package | version | source |
 | --- | --- | --- |
