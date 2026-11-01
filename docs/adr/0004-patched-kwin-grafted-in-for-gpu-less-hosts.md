@@ -29,3 +29,8 @@ reports "requires compositing" and the screen stays gray. Staying on Plasma 6.7 
   one first.
 - The patch is third-party and the upstream repository declares no licence. It is a KWin derivative
   and carried under KWin's GPL. If KWin or LinuxServer fixes this upstream, drop the patch and the option.
+
+## Amendment 2026-11-01
+
+The patched KWin also carries LinuxServer's `kwin-6.7-output-device-globals.patch`, so pixelflux can
+confirm the screens it grows for Selkies' second display; it likewise only adds a function to `libkwin`.

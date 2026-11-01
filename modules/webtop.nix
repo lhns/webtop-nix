@@ -270,7 +270,6 @@ in
         KDE_FULL_SESSION = "true";
         KDE_SESSION_VERSION = "6";
         QT_QPA_PLATFORM = "wayland";
-        KWIN_WAYLAND_NO_PERMISSION_CHECKS = "1";
         MOZ_ENABLE_WAYLAND = "1";
       } // lib.optionalAttrs cfg.softwareRendering {
         LIBGL_ALWAYS_SOFTWARE = "1";
@@ -322,6 +321,6 @@ in
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
     programs.firefox.enable = lib.mkDefault true;
-    environment.systemPackages = [ cfg.package ];
+    environment.systemPackages = [ cfg.package pkgs.webtop-app-screen ];
   };
 }
