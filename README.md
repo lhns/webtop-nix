@@ -14,7 +14,7 @@ attributes, and the packages in `pythonPackagesExtensions`; the selkies wheel is
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
 | selkies | 2.1.0 | PyPI wheel (bundles the built web client), with [one patch](pkgs/selkies/second-display-without-primary.patch) |
-| webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
+| webtop-app-screen | â€” | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
 Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
 
