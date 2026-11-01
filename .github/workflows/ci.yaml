@@ -76,3 +76,16 @@ jobs:
       # references (import from derivation), which needs a build. The VM test boots it, so it also covers eval.
       - name: build packages and checks
         run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval .#checks.x86_64-linux.vm -L
+
+      # Run outside the sandbox so its screenshots and logs survive a failure as an artifact.
+      - name: second display test
+        run: |
+          nix build .#checks.x86_64-linux.second-display.driver -L -o second-display-driver
+          mkdir -p second-display
+          ./second-display-driver/bin/nixos-test-driver -o second-display
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: second-display
+          path: second-display
+          if-no-files-found: ignore

@@ -13,7 +13,8 @@ attributes, and the packages in `pythonPackagesExtensions`; the selkies wheel is
 | --- | --- | --- |
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
-| selkies | 2.1.0 | PyPI wheel (bundles the built web client) |
+| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with [one patch](pkgs/selkies/second-display-without-primary.patch) |
+| webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
 Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
 
@@ -62,11 +63,41 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 `pkgs/kwin.nix` fails the evaluation on other minor versions; on Plasma 6.7 set the option to `false`
 ([ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
 
+## One app per screen
+
+A Selkies second-display page (`/#display2-<left|right|up|down>`) grows a KWin screen sized to the
+page, named `SELKIES-<n>` (`SELKIES-2` for display2), and streams it; closing the page removes it.
+Two patches make that work here: KWin announces per-output `kde_output_device_v2` globals again,
+which pixelflux needs to confirm the screen (in the patched KWin, so it needs `kwinSoftwarePresentation`;
+[ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)),
+and Selkies lays out a second display while no primary page is connected
+([patch](pkgs/selkies/second-display-without-primary.patch), [for upstream](docs/upstream/selkies-second-display-without-primary.md)).
+
+To show one app on such a page, run as the desktop user inside the session:
+
+```sh
+webtop-app-screen place <app-id> <screen>   # e.g. place org.kde.dolphin SELKIES-2
+webtop-app-screen release <app-id>
+```
+
+`place` loads a KWin script (`pkgs/app-screen/app-screen.js`) that moves every window of the app
+(matched by Wayland app id, X11 class or desktop file name, with or without `.desktop`) and its
+dialogs to the screen, makes normal windows fullscreen (maximized if they cannot be) and activates
+them. It stays loaded: windows opened later are moved too, so none stays on the primary screen that
+nobody may be watching, and if the screen goes and comes back (page reload) they return. `place`
+can run before the app starts or the screen exists; running it again replaces the previous one.
+`release` unloads it and leaves the windows where they are. Both need `DBUS_SESSION_BUS_ADDRESS`
+and `XDG_RUNTIME_DIR`; exit status 2 is a usage error, 1 means KWin refused the script.
+
+Starting the app is the caller's job. Only `display2` exists in Selkies' web client, so one app at a
+time; audio plays on the primary page only.
+
 ## Tests
 
 `nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
+`checks.x86_64-linux.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 
 Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
 
