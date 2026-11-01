@@ -6,8 +6,9 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
-`packages.x86_64-linux.{pixelflux,pcmflux,selkies}` and `overlays.default` (adds the same three
-attributes, and the packages in `pythonPackagesExtensions`; pinned to `python313Packages`, the tested interpreter).
+`packages.x86_64-linux.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` and `overlays.default` (adds the same
+attributes, `kwin` as `kwinSoftwarePresentation`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
+ones come from `python313Packages`, the tested interpreter).
 
 | package | version | source |
 | --- | --- | --- |
@@ -43,12 +44,11 @@ Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `por
 What the module sets up:
 
 - Plasma 6, no display manager; the user is lingered so its manager starts at boot.
-- `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start); basic auth is off, so put
-  an authenticating proxy in front.
+- `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start).
 - `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, `seat`), nested in that socket once its lock is held.
 - No `SELKIES_SUBFOLDER`: behind a path-prefixing gateway that strips the prefix, the web client derives it from the page URL.
 - PipeWire with PulseAudio for pcmflux and a null sink `output` (default sink; Selkies streams `output.monitor`), upower, polkit rule for power-off/reboot/suspend,
-  Firefox, fonts.
+  Firefox, fonts, and `webtop-app-screen` on the system path.
 - `/etc/xdg` defaults, overridable per user: PowerDevil idle action "nothing", session restore
   "restore previous session".
 
