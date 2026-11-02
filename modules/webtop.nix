@@ -5,6 +5,9 @@
 let
   cfg = config.services.webtop;
   uid = toString cfg.uid;
+  # Units and the polkit rule refer to the user by uid and this group, never by name, so a deployment
+  # may rename the account at runtime.
+  group = "webtop";
   runtimeDir = "/run/user/${uid}";
   # Selkies' compositor; KWin then takes the default wayland-0 for itself.
   selkiesSocket = "wayland-${toString cfg.waylandSocketIndex}";
@@ -50,7 +53,10 @@ in
     user = lib.mkOption {
       type = lib.types.str;
       default = "user";
-      description = "Account the desktop runs as.";
+      description = ''
+        Account the desktop runs as. Only the account's declaration uses the name; everything else
+        refers to `uid`, so the account may be renamed at runtime.
+      '';
     };
 
     uid = lib.mkOption {
@@ -179,10 +185,9 @@ in
     users.users.${cfg.user} = {
       isNormalUser = true;
       uid = cfg.uid;
-      # User manager at boot, so selkies is up before the Plasma session starts.
-      linger = true;
-      extraGroups = [ "video" "render" "audio" ];
+      extraGroups = [ "video" "render" "audio" group ];
     };
+    users.groups.${group} = { };
 
     services.desktopManager.plasma6.enable = true;
 
@@ -222,7 +227,7 @@ in
     systemd.user.services.selkies = {
       description = "Selkies streaming server (pixelflux compositor, pcmflux audio)";
       wantedBy = [ "default.target" ];
-      unitConfig.ConditionUser = cfg.user;
+      unitConfig.ConditionUser = uid;
       path = [ pkgs.wl-clipboard pkgs.pulseaudio ];
       environment = {
         SELKIES_WAYLAND = "true";
@@ -253,6 +258,21 @@ in
       };
     };
 
+    # Lingering, so the user manager (and selkies) outlives a restart of the session. By uid:
+    # `users.users.<name>.linger` would enable it by name at every boot.
+    systemd.services.webtop-linger = {
+      description = "Let the desktop user linger";
+      wantedBy = [ "multi-user.target" ];
+      requires = [ "systemd-logind.service" ];
+      after = [ "systemd-logind.service" ];
+      before = [ "webtop-session.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${config.systemd.package}/bin/loginctl enable-linger ${uid}";
+      };
+    };
+
     systemd.services.webtop-session = {
       description = "Plasma Wayland session nested in Selkies";
       wantedBy = [ "multi-user.target" ];
@@ -275,7 +295,7 @@ in
         LIBGL_ALWAYS_SOFTWARE = "1";
       };
       serviceConfig = {
-        User = cfg.user;
+        User = uid;
         PAMName = "login";
         StandardInput = "null";
         ExecStart = lib.getExe startSession;
@@ -287,7 +307,7 @@ in
     # Power actions from inside the desktop, as on a real machine.
     security.polkit.extraConfig = ''
       polkit.addRule(function(action, subject) {
-        if (subject.user == "${cfg.user}" && [
+        if (subject.isInGroup("${group}") && [
           "org.freedesktop.login1.power-off",
           "org.freedesktop.login1.power-off-multiple-sessions",
           "org.freedesktop.login1.reboot",
