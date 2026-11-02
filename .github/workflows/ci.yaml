@@ -31,8 +31,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
-      # TEMP probe, removed before merge.
-      - run: ls -l /dev/kvm || echo "no /dev/kvm"; nproc; free -g; df -h /
 
       # Evaluating the module realises the stock Plasma closure (the KWin graft reads its references).
       - name: free disk space

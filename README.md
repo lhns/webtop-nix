@@ -95,7 +95,8 @@ time; audio plays on the primary page only.
 
 ## Tests
 
-`nix flake check` evaluates everything, including `checks.<system>.module-eval` (not with `--no-build`: the graft is import from derivation).
+`nix build .#checks.<system>.module-eval` evaluates a system with the module (not with `--no-build`: the graft is import from derivation, so evaluating builds).
+`nix flake check` needs a builder for every supported system: it evaluates each system's `module-eval`.
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
