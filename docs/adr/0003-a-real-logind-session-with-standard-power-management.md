@@ -31,3 +31,8 @@ on a headless machine.
 
 The session's seat is the `seat` option: `seat0` on a machine, none in a container (seat0 has no
 VTs there, so logind rejects the session).
+
+## Amendment 2026-11-02
+
+Units, lingering and the polkit power rule refer to the desktop user by uid and the `webtop` group,
+not by name, so a deployment may rename the account at runtime.
