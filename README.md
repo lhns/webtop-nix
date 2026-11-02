@@ -39,7 +39,18 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
-`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~/Desktop`), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+
+File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
+a patch in [pkgs/selkies](pkgs/selkies/upload-path.patch)). `null` resolves `xdg-user-dir DOWNLOAD` at each start of `selkies.service`, so
+`~/.config/user-dirs.dirs` and localized names count; it falls back to `$HOME/Downloads` when unset. A value (`"~/Inbox"`, an absolute path) is used as is.
+
+Runtime settings, lowest to highest precedence: the module (options and `extraEnvironment`) < `environmentFiles` (systemd `EnvironmentFile=`
+entries read in order, later wins, `-` prefix = optional, e.g. `"-/run/webtop/selkies.env"`) < the user's `~/.config/webtop/selkies.env`.
+The user file takes `KEY=VALUE` lines whose key is in `userSettings` (stream quality and input feel; no auth, transfers, paths, ports,
+clipboard or audit); other lines are skipped with a journal message, and the file must be a regular file under 64 KiB. Effective values:
+`xargs -0 -n1 < /proc/$(systemctl --user show -p MainPID --value selkies)/environ | grep ^SELKIES_`; skipped lines:
+`journalctl --user -u selkies | grep webtop:`.
 
 What the module sets up:
 
@@ -99,7 +110,7 @@ time; audio plays on the primary page only.
 
 `nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
-`checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
+`checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
 `checks.x86_64-linux.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 
 Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
