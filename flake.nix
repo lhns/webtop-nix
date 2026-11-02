@@ -5,24 +5,26 @@
 
   outputs = { self, nixpkgs }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; overlays = [ self.overlays.default ]; };
+      # The only place a system is named; CI builds each one natively.
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
+        f system (import nixpkgs { inherit system; overlays = [ self.overlays.default ]; }));
     in
     {
       overlays.default = import ./overlay.nix;
 
-      packages.${system} = {
+      packages = forAllSystems (system: pkgs: {
         inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen;
         kwin = pkgs.kwinSoftwarePresentation;
         default = pkgs.selkies;
-      };
+      });
 
       nixosModules = {
         webtop = import ./modules/webtop.nix;
         default = self.nixosModules.webtop;
       };
 
-      checks.${system} = {
+      checks = forAllSystems (system: pkgs: {
         # Evaluates a system using the module, without building it.
         module-eval =
           let
@@ -43,6 +45,6 @@
         inherit (self.packages.${system}) pixelflux pcmflux selkies;
         vm = import ./tests/vm.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
-      };
+      });
     };
 }

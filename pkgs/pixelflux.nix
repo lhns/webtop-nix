@@ -57,6 +57,6 @@ buildPythonPackage (finalAttrs: {
     homepage = "https://github.com/selkies-project/pixelflux";
     # MPL-2.0 sources; the GPL flavor links libx264 and x265, so the built extension is GPL-2.0-or-later.
     license = with lib.licenses; [ mpl20 gpl2Plus ];
-    platforms = [ "x86_64-linux" ];
+    platforms = lib.platforms.linux;
   };
 })

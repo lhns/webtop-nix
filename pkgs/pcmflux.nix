@@ -34,6 +34,6 @@ buildPythonPackage (finalAttrs: {
     description = "Audio capture and Opus encoding library for Selkies";
     homepage = "https://github.com/selkies-project/pcmflux";
     license = lib.licenses.mpl20;
-    platforms = [ "x86_64-linux" ];
+    platforms = lib.platforms.linux;
   };
 })
