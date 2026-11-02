@@ -1,0 +1,67 @@
+Selkies: a separate upload directory (upload_path / SELKIES_UPLOAD_PATH)
+
+Against Selkies 2.1.0. Applied to the wheel by pkgs/selkies.nix; written for upstream,
+see docs/upstream/selkies-upload-path.md.
+Uploads (HTTP /api/upload, the websockets and WebRTC data-channel paths) go to upload_path when it
+is set, else to file_manager_path as before. Downloads and the file browser keep file_manager_path.
+-----
+
+--- a/src/selkies/settings.py
++++ b/src/selkies/settings.py
+@@ -831,6 +831,13 @@
+         "help": "Directory for client file transfers on both transports: uploads land here and the file-browser/download API serves it (created at startup if missing).",
+     },
+     {
++        "name": "upload_path",
++        "type": "str",
++        "default": "",
++        "env_var": "UPLOAD_PATH",
++        "help": "Directory client uploads land in on both transports; downloads keep being served from file_manager_path. Empty uploads into file_manager_path (created at startup if missing).",
++    },
++    {
+         "name": "watermark_path",
+         "type": "str",
+         "default": "",
+@@ -2255,7 +2262,7 @@
+ CLIENT_PAYLOAD_EXCLUDED = [
+     'port', 'addr', 'public', 'unix_socket', 'web_root', 'encode_dri', 'render_dri', 'debug',
+     'audio_device_name', 'watermark_path', 'recording_socket',
+-    'file_manager_path', 'print_spool_path', 'run_after_connect', 'run_after_disconnect',
++    'file_manager_path', 'upload_path', 'print_spool_path', 'run_after_connect', 'run_after_disconnect',
+     'https_cert', 'rtc_config_json', 'tokens_file', 'app_ready_file', 'js_socket_path',
+     'webcam_socket_path', 'webcam_device',
+     'uinput_mouse_socket', 'webrtc_statistics_dir', 'computer_use_bind', 'computer_use_token',
+--- a/src/selkies/stream_server.py
++++ b/src/selkies/stream_server.py
+@@ -2688,7 +2688,8 @@
+             return failed("View-only credentials cannot upload files", 403)
+         if "upload" not in settings.file_transfers:
+             return failed("uploads disabled", 403)
+-        root = getattr(settings, "file_manager_path", "") or ""
++        root = (getattr(settings, "upload_path", "")
++                or getattr(settings, "file_manager_path", "") or "")
+         if not root:
+             return failed("uploads disabled", 403)
+         root = os.path.expanduser(root)
+--- a/src/selkies/websockets_mode.py
++++ b/src/selkies/websockets_mode.py
+@@ -362,7 +362,7 @@
+         f"pixelflux library unavailable ({e}). Striped encoding modes unavailable."
+     )
+ 
+-upload_path: str = str(getattr(settings, 'file_manager_path', '') or '~/Desktop')
++upload_path: str = str(getattr(settings, 'upload_path', '') or getattr(settings, 'file_manager_path', '') or '~/Desktop')
+ # None when the directory could not be created (uploads disabled).
+ upload_dir_path: Optional[str] = os.path.expanduser(upload_path)
+ 
+--- a/src/selkies/webrtc_mode.py
++++ b/src/selkies/webrtc_mode.py
+@@ -430,7 +430,7 @@
+             cursor_size=self.args.cursor_size,
+             cursor_scale=1.0,
+             cursor_debug=self.args.debug_cursors,
+-            upload_dir=self.args.file_manager_path,
++            upload_dir=(getattr(self.args, 'upload_path', '') or self.args.file_manager_path),
+             is_wayland=IS_WAYLAND,
+             app_wayland_display=(getattr(self.args, "app_wayland_display", "")
+                                  or getattr(self.args, "wayland_host_display", "")),

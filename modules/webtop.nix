@@ -28,6 +28,46 @@ let
     loginMode=restorePreviousLogout
   '';
 
+  # Start wrapper of Selkies: resolves the upload directory and applies the user's allowlisted
+  # settings last, so they win over the unit environment and any EnvironmentFile.
+  selkiesStart = pkgs.writeShellApplication {
+    name = "webtop-selkies";
+    runtimeInputs = [ pkgs.coreutils pkgs.xdg-user-dirs ];
+    text = ''
+      # Per-user settings: only allowlisted KEY=VALUE lines of a plain file of bounded size.
+      allowed=" ${lib.concatStringsSep " " cfg.userSettings} "
+      conf="''${XDG_CONFIG_HOME:-$HOME/.config}/webtop/selkies.env"
+      if [ -f "$conf" ] && [ ! -L "$conf" ] && [ "$(stat -c %s "$conf")" -le 65536 ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+          case "$line" in ""|"#"*) continue ;; esac
+          key="''${line%%=*}"
+          if [ "$key" != "$line" ] && [[ "$key" =~ ^SELKIES_[A-Z0-9_]+$ ]] && [[ "$allowed" == *" $key "* ]]; then
+            val="''${line#*=}"
+            case "$val" in
+              \"*\"|\'*\') val="''${val:1:''${#val}-2}" ;;
+            esac
+            export "$key=$val"
+          else
+            echo "webtop: ignoring $conf line for ''${key:0:64}: not an allowed setting" >&2
+          fi
+        done < "$conf"
+      elif [ -e "$conf" ] || [ -L "$conf" ]; then
+        echo "webtop: ignoring $conf: not a regular file or over 64 KiB" >&2
+      fi
+
+      ${lib.optionalString (cfg.uploadPath == null) ''
+      # The user's XDG download directory as of now; $HOME itself means "unset".
+      if [ -z "''${SELKIES_UPLOAD_PATH:-}" ]; then
+        dl="$(xdg-user-dir DOWNLOAD 2>/dev/null || true)"
+        if [ -z "$dl" ] || [ "$dl" = "$HOME" ]; then dl="$HOME/Downloads"; fi
+        export SELKIES_UPLOAD_PATH="$dl"
+        mkdir -p "$dl"
+      fi
+      ''}
+      exec ${lib.getExe cfg.package}
+    '';
+  };
+
   startSession = pkgs.writeShellApplication {
     name = "webtop-start-session";
     runtimeInputs = [ pkgs.coreutils pkgs.util-linux ];
@@ -148,8 +188,47 @@ in
 
     fileManagerPath = lib.mkOption {
       type = lib.types.str;
-      default = "~/Desktop";
-      description = "Directory uploads land in and downloads are served from (SELKIES_FILE_MANAGER_PATH); created at start.";
+      default = "~";
+      description = "Directory downloads are served from, the whole home by default (SELKIES_FILE_MANAGER_PATH); created at start. Uploads go to `uploadPath`.";
+    };
+
+    uploadPath = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "~/Inbox";
+      description = ''
+        Directory uploads land in (SELKIES_UPLOAD_PATH, a Selkies patch); created at start. `null`
+        is the user's XDG download directory (`xdg-user-dir DOWNLOAD`, so `~/.config/user-dirs.dirs`
+        and localized names count), resolved at each service start; `$HOME/Downloads` when that is
+        unset. A value is used as is (`~` and absolute paths work).
+      '';
+    };
+
+    environmentFiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "-/run/webtop/selkies.env" ];
+      description = ''
+        `EnvironmentFile=` entries of the Selkies unit, read in order after the module's own
+        environment, so they override it (later wins; a `-` prefix makes a file optional).
+      '';
+    };
+
+    userSettings = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "SELKIES_ENCODER" "SELKIES_FRAMERATE" "SELKIES_VIDEO_BITRATE" "SELKIES_VIDEO_CRF"
+        "SELKIES_JPEG_QUALITY" "SELKIES_RATE_CONTROL_MODE" "SELKIES_KEYFRAME_INTERVAL"
+        "SELKIES_VIDEO_MIN_QP" "SELKIES_VIDEO_MAX_QP" "SELKIES_VIDEO_FULLCOLOR"
+        "SELKIES_USE_PAINT_OVER_QUALITY" "SELKIES_PAINT_OVER_JPEG_QUALITY" "SELKIES_VIDEO_PAINTOVER_CRF"
+        "SELKIES_AUDIO_BITRATE" "SELKIES_SCALING_DPI" "SELKIES_USE_BROWSER_CURSORS"
+        "SELKIES_USE_CSS_SCALING" "SELKIES_RAW_POINTER_MOTION"
+      ];
+      description = ''
+        Selkies settings the user may override in `~/.config/webtop/selkies.env` (`KEY=VALUE`
+        lines), applied after everything else. Only the user's own stream quality and input feel;
+        keep auth, transfers, paths, ports, clipboard and audit out.
+      '';
     };
 
     browserCursors = lib.mkOption {
@@ -241,13 +320,17 @@ in
         SELKIES_ENABLE_CLIPBOARD = cfg.clipboard;
         SELKIES_FILE_TRANSFERS = if cfg.fileTransfers == [ ] then "none" else lib.concatStringsSep "," cfg.fileTransfers;
         SELKIES_FILE_MANAGER_PATH = cfg.fileManagerPath;
+      } // lib.optionalAttrs (cfg.uploadPath != null) {
+        SELKIES_UPLOAD_PATH = cfg.uploadPath;
+      } // {
         SELKIES_USE_BROWSER_CURSORS = lib.boolToString cfg.browserCursors;
       } // cfg.extraEnvironment;
       serviceConfig = {
         # A stale socket would make pixelflux auto-pick a later name than the session waits for.
         # Only our own: KWin's live socket sits next to it.
         ExecStartPre = "${pkgs.runtimeShell} -c 'rm -f ${runtimeDir}/${selkiesSocket} ${runtimeDir}/${selkiesSocket}.lock'";
-        ExecStart = lib.getExe cfg.package;
+        ExecStart = lib.getExe selkiesStart;
+        EnvironmentFile = cfg.environmentFiles;
         Restart = "on-failure";
         RestartSec = 2;
       };

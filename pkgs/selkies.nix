@@ -31,6 +31,9 @@ buildPythonPackage rec {
   # A second display page can connect without the primary page (single-app streaming); for upstream.
   postInstall = ''
     patch -p2 -d $out/${python.sitePackages} < ${./selkies/second-display-without-primary.patch}
+    # A separate upload directory (upload_path), so downloads can serve the whole home; for upstream.
+    patch -p2 -d $out/${python.sitePackages} < ${./selkies/upload-path.patch}
+    rm -f $out/${python.sitePackages}/selkies/__pycache__/{settings,stream_server,webrtc_mode}.*.pyc
     rm -f $out/${python.sitePackages}/selkies/__pycache__/websockets_mode.*.pyc
   '';
 
