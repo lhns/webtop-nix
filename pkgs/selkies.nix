@@ -29,9 +29,13 @@ buildPythonPackage rec {
   ];
 
   # A second display page can connect without the primary page (single-app streaming); for upstream.
+  # touch-handle.css moves the sidebar handle off the screen edge.
   postInstall = ''
     patch -p2 -d $out/${python.sitePackages} < ${./selkies/second-display-without-primary.patch}
     rm -f $out/${python.sitePackages}/selkies/__pycache__/websockets_mode.*.pyc
+    css=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.css)
+    [ -f "$css" ] || { echo "selkies: web client stylesheet not found" >&2; exit 1; }
+    cat ${./selkies/touch-handle.css} >> "$css"
   '';
 
   pythonImportsCheck = [ "selkies" ];
