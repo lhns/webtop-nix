@@ -65,14 +65,24 @@ def main():
         ref = set(nodes)
     ref_names = {name(p) for p in ref}
 
+    by_name = collections.defaultdict(list)
+    for p in nodes:
+        by_name[name(p)].append(p)
+
+    def resolve(a):
+        """A store path, or "name:<n>" for the closure's paths named n (a path the KWin graft rewrote
+        has another hash than the system's attribute)."""
+        return by_name.get(a[5:], []) if a.startswith("name:") else [a] if a in nodes else []
+
     errors, notes = [], []
     assigned = {}
     for g in spec["groups"]:
-        present = lambda ps: [p for p in ps if p in nodes]
+        present = lambda ps: [x for a in ps for x in resolve(a)]
         for key in ("anchors", "refsOf", "dependentsOf"):
-            missing = [p for p in g.get(key, []) if p not in nodes]
+            missing = [a for a in g.get(key, []) if not resolve(a)]
             if missing:
-                notes.append(f"{g['name']}: {key} not in the closure: {', '.join(name(p) for p in missing)}")
+                notes.append(f"{g['name']}: {key} not in the closure: "
+                             + ", ".join(a[5:] if a.startswith("name:") else name(a) for a in missing))
         cand = closure(present(g.get("anchors", [])), fwd)
         if g.get("refsOf"):
             cand |= closure([r for p in present(g["refsOf"]) for r in fwd[p]], fwd)

@@ -12,7 +12,8 @@ rec {
       c = nixos.config;
       p = nixos.pkgs;
       k = p.kdePackages;
-      sp = [ c.system.path ];
+      # By name: the KWin graft rewrites system-path, so its out path is not in the closure.
+      sp = [ "name:system-path" ];
     in
     [
       { name = "base"; anchors = [ p.glibc p.stdenv.cc.cc.lib c.systemd.package p.coreutils p.bashInteractive
@@ -25,6 +26,8 @@ rec {
           p.hicolor-icon-theme p.adwaita-icon-theme k.plasma-workspace-wallpapers c.i18n.glibcLocales
           p.xkeyboard_config p.tzdata p.cacert p.isocodes p.shared-mime-info p.mobile-broadband-provider-info
           p.sound-theme-freedesktop k.ocean-sound-theme p.hwdata ]; }
+      # The nixpkgs source NixOS registers for flakes (nixpkgs.flake.source).
+      { name = "nixpkgs"; anchors = p.lib.optional (c.nixpkgs.flake.source != null) c.nixpkgs.flake.source; }
       { name = "firefox"; anchors = [ (c.programs.firefox.package.unwrapped or p.firefox-unwrapped) ]; }
       { name = "webtop"; anchors = [ c.services.webtop.package p.webtop-app-screen ]; }
       # The packages system.replaceDependencies rewrote (ADR 0004); their stock paths are not in the closure.
@@ -33,7 +36,7 @@ rec {
     ];
 
   # Stable to volatile. A consumer's groups follow; "packages" and "config" are always the last two.
-  stackOrder = [ "base" "toolkits" "data" "kde" "firefox" "webtop" "graft" ];
+  stackOrder = [ "base" "toolkits" "data" "nixpkgs" "kde" "firefox" "webtop" "graft" ];
 
   # nix2container layersFile for the closure of `nixos`'s toplevel, plus table.txt and groups.json.
   # extraGroups: the consumer's own groups ("own" scope by default), e.g. sources it bakes in.
@@ -46,7 +49,7 @@ rec {
       norm = g: g // p.lib.mapAttrs (_: paths) (p.lib.filterAttrs (n: _: builtins.elem n [ "anchors" "refsOf" "dependentsOf" ]) g);
       own = map (g: { scope = "own"; } // g) extraGroups;
       spec = {
-        groups = map norm (stackGroups nixos ++ own ++ [ { name = "packages"; scope = "own"; refsOf = [ nixos.config.system.path ]; } ]);
+        groups = map norm (stackGroups nixos ++ own ++ [ { name = "packages"; scope = "own"; refsOf = [ "name:system-path" ]; } ]);
         layerOrder = stackOrder ++ map (g: g.name) own ++ [ "packages" ];
         inherit maxConfigMiB;
       };

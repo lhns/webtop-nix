@@ -42,7 +42,7 @@ spec = {
     "groups": [
         {"name": "base", "anchors": [glibc]},
         {"name": "toolkits", "anchors": [qt]},
-        {"name": "graft", "refsOf": [sp], "dependentsOf": [kwin], "sameAsReference": True},
+        {"name": "graft", "refsOf": ["name:system-path"], "dependentsOf": [kwin], "sameAsReference": True},
         {"name": "kde", "refsOf": [sp], "buckets": 2},
         {"name": "sources", "scope": "own", "anchors": [src]},
         {"name": "packages", "scope": "own", "refsOf": [sp]},
