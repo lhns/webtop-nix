@@ -60,6 +60,8 @@
               StopSignal = "SIGRTMIN+3";
               Env = [ "container=docker" "PATH=/run/current-system/sw/bin:/run/wrappers/bin" ];
               ExposedPorts."8082/tcp" = { };
+              # Links the ghcr package to this repo, so the workflow's GITHUB_TOKEN may push it.
+              Labels."org.opencontainers.image.source" = "https://github.com/lhns/webtop-nix";
             };
           };
         layer-report = pkgs.writeShellScriptBin "layer-report" ''

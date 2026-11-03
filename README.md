@@ -143,7 +143,7 @@ Paths not in the standalone image's closure (`reference`; `null` to classify by 
 go to the caller's groups, so its own packages never move the stack's layers. The build prints the
 table (`nix build .#image.layerSplit`, `table.txt`); `nix run .#layer-report -- <image json> <groups.json> --previous <ref>`
 shows which layers are new against a published image. Push with zstd at the level CI uses
-(`nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 …`), so unchanged layers keep their blob.
+(`nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 docker://â€¦`), so unchanged layers keep their blob.
 
 ## Tests
 
