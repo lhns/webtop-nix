@@ -97,6 +97,8 @@ in
       '';
     };
 
+    softwareCenter.enable = lib.mkEnableOption "the Nix Software Center, a GUI over `nix profile`";
+
     uid = lib.mkOption {
       type = lib.types.int;
       default = 1000;
@@ -433,6 +435,9 @@ in
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
     programs.firefox.enable = lib.mkDefault true;
-    environment.systemPackages = [ cfg.package pkgs.webtop-app-screen ];
+    environment.systemPackages = [ cfg.package pkgs.webtop-app-screen ]
+      ++ lib.optional cfg.softwareCenter.enable pkgs.nix-software-center;
+    # nix-data's fallback when the user has no config: all fields unset, so no welcome dialog.
+    environment.etc."nix-data/config.json" = lib.mkIf cfg.softwareCenter.enable { text = "{}"; };
   };
 }

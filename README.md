@@ -37,7 +37,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 ```
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
-`openFirewall`, `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
+`openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it),  `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
 `fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 

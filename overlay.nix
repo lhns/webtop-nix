@@ -13,6 +13,10 @@ final: prev: {
 
   webtop-app-screen = final.callPackage ./pkgs/app-screen { };
 
+  # The index is its own derivation so the image layering can group it with the nixpkgs paths.
+  nix-software-center-pkgdb = (final.callPackage ./pkgs/nix-software-center.nix { }).pkgdb;
+  nix-software-center = (final.callPackage ./pkgs/nix-software-center.nix { }).app;
+
   # Default Python of the nixpkgs in use.
   pixelflux = final.python3Packages.pixelflux;
   pcmflux = final.python3Packages.pcmflux;
