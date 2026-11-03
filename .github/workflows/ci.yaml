@@ -106,7 +106,7 @@ jobs:
       - name: layer split unit test
         run: python3 tests/split-layers-test.py
       - name: build packages and module-eval
-        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#checks.${{ matrix.system }}.module-eval -L
+        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval -L
       - name: VM test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.vm -L

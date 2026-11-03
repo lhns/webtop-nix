@@ -36,7 +36,7 @@
       };
 
       packages = forAllSystems (system: pkgs: {
-        inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen;
+        inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen nix-software-center nix-software-center-pkgdb;
         kwin = pkgs.kwinSoftwarePresentation;
         default = pkgs.selkies;
 
@@ -84,6 +84,7 @@
                 self.nixosModules.webtop
                 {
                   services.webtop.enable = true;
+                  services.webtop.softwareCenter.enable = true;
                   boot.loader.grub.enable = false;
                   fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
                   system.stateVersion = "25.11";
@@ -92,7 +93,7 @@
             };
           in
           pkgs.writeText "module-eval" (builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath);
-        inherit (self.packages.${system}) pixelflux pcmflux selkies;
+        inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
         vm = import ./tests/vm.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
       });

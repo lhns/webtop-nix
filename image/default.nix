@@ -29,7 +29,9 @@ rec {
           p.xkeyboard_config p.tzdata p.cacert p.isocodes p.shared-mime-info p.mobile-broadband-provider-info
           p.sound-theme-freedesktop k.ocean-sound-theme p.hwdata ]; }
       # The nixpkgs source NixOS registers for flakes (nixpkgs.flake.source).
-      { name = "nixpkgs"; anchors = p.lib.optional (c.nixpkgs.flake.source != null) c.nixpkgs.flake.source; }
+      # The software center's index is rebuilt on each nixpkgs bump, so it goes here.
+      { name = "nixpkgs"; anchors = p.lib.optional (c.nixpkgs.flake.source != null) c.nixpkgs.flake.source
+          ++ [ p.nix-software-center-pkgdb ]; }
       { name = "firefox"; anchors = [ (c.programs.firefox.package.unwrapped or p.firefox-unwrapped) ]; }
       { name = "webtop"; anchors = [ c.services.webtop.package p.webtop-app-screen ]; }
       # The packages system.replaceDependencies rewrote (ADR 0004); their stock paths are not in the

@@ -8,6 +8,7 @@
 
   services.webtop = {
     enable = true;
+    softwareCenter.enable = true;
     # Reached through the container's published port; Selkies' auth is off (README, "Image").
     address = "0.0.0.0";
   };
