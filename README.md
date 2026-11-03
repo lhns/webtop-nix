@@ -55,8 +55,6 @@ clipboard or audit); other lines are skipped with a journal message, and the fil
 What the module sets up:
 
 - Plasma 6, no display manager; the user is lingered so its manager starts at boot.
-- Only the account's declaration uses `user`: units, lingering and the polkit rule go by `uid` and the
-  group `webtop`, so a deployment may rename the account at runtime (e.g. in an activation script after `users`).
 - `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start).
 - `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, `seat`), nested in that socket once its lock is held.
 - No `SELKIES_SUBFOLDER`: behind a path-prefixing gateway that strips the prefix, the web client derives it from the page URL.

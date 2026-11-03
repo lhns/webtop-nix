@@ -5,8 +5,6 @@
 let
   cfg = config.services.webtop;
   uid = toString cfg.uid;
-  # Units and the polkit rule refer to the user by uid and this group, never by name, so a deployment
-  # may rename the account at runtime.
   group = "webtop";
   runtimeDir = "/run/user/${uid}";
   # Selkies' compositor; KWin then takes the default wayland-0 for itself.
@@ -94,8 +92,8 @@ in
       type = lib.types.str;
       default = "user";
       description = ''
-        Account the desktop runs as. Only the account's declaration uses the name; everything else
-        refers to `uid`, so the account may be renamed at runtime.
+        Account the desktop runs as. Only its declaration uses the name; see ADR 0003 (amendment)
+        for renaming it at runtime.
       '';
     };
 
