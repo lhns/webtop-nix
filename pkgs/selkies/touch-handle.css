@@ -1,0 +1,3 @@
+/* The sidebar handle sits at the very left edge, where touch screens put the system back gesture. */
+.toggle-handle{left:8px}
+@media (pointer:coarse){.toggle-handle{left:20px;width:44px;height:72px}}

@@ -39,11 +39,24 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
-`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~/Desktop`), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+
+File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
+a patch in [pkgs/selkies](pkgs/selkies/upload-path.patch)). `null` resolves `xdg-user-dir DOWNLOAD` at each start of `selkies.service`, so
+`~/.config/user-dirs.dirs` and localized names count; it falls back to `$HOME/Downloads` when unset. A value (`"~/Inbox"`, an absolute path) is used as is.
+
+Runtime settings, lowest to highest precedence: the module (options and `extraEnvironment`) < `environmentFiles` (systemd `EnvironmentFile=`
+entries read in order, later wins, `-` prefix = optional, e.g. `"-/run/webtop/selkies.env"`) < the user's `~/.config/webtop/selkies.env`.
+The user file takes `KEY=VALUE` lines whose key is in `userSettings` (stream quality and input feel; no auth, transfers, paths, ports,
+clipboard or audit); other lines are skipped with a journal message, and the file must be a regular file under 64 KiB. Effective values:
+`xargs -0 -n1 < /proc/$(systemctl --user show -p MainPID --value selkies)/environ | grep ^SELKIES_`; skipped lines:
+`journalctl --user -u selkies | grep webtop:`.
 
 What the module sets up:
 
 - Plasma 6, no display manager; the user is lingered so its manager starts at boot.
+- Only the account's declaration uses `user`: units, lingering and the polkit rule go by `uid` and the
+  group `webtop`, so a deployment may rename the account at runtime (e.g. in an activation script after `users`).
 - `selkies.service` (user unit): pixelflux hosts a Wayland socket `wayland-<waylandSocketIndex>` (default `wayland-1`; stale sockets are removed at start).
 - `webtop-session.service`: `startplasma-wayland` as the user (PAM `login`, `seat`), nested in that socket once its lock is held.
 - No `SELKIES_SUBFOLDER`: behind a path-prefixing gateway that strips the prefix, the web client derives it from the page URL.
@@ -98,7 +111,7 @@ time; audio plays on the primary page only.
 `nix build .#checks.<system>.module-eval` evaluates a system with the module (not with `--no-build`: the graft is import from derivation, so evaluating builds).
 `nix flake check` needs a builder for every supported system: it evaluates each system's `module-eval`.
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
-`checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check).
+`checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
