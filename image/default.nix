@@ -12,6 +12,7 @@ rec {
       c = nixos.config;
       p = nixos.pkgs;
       k = p.kdePackages;
+      inherit (p.lib) getLib;
       # By name: the KWin graft rewrites system-path, so its out path is not in the closure.
       sp = [ "name:system-path" ];
     in
@@ -19,7 +20,8 @@ rec {
       { name = "base"; anchors = [ p.glibc p.stdenv.cc.cc.lib c.systemd.package p.coreutils p.bashInteractive
           p.util-linux c.nix.package p.python3 p.perl p.openssl p.dbus ]; }
       { name = "toolkits"; buckets = 6; anchors = [ c.hardware.graphics.package k.qtbase k.qtdeclarative
-          k.qtwebengine k.qtmultimedia p.libsForQt5.qtbase p.gtk3 p.gtk4 p.ffmpeg p.gst_all_1.gstreamer
+          k.qtwebengine k.qtmultimedia (getLib p.libsForQt5.qtbase) p.gtk3 p.gtk4 (getLib p.ffmpeg)
+          (getLib p.gst_all_1.gstreamer)
           p.gst_all_1.gst-plugins-base p.gst_all_1.gst-plugins-good p.gst_all_1.gst-plugins-bad
           c.services.pipewire.package c.services.pipewire.wireplumber.package ]; }
       { name = "data"; buckets = 2; anchors = c.fonts.packages ++ [ k.breeze-icons k.oxygen-icons
