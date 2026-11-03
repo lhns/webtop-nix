@@ -12,9 +12,22 @@ concurrency:
 
 jobs:
   nix:
-    runs-on: ubuntu-latest
-    # A cold run builds KWin (25–45 min); with the cache it takes minutes.
-    timeout-minutes: 90
+    # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
+    # (kube-webtop-workspaces boot-tests the image on both).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+            vm: true
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            vm: false
+    name: nix (${{ matrix.system }})
+    runs-on: ${{ matrix.runner }}
+    # A cold run builds KWin (25–45 min on x86_64); with the cache it takes minutes.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -24,6 +37,7 @@ jobs:
 
       # The VM test needs /dev/kvm, and the Nix daemon only offers the kvm feature if it exists when it starts.
       - name: enable KVM
+        if: matrix.vm
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -73,18 +87,22 @@ jobs:
           key: ${{ steps.kwin.outputs.key }}
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
-      # references (import from derivation), which needs a build. The VM test boots it, so it also covers eval.
-      - name: build packages and checks
-        run: nix build .#pixelflux .#pcmflux .#selkies .#checks.x86_64-linux.module-eval .#checks.x86_64-linux.vm -L
+      # references (import from derivation), which needs a build of that system, hence native runners.
+      - name: build packages and module-eval
+        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#checks.${{ matrix.system }}.module-eval -L
+      - name: VM test
+        if: matrix.vm
+        run: nix build .#checks.${{ matrix.system }}.vm -L
 
       # Run outside the sandbox so its screenshots and logs survive a failure as an artifact.
       - name: second display test
+        if: matrix.vm
         run: |
-          nix build .#checks.x86_64-linux.second-display.driver -L -o second-display-driver
+          nix build .#checks.${{ matrix.system }}.second-display.driver -L -o second-display-driver
           mkdir -p second-display
           ./second-display-driver/bin/nixos-test-driver -o second-display
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && matrix.vm
         with:
           name: second-display
           path: second-display

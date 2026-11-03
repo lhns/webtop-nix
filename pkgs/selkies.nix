@@ -47,6 +47,6 @@ buildPythonPackage rec {
     homepage = "https://github.com/selkies-project/selkies";
     license = lib.licenses.mpl20;
     mainProgram = "selkies";
-    platforms = [ "x86_64-linux" ];
+    platforms = lib.platforms.linux;
   };
 }

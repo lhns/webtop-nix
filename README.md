@@ -6,7 +6,7 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
-`packages.x86_64-linux.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` and `overlays.default` (adds the same
+`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
 attributes, `kwin` as `kwinSoftwarePresentation`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
 ones come from `python3Packages`, nixpkgs' default interpreter).
 
@@ -67,7 +67,7 @@ What the module sets up:
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
 render device (gray screen). With `kwinSoftwarePresentation` (default on) the module grafts
-`packages.x86_64-linux.kwin` over `kdePackages.kwin` using `system.replaceDependencies`: KWin plus
+`packages.<system>.kwin` over `kdePackages.kwin` using `system.replaceDependencies`: KWin plus
 [LinuxServer's patch](pkgs/kwin/kwin-6.8-software-shm-presentation.patch), which renders with llvmpipe into
 memfd buffers and presents over `wl_shm` ([finishing each frame first](pkgs/kwin/kwin-6.8-shm-presentation-finish.patch));
 with a GPU nothing changes. Plasma's other packages are
@@ -106,10 +106,12 @@ time; audio plays on the primary page only.
 
 ## Tests
 
-`nix flake check` evaluates everything, including `checks.x86_64-linux.module-eval` (not with `--no-build`: the graft is import from derivation).
+`nix build .#checks.<system>.module-eval` evaluates a system with the module (not with `--no-build`: the graft is import from derivation, so evaluating builds).
+`nix flake check` needs a builder for every supported system: it evaluates each system's `module-eval`.
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
-`checks.x86_64-linux.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
-`checks.x86_64-linux.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
+`checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
+`checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
+CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
 Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
 
