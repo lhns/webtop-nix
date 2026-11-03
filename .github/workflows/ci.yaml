@@ -12,9 +12,8 @@ concurrency:
 
 jobs:
   nix:
-    # Native builds per system, no emulation. The VM tests run on x86_64 only: the arm runners have no
-    # KVM, and the module is system-agnostic, so they would retest the same module (packages and module-eval
-    # do build per system; kube-webtop-workspaces boot-tests the image on both).
+    # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
+    # (kube-webtop-workspaces boot-tests the image on both).
     strategy:
       fail-fast: false
       matrix:

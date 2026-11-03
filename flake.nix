@@ -5,7 +5,7 @@
 
   outputs = { self, nixpkgs }:
     let
-      # The only place a system is named; CI builds each one natively.
+      # Supported systems; CI builds each one natively, in a matrix.
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f system (import nixpkgs { inherit system; overlays = [ self.overlays.default ]; }));
