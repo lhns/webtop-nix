@@ -89,16 +89,17 @@ def main():
         if g.get("dependentsOf"):
             cand &= closure(present(g["dependentsOf"]), rev)
         if g.get("sameAsReference"):
-            # Same name as a reference path but a different hash: the consumer rebuilt it.
+            # Same name as a reference path, other hash: the consumer built it differently. Reported
+            # with the references that differ too; none means another build input (for the KWin graft
+            # NixOS uses config.nix.package to rewrite).
             differ = sorted((p for p in cand if p not in ref and name(p) in ref_names), key=name)
             if differ:
-                # With the references that differ too, which point at the cause.
-                errors.append(f"{g['name']}: differs from the reference image: " + "; ".join(
-                    f"{name(p)} (via {', '.join(sorted(name(r) for r in fwd[p] if r not in ref)) or '?'})"
+                notes.append(f"{g['name']}: differs from the reference image: " + "; ".join(
+                    f"{name(p)} (via {', '.join(sorted(name(r) for r in fwd[p] if r not in ref)) or 'a build input'})"
                     for p in differ))
         scope = g.get("scope", "reference")
         for p in cand:
-            if p not in assigned and (p in ref) == (scope == "reference"):
+            if p not in assigned and (scope == "any" or (p in ref) == (scope == "reference")):
                 assigned[p] = g["name"]
     for p in nodes:
         assigned.setdefault(p, "config")

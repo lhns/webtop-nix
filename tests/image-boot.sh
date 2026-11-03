@@ -25,7 +25,7 @@ wait_for() { # <what> <command...>
   done
   echo "$what: ok"
 }
-wait_for "Selkies page" sh -c 'curl -sf http://127.0.0.1:8082/ | grep -qi "<html"'
+wait_for "Selkies page" sh -c 'curl -sf http://127.0.0.1:8082/ | grep -i "<html" >/dev/null'
 compositing() { asuser busctl --user get-property org.kde.KWin /Compositor org.kde.kwin.Compositing active | grep -qx 'b true'; }
 wait_for "KWin compositing" compositing
 

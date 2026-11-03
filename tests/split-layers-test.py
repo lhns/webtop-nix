@@ -67,10 +67,15 @@ assert sorted(x for l in layers for x in l) == sorted(graph)
 r, layers, groups = run(graph, spec)
 assert r.returncode == 0 and "packages" not in groups and "sources" not in groups, (r.stderr, groups)
 
-# A rebuilt graft path (same name, other hash) is an error.
+# A graft path the consumer rebuilt (same name, other hash) is reported and, with scope "any",
+# still lands in the graft layer.
 ws2 = "/nix/store/" + "z" * 32 + "-workspace"
-r, _, _ = run(graph, spec, [glibc, qt, kwin, ws2, app])
-assert r.returncode == 1 and "differs from the reference" in r.stderr, r.stderr
+spec_any = json.loads(json.dumps(spec))
+spec_any["groups"][2]["scope"] = "any"
+r, layers, groups = run(graph, spec_any, [glibc, qt, kwin, ws2, app])
+where = {x: groups[i] for i, l in enumerate(layers) for x in l}
+assert r.returncode == 0 and "differs from the reference image: workspace (via a build input)" in r.stdout, r.stdout
+assert where[ws] == "graft", where
 
 # The config ceiling.
 big = dict(graph, **{etc: (20 * MiB, [sp])})

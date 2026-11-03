@@ -147,7 +147,8 @@ jobs:
           docker exec webtop-image systemctl --failed --no-pager || true
           docker exec webtop-image systemctl status webtop-session --no-pager -n 40 || true
           docker exec webtop-image journalctl -b --no-pager -g 'kwin|startplasma|wayland|webtop-session' 2>&1 | head -n 200 || true
-          docker exec webtop-image journalctl -b --no-pager 2>&1 | head -n 300 || true
+          docker exec webtop-image sh -c 'findmnt -l; ls -la /run/user/1000; ps -eo user,pid,etime,args' || true
+          docker exec webtop-image journalctl -b --no-pager _UID=1000 2>&1 | head -n 250 || true
           docker rm -f webtop-image || true
 
       # By digest; the index job tags it. zstd at a fixed level with the pinned skopeo: the same

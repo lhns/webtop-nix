@@ -32,8 +32,9 @@ rec {
       { name = "nixpkgs"; anchors = p.lib.optional (c.nixpkgs.flake.source != null) c.nixpkgs.flake.source; }
       { name = "firefox"; anchors = [ (c.programs.firefox.package.unwrapped or p.firefox-unwrapped) ]; }
       { name = "webtop"; anchors = [ c.services.webtop.package p.webtop-app-screen ]; }
-      # The packages system.replaceDependencies rewrote (ADR 0004); their stock paths are not in the closure.
-      { name = "graft"; refsOf = sp; dependentsOf = [ p.kwinSoftwarePresentation ]; sameAsReference = true; }
+      # The packages system.replaceDependencies rewrote (ADR 0004); their stock paths are not in the
+      # closure. Any scope: a consumer with its own nix.package gets its own rewrites (reported).
+      { name = "graft"; scope = "any"; refsOf = sp; dependentsOf = [ p.kwinSoftwarePresentation ]; sameAsReference = true; }
       { name = "kde"; buckets = 4; refsOf = sp; }
     ];
 
