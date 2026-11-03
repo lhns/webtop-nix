@@ -11,7 +11,7 @@ let
   pkgdb = callPackage "${src}/nix/pkgdb.nix" { };
 in
 {
-  inherit pkgdb;
+  nix-software-center-pkgdb = pkgdb;
   # Nix reports a missing network itself, so the egress policy need not allow nmcheck.gnome.org.
-  app = callPackage "${src}/default.nix" { inherit pkgdb; onlineCheckUrl = ""; };
+  nix-software-center = callPackage "${src}/default.nix" { inherit pkgdb; onlineCheckUrl = ""; };
 }
