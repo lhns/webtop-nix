@@ -61,6 +61,6 @@ pkgs.testers.runNixOSTest {
 
     # Downloads are served from the whole home.
     assert machine.succeed("curl -sf http://localhost:8082/api/files/Documents/doc.txt").strip() == 'XDG_DOWNLOAD_DIR="$HOME/Inbox"'
-    machine.succeed("curl -sfL http://localhost:8082/api/files/ | grep -q Documents")
+    machine.succeed("curl -sfL http://localhost:8082/api/files/ -o /tmp/files.html && grep -q Documents /tmp/files.html")
   '';
 }

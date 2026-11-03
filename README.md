@@ -63,6 +63,24 @@ What the module sets up:
 - `/etc/xdg` defaults, overridable per user: PowerDevil idle action "nothing", session restore
   "restore previous session".
 
+### Left out
+
+Plasma's optional parts a streamed desktop rarely uses, about 2 GiB of closure. Each switch is at
+priority 900, so an ordinary definition turns it back on:
+
+| left out | brings back |
+| --- | --- |
+| KDE PIM (Akonadi with MariaDB, KMail, Kontact, Merkuro) | `programs.kde-pim.enable = true;` |
+| Orca, and speech-dispatcher with its voices (mbrola, ~700 MiB) | `services.orca.enable = true;` (it enables `services.speechd` too); speech alone: `services.speechd.enable = true;` |
+| fwupd, and Discover, which Plasma installs only with fwupd or Flatpak | `services.fwupd.enable = true;` |
+| geoclue | `services.geoclue2.enable = true;` |
+| Qt 5 integration (KF5, Breeze for Qt 5): Qt 5 apps run with the default style | `services.desktopManager.plasma6.enableQt5Integration = true;` |
+| `/share/doc` of every package (man pages stay) | `documentation.doc.enable = true;` |
+| extra wallpapers (the default one is in Breeze), Elisa, KHelpCenter, KRdp | add the package, e.g. `environment.systemPackages = [ pkgs.kdePackages.elisa ];`, or a user installs it |
+
+Apps can also be installed per user (Nix profile, home-manager); system services like Orca or
+speech-dispatcher need the system options above.
+
 ## KWin without a GPU
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
@@ -104,6 +122,29 @@ and `XDG_RUNTIME_DIR`; exit status 2 is a usage error, 1 means KWin refused the 
 Starting the app is the caller's job. Only `display2` exists in Selkies' web client, so one app at a
 time; audio plays on the primary page only.
 
+## Image
+
+`packages.<system>.image` is the module as a container, systemd as PID 1 ([image/container.nix](image/container.nix)),
+published on `main` as `ghcr.io/lhns/webtop-nix:main` (and `sha-<sha7>`), amd64 and arm64:
+
+```sh
+docker run --rm --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:8082 ghcr.io/lhns/webtop-nix:main
+```
+
+Then open http://127.0.0.1:8082. Selkies' own authentication is off: publish the port on loopback,
+or put an authenticating proxy in front.
+
+`lib.buildImage { name; nixos; copyToRoot ? []; config ? {}; extraGroups ? []; reference ?; tag ?; }` builds
+such an image from any NixOS system with nix2container ([ADR 0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)).
+The layers are a split of the system's closure ([image/default.nix](image/default.nix)), from stable to volatile:
+base, toolkits, data, KDE, Firefox, webtop packages, the KWin graft, then the caller's `extraGroups`
+(e.g. sources it bakes in), its own packages and config; the Nix DB and `copyToRoot` form the top layer.
+Paths not in the standalone image's closure (`reference`; `null` to classify by the system alone)
+go to the caller's groups, so its own packages never move the stack's layers. The build prints the
+table (`nix build .#image.layerSplit`, `table.txt`); `nix run .#layer-report -- <image json> <groups.json> --previous <ref>`
+shows which layers are new against a published image. Push with zstd at the level CI uses
+(`nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 docker://…`), so unchanged layers keep their blob.
+
 ## Tests
 
 `nix build .#checks.<system>.module-eval` evaluates a system with the module (not with `--no-build`: the graft is import from derivation, so evaluating builds).
@@ -113,6 +154,7 @@ Evaluating the system realises the stock closure first (the graft), so the check
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
-Update nixpkgs here first (`nix flake update`); kube-webtop-workspaces then follows the same rev.
+Update nixpkgs here first (`nix flake update nixpkgs`); kube-webtop-workspaces follows this flake's nixpkgs.
+CI also builds the image on both systems, boots it under docker (Selkies page, KWin compositing, Nix DB = store) and prints its layer table; on `main` it pushes the image and the multi-arch index, signed with cosign.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0 (the pixelflux build also links GPL-2.0-or-later libx264 and x265, so the built extension is GPL-2.0-or-later).
