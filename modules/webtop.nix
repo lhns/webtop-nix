@@ -270,6 +270,17 @@ in
 
     services.displayManager.enable = lib.mkForce false;
 
+    # Optional parts a streamed desktop rarely uses, about 2 GiB of closure (README, "Left out").
+    # Priority 900 beats plasma6's mkDefault and loses to any plain definition, so a deployment
+    # turns each back on with an ordinary `= true`.
+    programs.kde-pim.enable = lib.mkOverride 900 false; # akonadi, mariadb, kmail
+    services.orca.enable = lib.mkOverride 900 false; # also speech-dispatcher and its voices
+    services.fwupd.enable = lib.mkOverride 900 false; # and with it discover
+    services.geoclue2.enable = lib.mkOverride 900 false;
+    services.desktopManager.plasma6.enableQt5Integration = lib.mkOverride 900 false; # the KF5 stack
+    documentation.doc.enable = lib.mkOverride 900 false;
+    environment.plasma6.excludePackages = with pkgs.kdePackages; [ plasma-workspace-wallpapers elisa khelpcenter krdp ];
+
     # A graft: the rewritten system keeps plasma-workspace and the rest as built by nixpkgs. Note that
     # evaluating the system builds the stock one first (replaceDependencies reads its references).
     system.replaceDependencies.replacements = lib.mkIf cfg.kwinSoftwarePresentation [{
