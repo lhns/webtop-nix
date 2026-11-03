@@ -90,9 +90,12 @@ def main():
             cand &= closure(present(g["dependentsOf"]), rev)
         if g.get("sameAsReference"):
             # Same name as a reference path but a different hash: the consumer rebuilt it.
-            differ = sorted(name(p) for p in cand if p not in ref and name(p) in ref_names)
+            differ = sorted((p for p in cand if p not in ref and name(p) in ref_names), key=name)
             if differ:
-                errors.append(f"{g['name']}: differs from the reference image: {', '.join(differ)}")
+                # With the references that differ too, which point at the cause.
+                errors.append(f"{g['name']}: differs from the reference image: " + "; ".join(
+                    f"{name(p)} (via {', '.join(sorted(name(r) for r in fwd[p] if r not in ref)) or '?'})"
+                    for p in differ))
         scope = g.get("scope", "reference")
         for p in cand:
             if p not in assigned and (p in ref) == (scope == "reference"):

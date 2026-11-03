@@ -144,7 +144,10 @@ jobs:
       - name: image boot diagnostics
         if: failure()
         run: |
-          docker exec webtop-image journalctl -b --no-pager 2>&1 | tail -n 300 || true
+          docker exec webtop-image systemctl --failed --no-pager || true
+          docker exec webtop-image systemctl status webtop-session --no-pager -n 40 || true
+          docker exec webtop-image journalctl -b --no-pager -g 'kwin|startplasma|wayland|webtop-session' 2>&1 | head -n 200 || true
+          docker exec webtop-image journalctl -b --no-pager 2>&1 | head -n 300 || true
           docker rm -f webtop-image || true
 
       # By digest; the index job tags it. zstd at a fixed level with the pinned skopeo: the same
