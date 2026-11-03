@@ -29,6 +29,9 @@
   systemd.services."console-getty".enable = false;
   systemd.suppressedSystemUnits = [ "getty@.service" "autovt@.service" ];
   services.logind.settings.Login = { NAutoVTs = 0; ReserveVT = 0; };
+  # rtkit-daemon cannot drop its capabilities in a container and stops answering; pixelflux asks it
+  # for priority before binding its Wayland socket and would wait forever. Without it the call fails at once.
+  security.rtkit.enable = lib.mkForce false;
   # Needs /dev/fuse; a failed unit would degrade the user manager.
   systemd.user.units."xdg-document-portal.service".enable = false;
 
