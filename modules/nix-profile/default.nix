@@ -98,7 +98,7 @@ in
   };
 
   config = lib.mkIf (webtop.enable && cfg.enable) {
-    # One way to install software: Discover has no Nix backend on NixOS. Plasma's "Get New…" dialogs stay.
+    # One way to install software: Discover has no Nix backend on NixOS. Plasma's "Get Newâ€¦" dialogs stay.
     environment.plasma6.excludePackages = [ pkgs.kdePackages.discover ];
     # The starter is a flake; the patched `nix profile` needs both.
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
