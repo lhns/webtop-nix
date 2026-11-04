@@ -43,9 +43,13 @@ buildPythonPackage rec {
     # The web client says when it reconnects in place, which claims no display (latest-owner.patch).
     core=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/selkies-core-*.js)
     substituteInPlace "$core" --replace-fail 't.tabId=C()'       't.tabId=C(),t.reconnecting=window.__selkiesSettingsSent===!0,window.__selkiesSettingsSent=!0'
+    # Touchpad mode is far too fast: cap its acceleration at 1.5x instead of 3x and allow slower speeds.
+    substituteInPlace "$core" --replace-fail 'return 1+2*t*t*(3-2*t)}' 'return 1+.5*t*t*(3-2*t)}'       --replace-fail 'st=.25,ct=4' 'st=.1,ct=4'
+    js=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.js)
+    substituteInPlace "$js" --replace-fail '[.5,.75,1,1.5,2,3]' '[.1,.25,.5,.75,1,1.5,2,3]'
     # The bundler's file names no longer match the content, so browsers would keep the old files: rename by content hash.
     web=$out/${python.sitePackages}/selkies/selkies_web
-    for f in "$css" "$core"; do
+    for f in "$css" "$core" "$js"; do
       old=$(basename "$f"); new="''${old%.*}-$(sha256sum "$f" | cut -c1-10).''${old##*.}"
       mv "$f" "$(dirname "$f")/$new"
       grep -rlF "$old" "$web" | xargs -r sed -i "s/$old/$new/g"

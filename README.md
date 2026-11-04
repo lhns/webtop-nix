@@ -18,6 +18,11 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) and [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
+Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
+same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); touchpad mode accelerates by at most 1.5x instead of 3x
+and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at 0.5; a saved speed keeps
+working. The changed assets are renamed by content hash so browsers do not reuse stale copies.
+
 Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
 
 ## Usage
