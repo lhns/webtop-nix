@@ -35,3 +35,7 @@ Kubernetes, and the standalone image should install software the same way.
 ## Amendment 2026-11-04
 
 Without a persistent store the home outlives the image's store: `nixProfile.fromImageStore`, on by default, runs `webtop-nix-reinstall` (no manifest) ahead of the switch at each boot, so a new image brings back what is declared. A consumer with its own restore turns it off and runs the command after that.
+
+## Amendment 2026-11-04 (2)
+
+The patch takes its locks at commit and re-applies each command's change on current state: [ADR 0007](0007-nix-profile-commit-locks.md) has the lock order.
