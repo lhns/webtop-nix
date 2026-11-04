@@ -27,8 +27,8 @@ let
   # The `webtop` flake: a store path in the registry, like nixpkgs. Users' flake.lock files name it:
   # its directory name and bytes decide that path, and a change makes every home relock and switch.
   webtopFlake = ./webtop-flake;
-  # Registry entry `nixpkgs-unfree`: like `webtop`, a store path whose directory name and bytes decide it.
-  unfreeFlake = ./nixpkgs-unfree-flake;
+  # Registry entry `nixpkgs-unfree`: like `webtop`, a store path whose name and bytes decide it.
+  unfreeFlake = import ./nixpkgs-unfree.nix { inherit (nixpkgs.legacyPackages.${system}) runCommand; inherit nixpkgs; };
   pinned = [ "nixpkgs" "home-manager" "webtop" "nixpkgs-unfree" ];
   template = home-manager.lib.homeManagerConfiguration {
     pkgs = nixpkgs.legacyPackages.${system};

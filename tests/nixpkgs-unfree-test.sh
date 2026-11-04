@@ -12,7 +12,7 @@ ok() { echo "PASS  $*"; }
 sys=$(nix eval --raw --impure --expr builtins.currentSystem)
 attr=hello-unfree
 nixpkgs=$(nix eval --raw --impure --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath')
-unfree=$(nix store add --name nixpkgs-unfree-flake modules/nix-profile/nixpkgs-unfree-flake)
+unfree=$(nix build .#nixpkgs-unfree-flake --no-link --print-out-paths)
 patched=$(nix build .#nix-profile-backends --no-link --print-out-paths)/bin/nix
 
 # As the module's flake-registry: the image's pins, offline.

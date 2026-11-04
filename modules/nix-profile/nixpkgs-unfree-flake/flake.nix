@@ -1,5 +1,5 @@
 # Registry entry `nixpkgs-unfree`: the image's nixpkgs with unfree packages allowed, so `nix profile add
-# nixpkgs-unfree#pkg` needs no --impure. Deliberately no lock file and no other config.
+# nixpkgs-unfree#pkg` needs no --impure. The lock file is generated (../nixpkgs-unfree.nix). No other config.
 {
   inputs.nixpkgs.url = "nixpkgs";
 
