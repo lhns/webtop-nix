@@ -1,6 +1,6 @@
-/* The sidebar handle sits at the very left edge, where touch screens put the system back gesture.
-   It stays above the open sidebar, so the sidebar's content starts right of the handle; the width grows by the same
-   amount to keep the content's width. */
+/* The sidebar handle sits 8px from the left edge, also on touch screens, where it is only bigger.
+   The panel's left padding is 5px larger (width too, to keep the content's width) so the buttons sit further
+   from the handle; the handle can still overlap the panel. */
 .toggle-handle{left:8px}
-.sidebar{width:308px;max-width:100vw;padding-left:46px}
-@media (pointer:coarse){.toggle-handle{left:20px;width:44px;height:72px}.sidebar{width:330px;padding-left:68px}}
+.sidebar{width:285px;max-width:100vw;padding-left:23px}
+@media (pointer:coarse){.toggle-handle{width:44px;height:72px}}

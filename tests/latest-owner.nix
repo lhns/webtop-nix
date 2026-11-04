@@ -7,7 +7,7 @@
 let
   py = pkgs.python3.withPackages (ps: [ ps.aiohttp ps.playwright ps.pillow ]);
   driver = pkgs.writeText "latest-owner-driver.py" ''
-    import asyncio, json, os, subprocess, threading, time
+    import asyncio, json, os, re, subprocess, threading, time
     import aiohttp
     from playwright.sync_api import sync_playwright
     from PIL import Image, ImageStat
@@ -255,11 +255,16 @@ let
                 ctx = chromium.new_context(viewport={"width": size[0], "height": size[1]})
                 page = ctx.new_page()
                 page.console = []
+                page.assets = {}
+                page.on("response", lambda r: page.assets.update({r.url.rsplit("/", 1)[-1]: r.status}) if "/assets/" in r.url else None)
                 page.on("console", lambda m: page.console.append(m.text))
                 page.goto(url)
                 return page
             a = open_page("http://127.0.0.1:18082/", (1024, 640))
             check("browser: A shows the desktop", wait_aspect(a, (1024, 640)), f"{video_box(a)}")
+            for kind in ("index-", "selkies-core-"):
+                loaded = {n: c for n, c in a.assets.items() if n.startswith(kind) and re.search(r"-[0-9a-f]{10}\.\w+$", n)}
+                check(f"browser: the content-hashed {kind}* asset loaded", loaded and all(c == 200 for c in loaded.values()), f"{a.assets}")
             time.sleep(SPACING)
             b = open_page("http://127.0.0.1:8082/", (640, 640))
             check("browser: A fits the size of B, which owns the display", wait_aspect(a, (640, 640)), f"{video_box(a)}")
