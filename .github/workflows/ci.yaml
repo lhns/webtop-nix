@@ -138,6 +138,8 @@ jobs:
         run: python3 tests/split-layers-test.py
       - name: starter template upgrade test
         run: bash tests/nix-profile-template-test.sh
+      - name: nixpkgs-unfree test
+        run: bash tests/nixpkgs-unfree-test.sh
       - name: reinstall test
         run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval
