@@ -122,6 +122,15 @@ and `XDG_RUNTIME_DIR`; exit status 2 is a usage error, 1 means KWin refused the 
 Starting the app is the caller's job. Only `display2` exists in Selkies' web client, so one app at a
 time; audio plays on the primary page only.
 
+## Several pages on one desktop
+
+The page opened last owns the primary display: the desktop takes that page's window size, and the
+pages before it stay connected beside it, streaming and playing audio, with their input working and
+their own resizes ignored ([patch](pkgs/selkies/latest-owner.patch), [for upstream](docs/upstream/selkies-latest-owner.md)).
+A reload counts as opening the page. A page cut off that reconnects by itself claims nothing, and a
+page beside the owner never takes the display by itself; when the owner leaves, the oldest page beside
+it takes over. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.
+
 ## Image
 
 `packages.<system>.image` is the module as a container, systemd as PID 1 ([image/container.nix](image/container.nix)),

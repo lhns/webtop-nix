@@ -1,0 +1,158 @@
+Selkies: the page opened last owns the primary display, the one before stays beside it
+
+Against Selkies 2.1.0 (with this repo's other patches). Applied to the wheel by pkgs/selkies.nix;
+written for upstream, see docs/upstream/selkies-latest-owner.md.
+-----
+
+--- a/src/selkies/websockets_mode.py
++++ b/src/selkies/websockets_mode.py
+@@ -1925,10 +1925,11 @@
+         self._framed_displays: set = set()
+ 
+         self.display_clients = {}
+-        # Controllers of a display beside its owner, oldest first: a page of
+-        # another tab takes the stream and input with it, where the owner keeps
+-        # the display's size and encoding, and the oldest owns it once the owner
+-        # is gone for good (`_promote_co_controller`).
++        # Controllers of a display beside its owner, oldest first: a page that
++        # lost the display to one opened later, reconnected in place or holds
++        # less than full permissions takes the stream and input with it, where
++        # the owner keeps the display's size and encoding, and the oldest owns
++        # it once the owner is gone for good (`_promote_co_controller`).
+         self.co_controllers: Dict[str, "OrderedDict[Any, Optional[str]]"] = {}
+         # Each controller page's last SETTINGS: a later one applies the stream
+         # settings it changed, not the ones it repeats (`_settings_changed_by`).
+@@ -2120,15 +2121,10 @@
+         for name, value in live_fields.items():
+             setattr(cs, name, value)
+ 
+-    def _joins_beside_owner(self, websocket: Any, tab_id: Optional[str]) -> bool:
+-        """Whether a controller's SETTINGS for the primary makes it a controller
+-        beside the display's owner rather than its owner: with sharing on, a
+-        page of another tab than the live owner's, or one already beside it. A
+-        page that names no tab (an older client), or the owner's own tab
+-        reloading, takes the display over as before.
+-        """
+-        if websocket in self.co_controllers.get('primary', ()):
+-            return True
++    def _owner_is_another_tab(self, websocket: Any, tab_id: Optional[str]) -> bool:
++        """Whether, with sharing on, the primary has a live owner in another tab
++        than `tab_id`. A page that names no tab (an older client), or the owner's
++        own tab reloading, takes the display over as before."""
+         if not getattr(self.cli_args, 'enable_sharing', (True,))[0]:
+             return False
+         owner = self.display_clients.get('primary')
+@@ -2136,6 +2132,30 @@
+         return (owner_ws is not None and owner_ws is not websocket and not owner_ws.closed
+                 and bool(tab_id) and bool(owner.get('tab_id')) and tab_id != owner.get('tab_id'))
+ 
++    def _joins_beside_owner(self, websocket: Any, tab_id: Optional[str],
++                            opens_page: bool) -> bool:
++        """Whether a controller's SETTINGS for the primary makes it a controller
++        beside the display's owner rather than its owner: one already beside it,
++        or one of another tab, unless it holds full permissions and `opens_page`
++        (the socket's first SETTINGS, not the web client reconnecting in place).
++        """
++        if websocket in self.co_controllers.get('primary', ()):
++            return True
++        return (self._owner_is_another_tab(websocket, tab_id)
++                and not (opens_page and self._holds_full_control(websocket)))
++
++    def _demote_primary_owner(self, owner_ws: Any, owner: dict) -> None:
++        """Move the primary's live owner beside the page taking the display. It
++        keeps its socket, the audio it hears and any pause; without its
++        `_page_settings`, its SETTINGS on promotion counts as a first one."""
++        self._beside_audio[owner_ws] = self._hears_audio(owner_ws)
++        self.co_controllers.setdefault('primary', OrderedDict())[owner_ws] = owner.get('tab_id')
++        self._page_settings.pop(owner_ws, None)
++        # The owner's hidden tab stopped the capture rather than pausing its socket.
++        if not owner.get('video_active'):
++            self.video_paused_clients.add(owner_ws)
++        data_logger.info("The page that owned 'primary' stays beside the page that takes it.")
++
+     async def _promote_co_controller(self, display_id: str) -> bool:
+         """Hand a display whose owner is gone for good to the oldest controller
+         beside it that holds full permissions, else to the oldest one: told
+@@ -4318,6 +4338,8 @@
+         parsed["audioRedundancy"] = get_bool("audioRedundancy")
+         # The page's tab, which tells its own reload from another page (`co_controllers`).
+         parsed["tabId"] = (get_str("tabId") or "")[:64] or None
++        # The web client reconnecting in place, which is no page being opened.
++        parsed["reconnecting"] = get_bool("reconnecting")
+         parsed["keyboardLayout"] = get_str("keyboardLayout")
+         parsed["encoderFallback"] = get_bool("encoderFallback")
+         picked = settings_data.get("picked")
+@@ -4865,6 +4887,7 @@
+         )
+         self.capture_loop = self.capture_loop or asyncio.get_running_loop()
+         initial_settings_processed = False
++        first_settings = True
+ 
+         client_display_id = None
+ 
+@@ -5225,7 +5248,10 @@
+                                     return
+                             client_display_id = display_id
+                             tab_id = parsed_settings.get("tabId")
+-                            if display_id == 'primary' and self._joins_beside_owner(websocket, tab_id):
++                            opens_page = first_settings and not parsed_settings.get("reconnecting")
++                            first_settings = False
++                            demoted_ws = None
++                            if display_id == 'primary' and self._joins_beside_owner(websocket, tab_id, opens_page):
+                                 # Streamed as a viewer is, with its input taken as a
+                                 # controller's; the owner keeps the display, and the page
+                                 # starts on what it streams with.
+@@ -5244,11 +5270,17 @@
+                                 else:
+                                     await self._take_pick_beside_owner(websocket, parsed_settings, client_role)
+                                 continue
++                            if websocket not in self._page_settings:
++                                # A demoted page taking the display back starts it anew.
++                                initial_settings_processed = False
+                             if display_id in ['primary', 'display2']:
+                                 existing_client_info = self.display_clients.get(display_id)
+                                 if existing_client_info:
+                                     old_ws = existing_client_info.get('ws')
+-                                    if old_ws and old_ws is not websocket and not old_ws.closed:
++                                    if display_id == 'primary' and self._owner_is_another_tab(websocket, tab_id):
++                                        self._demote_primary_owner(old_ws, existing_client_info)
++                                        demoted_ws = old_ws
++                                    elif old_ws and old_ws is not websocket and not old_ws.closed:
+                                         kill_reason = f"a new {display_id} client connected connection killed"
+                                         old_ws_raddr = client_permissions.get(old_ws, {}).get("remote_address", "unknown")
+                                         data_logger.warning(
+@@ -5404,6 +5436,13 @@
+                                 not initial_settings_processed,
+                                 client_role
+                             )
++                            if demoted_ws is not None:
++                                # The new owner's first SETTINGS has told every page the size.
++                                try:
++                                    await demoted_ws.send_str("PIPELINE_RESETTING primary")
++                                except (ConnectionResetError, OSError, RuntimeError):
++                                    pass
++                                self._schedule_idr_for_display('primary')
+                             await self._tell_display_settings(display_id, set(self.co_controllers.get(display_id, ())))
+                             if not initial_settings_processed:
+                                 initial_settings_processed = True
+@@ -5791,7 +5830,19 @@
+ 
+                         if (message.startswith(("r,", "s,"))
+                                 and websocket in self.co_controllers.get(client_display_id, ())):
+-                            # The display's owner sizes it and sets its density.
++                            # The display's owner sizes it and sets its density. The page
++                            # just fitted its canvas to its window: it gets the size back.
++                            owner = self.display_clients.get(client_display_id) or {}
++                            if message.startswith("r,") and owner.get('width') and owner.get('height'):
++                                try:
++                                    await websocket.send_str(json.dumps({
++                                        "type": "stream_resolution",
++                                        "width": owner['width'],
++                                        "height": owner['height'],
++                                        "displayId": client_display_id,
++                                    }))
++                                except (ConnectionResetError, OSError, RuntimeError):
++                                    pass
+                             continue
+ 
+                         if self.input_handler and hasattr(
