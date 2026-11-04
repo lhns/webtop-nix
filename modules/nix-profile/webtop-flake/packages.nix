@@ -19,13 +19,21 @@ let
       in
       if n == null then throw "packages.json: no attribute '${lib.concatStringsSep "." segs}'"
       else getPath set.${name n} (lib.drop n segs);
-  # flake:nixpkgs entries use this configuration's nixpkgs (the image's); others their locked flake.
-  fromNixpkgs = e:
+  # The packages of a nixpkgs set, from the attr path of the flake's `legacyPackages.<system>.` outputs.
+  fromSet = set: e:
     let p = attrPath e;
-    in getPath pkgs (if lib.length p > 2 && lib.elemAt p 1 == system then lib.drop 2 p else p);
+    in getPath set (if lib.length p > 2 && lib.elemAt p 1 == system then lib.drop 2 p else p);
+  # flake:nixpkgs entries use this configuration's nixpkgs (the image's); flake:nixpkgs-unfree the same
+  # with unfree allowed, rebuilt here: its locked store path may be gone after an image update.
+  fromNixpkgs = fromSet pkgs;
+  unfree = import pkgs.path { inherit system; config.allowUnfree = true; };
+  fromUnfree = fromSet unfree;
+  # Others use their locked flake.
   package = e:
     let
-      drv = if (e.originalUrl or "") == "flake:nixpkgs" then fromNixpkgs e
+      original = e.originalUrl or "";
+      drv = if original == "flake:nixpkgs" then fromNixpkgs e
+        else if original == "flake:nixpkgs-unfree" then fromUnfree e
         else getPath (builtins.getFlake e.url) (attrPath e);
       outputs = e.outputs or null;
       selected = if outputs == null then [ drv ]
