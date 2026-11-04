@@ -125,8 +125,8 @@ time; audio plays on the primary page only.
 ## Several pages on one desktop
 
 The page opened last owns the primary display: the desktop takes that page's window size, and the
-page before it stays connected beside it, streaming, with its input working and its own resizes
-ignored ([patch](pkgs/selkies/latest-owner.patch), [for upstream](docs/upstream/selkies-latest-owner.md)).
+pages before it stay connected beside it, streaming and playing audio, with their input working and
+their own resizes ignored ([patch](pkgs/selkies/latest-owner.patch), [for upstream](docs/upstream/selkies-latest-owner.md)).
 A reload counts as opening the page. A page cut off that reconnects by itself claims nothing, and a
 page beside the owner never takes the display by itself; when the owner leaves, the oldest page beside
 it takes over. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.

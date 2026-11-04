@@ -33,8 +33,8 @@ let
     class Page:
         """A scripted web client: what the page sends for the primary display, and what it was told."""
 
-        def __init__(self, name, tab, size, reconnecting=False):
-            self.name, self.tab, self.size, self.reconnecting = name, tab, size, reconnecting
+        def __init__(self, tab, size, reconnecting=False):
+            self.tab, self.size, self.reconnecting = tab, size, reconnecting
             self.res, self.texts = None, []
             self.frames, self.closed = 0, False
 
@@ -87,9 +87,9 @@ let
             await asyncio.sleep(0.25)
         return pred()
 
-    async def frames_flow(page, timeout=20):
+    async def frames_flow(page):
         start = page.frames
-        return await until(lambda: page.frames > start + 2, timeout)
+        return await until(lambda: page.frames > start + 2, 20)
 
     async def owns(page, witness, size):
         """Whether a resize from `page` applies, as `witness` sees it."""
@@ -98,12 +98,12 @@ let
 
     async def scripted():
         async with aiohttp.ClientSession() as http:
-            a = Page("A", "tab-a", (1024, 640))
+            a = Page("tab-a", (1024, 640))
             await a.open(http)
             check("first page sizes the desktop", await until(lambda: a.res == a.size), f"{a.res}")
             check("first page receives frames", await frames_flow(a), f"{a.frames}")
 
-            b = Page("B", "tab-b", (800, 480))
+            b = Page("tab-b", (800, 480))
             await b.open(http)
             check("page B of another tab takes the display", await until(lambda: a.res == b.size), f"A told {a.res}")
             check("A is not closed or killed", not a.closed and not a.told("KILL"))
@@ -129,7 +129,7 @@ let
             check("the owner's audio stop leaves the page beside it alone", not a.told("AUDIO_STOPPED"))
             await b.send("START_AUDIO")
 
-            r = Page("R", "tab-r", (640, 480), reconnecting=True)
+            r = Page("tab-r", (640, 480), reconnecting=True)
             await r.open(http)
             await asyncio.sleep(SETTLE)
             check("a reconnecting page does not claim the display", b.res == (800, 480) and not b.closed, f"B told {b.res}")
@@ -144,11 +144,11 @@ let
             check("the promoted page sizes the desktop", await until(lambda: a.res == a.size), f"{a.res}")
             check("a resize from the promoted page applies", await owns(a, a, (960, 544)), f"{a.res}")
 
-            b = Page("B2", "tab-b", (800, 480))
+            b = Page("tab-b", (800, 480))
             await b.open(http)
             check("B opened again takes the display", await until(lambda: a.res == b.size), f"A told {a.res}")
             await a.close()
-            a = Page("A2", "tab-a", (1024, 640))
+            a = Page("tab-a", (1024, 640))
             await a.open(http)
             check("A reloading becomes the owner", await until(lambda: b.res == a.size), f"B told {b.res}")
             check("B stays connected", not b.closed and not b.told("KILL"))
@@ -157,12 +157,12 @@ let
             await asyncio.sleep(SETTLE)
             check("the page reloaded last keeps the size", a.res == current, f"A told {a.res}")
 
-            overlap = Page("A3", "tab-a", (960, 544))
+            overlap = Page("tab-a", (960, 544))
             await overlap.open(http)
             check("a second socket of the owner's tab replaces it", await until(lambda: a.closed), f"told KILL: {a.told('KILL')}")
             check("that socket owns the display", await until(lambda: b.res == overlap.size), f"B told {b.res}")
 
-            old = Page("old", None, (800, 480))
+            old = Page(None, (800, 480))
             await old.open(http)
             check("a page naming no tab kills the owner, as before", await until(lambda: overlap.closed and overlap.told("KILL")))
             check("a page naming no tab owns the display", await until(lambda: b.res == old.size), f"B told {b.res}")

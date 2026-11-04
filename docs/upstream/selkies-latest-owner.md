@@ -22,5 +22,5 @@ open. The web client now sends `reconnecting: true` in the first SETTINGS of eve
 first, and such a page joins beside the owner. Here that is one expression substituted into the built
 bundle (`pkgs/selkies.nix`); upstream it belongs in the client source.
 
-An option, or the old behaviour under `enable_sharing` variants, may suit upstream better than a new
-default: a page opened on a phone now resizes the desktop of whoever is working at it.
+Upstream may prefer this behind an option: a page opened on a phone now resizes the desktop of
+whoever is working at it.
