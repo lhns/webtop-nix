@@ -435,6 +435,10 @@ in
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
     programs.firefox.enable = lib.mkDefault true;
+    # Nix's default search path names a channels directory NixOS without channels lacks, and warns on every
+    # impure evaluation. The registry's nixpkgs also keeps `<nixpkgs>` and `nix-shell -p` working.
+    nix.settings.nix-path = lib.mkDefault "nixpkgs=flake:nixpkgs";
+
     environment.systemPackages = [ cfg.package pkgs.webtop-app-screen ]
       ++ lib.optional cfg.softwareCenter.enable pkgs.nix-software-center;
     # nix-data's fallback when the user has no config: all fields unset, so no welcome dialog.

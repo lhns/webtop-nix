@@ -9,7 +9,18 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, nix2container }:
+  # The nixProfile module (ADR 0006): the users' home-manager flakes resolve it from the image's registry.
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  # Upstream global flake registry, baked in with the image's own pins.
+  inputs.flake-registry = {
+    url = "github:NixOS/flake-registry";
+    flake = false;
+  };
+
+  outputs = { self, nixpkgs, nix2container, home-manager, flake-registry }:
     let
       # Supported systems; CI builds each one natively, in a matrix.
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -38,6 +49,8 @@
       packages = forAllSystems (system: pkgs: {
         inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen nix-software-center nix-software-center-pkgdb;
         kwin = pkgs.kwinSoftwarePresentation;
+        # `nix profile` with backends (services.webtop.nixProfile); CI caches it like KWin.
+        nix-profile-backends = nixpkgs.legacyPackages.${system}.callPackage ./modules/nix-profile/nix { };
         default = pkgs.selkies;
 
         # docker run-able desktop (README, "Image"); its own closure is the layer reference.
@@ -70,7 +83,10 @@
       });
 
       nixosModules = {
-        webtop = import ./modules/webtop.nix;
+        webtop.imports = [
+          ./modules/webtop.nix
+          (import ./modules/nix-profile { inherit nixpkgs home-manager flake-registry; })
+        ];
         default = self.nixosModules.webtop;
       };
 
@@ -85,6 +101,7 @@
                 {
                   services.webtop.enable = true;
                   services.webtop.softwareCenter.enable = true;
+                  services.webtop.nixProfile.enable = true;
                   boot.loader.grub.enable = false;
                   fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
                   system.stateVersion = "25.11";
