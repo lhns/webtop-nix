@@ -3,6 +3,7 @@
 # aside; the profile's flake packages are reinstalled from MANIFEST, the old profile's manifest.json;
 # then home-manager relocks and switches ($WEBTOP_SETUP). Exit 0 only when all of it worked: the caller
 # keeps its marker otherwise and retries next boot.
+# (Run by a consumer's unit or, with fromImageStore, by webtop-home-manager.service: the messages name both.)
 manifest=$1
 
 # nixProfile.progress; never fatal.
@@ -58,8 +59,8 @@ progress step
 if [ "$failed" = 0 ]; then
   progress finish
 else
-  progress finish "Some of your software could not be restored; see: journalctl -u webtop-nix-reinstall"
-  webtop-notify "Package reinstall incomplete" "See: journalctl -u webtop-nix-reinstall" system-software-update &
+  progress finish "Some of your software could not be restored; see: journalctl -u webtop-nix-reinstall -u webtop-home-manager"
+  webtop-notify "Package reinstall incomplete" "See: journalctl -u webtop-nix-reinstall -u webtop-home-manager" system-software-update &
 fi
 wait
 exit "$failed"

@@ -87,7 +87,7 @@ speech-dispatcher need the system options above.
 gives the user one declaration, `~/.config/home-manager/packages.json`: `nix profile add|remove|upgrade|rollback` edit it and run `home-manager switch` (a patched Nix, built from source).
 On first boot a starter flake appears in `~/.config/home-manager`; its `nixpkgs`, `home-manager` and `webtop` inputs resolve from the image's registry. Your own module goes in `local.nix` beside it, which the image never writes (in a git repo, `git add` it).
 While unmodified, the starter follows the image's template. An edited one is left alone with a notification: `webtop-home-manager-update` shows the difference and `--apply` takes the template, keeping backups.
-A home kept across containers survives a new image: each boot moves dangling generations aside and switches, so what `packages.json` declares comes back (needs network); packages added to the profile directly do not.
+A home kept across containers survives a new image: each boot (`nixProfile.fromImageStore`, on by default) moves dangling generations aside and switches, so what `packages.json` declares comes back (needs network); packages added to the profile directly do not. A consumer with its own restore sets it to `false` and runs `nixProfile.reinstall` after that.
 A consumer whose home is reached through other paths sets `nixProfile.homeStoragePath`, and can receive progress with `nixProfile.progress`.
 
 ## KWin without a GPU
