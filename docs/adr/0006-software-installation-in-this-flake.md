@@ -35,3 +35,5 @@ Kubernetes, and the standalone image should install software the same way.
 ## Amendment 2026-11-04
 
 Without a persistent store the home outlives the image's store: `nixProfile.fromImageStore`, on by default, runs `webtop-nix-reinstall` (no manifest) ahead of the switch at each boot, so a new image brings back what is declared. A consumer with its own restore turns it off and runs the command after that.
+
+Nix also carries `path-input-fingerprint.patch` on `nix-fetchers`, which rebuilds Nix's libraries and needs rebasing with a Nix bump too. It makes locked `path:` inputs use the fetcher cache, so evaluating a home flake no longer copies nixpkgs to the store each time.
