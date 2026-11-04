@@ -138,6 +138,8 @@ jobs:
         run: python3 tests/split-layers-test.py
       - name: starter template upgrade test
         run: bash tests/nix-profile-template-test.sh
+      - name: nixpkgs-unfree test
+        run: bash tests/nixpkgs-unfree-test.sh
       - name: build packages and module-eval
         run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval -L
       - name: VM test
