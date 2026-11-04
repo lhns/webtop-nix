@@ -1,3 +1,6 @@
-/* The sidebar handle sits at the very left edge, where touch screens put the system back gesture. */
+/* The sidebar handle sits at the very left edge, where touch screens put the system back gesture.
+   It stays above the open sidebar, so the sidebar's content starts right of the handle; the width grows by the same
+   amount to keep the content's width. */
 .toggle-handle{left:8px}
-@media (pointer:coarse){.toggle-handle{left:20px;width:44px;height:72px}}
+.sidebar{width:308px;max-width:100vw;padding-left:46px}
+@media (pointer:coarse){.toggle-handle{left:20px;width:44px;height:72px}.sidebar{width:330px;padding-left:68px}}
