@@ -38,4 +38,7 @@
 
   # The build sandbox needs namespaces a container may not grant.
   nix.settings.sandbox = lib.mkDefault false;
+  # Nix's default search path names a channels directory the image does not have, and warns on
+  # every evaluation. The registry's nixpkgs keeps `<nixpkgs>` and `nix-shell -p` working.
+  nix.settings.nix-path = lib.mkDefault "nixpkgs=flake:nixpkgs";
 }
