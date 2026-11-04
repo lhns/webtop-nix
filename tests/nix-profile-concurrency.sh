@@ -16,6 +16,8 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export HOME=$t/home USER=$(id -un) PATH=$nix_out/bin:$hm/bin:$PATH
 unset XDG_STATE_HOME XDG_CONFIG_HOME
 H=$HOME/.config/home-manager L=$t/flake D=$HOME/.local/state/nix/profiles
+# A git flake: every version stays fetchable, as a declared element's locked URL needs.
+F=git+file://$L
 mkdir -p "$H" "$L" "$t/pr" "$t/log" "$HOME/.local/state/nix/profiles"
 
 cat > "$t/registry.json" <<EOF
@@ -77,11 +79,17 @@ cat > "$L/flake.nix" <<EOF
 }
 EOF
 n=0
-stamp() { n=$((n + 1)); printf 's%s' "$n" > "$L/stamp"; }
+stamp() {
+  n=$((n + 1)); printf 's%s' "$n" > "$L/stamp"
+  git -C "$L" add -A && git -C "$L" -c user.name=test -c user.email=test@example.invalid commit -qm "$n"
+}
+git init -q "$L" || exit 1
 stamp
 (cd "$L" && nix flake lock) || exit 1
+stamp
 
 fails=0
+why() { grep -av 'SQLite database' "$1" | grep -a -A3 '^error' | head -n 6 | cut -c1-200; }
 pass() { echo "PASS  $M: $*"; }
 fail() { echo "FAIL  $M: $*"; fails=$((fails + 1)); }
 sorted() { printf '%s\n' "$@" | sort -u | xargs; }
@@ -91,8 +99,8 @@ pn() {
   local c=$1; shift
   if [ "$M" = plain ]; then timeout 300 nix profile "$c" --profile "$P" "$@"; else timeout 300 nix profile "$c" "$@"; fi
 }
-expr_of() { echo "(builtins.getFlake \"path:$L\").packages.$system.$1"; }
-path_of() { nix build --no-link --print-out-paths "path:$L#$1"; }
+expr_of() { echo "(builtins.getFlake \"$F\").packages.$system.$1"; }
+path_of() { nix build --no-link --print-out-paths "$F#$1"; }
 
 bins() { ls -L "$1/bin" 2>/dev/null | sed -n 's/^tb-//p' | sort | xargs; }
 manifest() { jq -r '.elements | keys[]' "$1/manifest.json" 2>/dev/null | grep -v '^home-manager-path' | sort | xargs; }
@@ -141,7 +149,7 @@ parallel() {
   for p in "${pids[@]}"; do
     i=$((i + 1)); rc=0; wait "$p" || rc=$?
     rcs="$rcs$rc"
-    [ "$rc" = 0 ] || { echo "--- command $i rc=$rc: $(grep -a error "$t/log/p$i" | head -n 2 | cut -c1-200)"; }
+    [ "$rc" = 0 ] || { echo "--- command $i rc=$rc:"; why "$t/log/p$i"; }
   done
 }
 expect_ok() { case "$rcs" in *[!0]*) fail "$1: exit codes $rcs" ;; *) pass "$1: all exit 0" ;; esac; }
@@ -161,7 +169,7 @@ scenario_parallel_adds() {
   local round
   for round in 1 2 3; do
     reset "adds$round"
-    parallel "add path:$L#fast0" "add path:$L#fast1" "add path:$L#fast2" "add path:$L#fast3"
+    parallel "add $F#fast0" "add $F#fast1" "add $F#fast2" "add $F#fast3"
     expect_ok "4 parallel adds, round $round"
     check "4 parallel adds, round $round, none lost" fast0 fast1 fast2 fast3
   done
@@ -169,7 +177,7 @@ scenario_parallel_adds() {
 
 scenario_parallel_removes() {
   reset removes
-  pn add "path:$L#fast0" "path:$L#fast1" "path:$L#fast2" "path:$L#fast3" > /dev/null 2>&1
+  pn add "$F#fast0" "$F#fast1" "$F#fast2" "$F#fast3" > /dev/null 2>&1
   parallel "remove fast0" "remove fast1" "remove fast2" "remove fast3"
   expect_ok "4 parallel removes"
   check "4 parallel removes, none resurrected"
@@ -177,7 +185,7 @@ scenario_parallel_removes() {
 
 scenario_upgrades() {
   reset upgrades
-  pn add "path:$L#mid0" "path:$L#mid1" "path:$L#mid2" "path:$L#mid3" > /dev/null 2>&1
+  pn add "$F#mid0" "$F#mid1" "$F#mid2" "$F#mid3" > /dev/null 2>&1
   stamp
   parallel "upgrade mid0" "upgrade mid1" "upgrade mid2" "upgrade mid3"
   expect_ok "4 parallel upgrades"
@@ -192,21 +200,21 @@ scenario_upgrades() {
   sleep 2
   pn remove mid1 > /dev/null 2>&1
   local rc=0; wait "$u" || rc=$?
-  [ "$rc" = 0 ] || fail "upgrade with a remove meanwhile: rc=$rc"
+  [ "$rc" = 0 ] || { fail "upgrade with a remove meanwhile: rc=$rc"; why "$t/log/u"; }
   check "a remove during an upgrade stays removed" mid0 mid2 mid3
 }
 
 scenario_add_remove_same() {
   reset same
-  pn add "path:$L#fast0" > /dev/null 2>&1
-  parallel "remove fast0" "add path:$L#fast0"
+  pn add "$F#fast0" > /dev/null 2>&1
+  parallel "remove fast0" "add $F#fast0"
   expect_ok "remove and add of one name, present"
   agree "remove and add of one name, present"
-  parallel "add path:$L#fast1" "remove fast1"
+  parallel "add $F#fast1" "remove fast1"
   expect_ok "add and remove of one name, absent"
   agree "add and remove of one name, absent"
   # Both see the target; for the second it has gone by its commit, which is a no-op, not an error.
-  pn add "path:$L#fast2" > /dev/null 2>&1
+  pn add "$F#fast2" > /dev/null 2>&1
   parallel "remove fast2" "remove fast2"
   expect_ok "two removes of one name"
   agree "two removes of one name"
@@ -214,15 +222,15 @@ scenario_add_remove_same() {
 
 scenario_slow_during_fast() {
   reset slowfast
-  pn add "path:$L#fast1" > /dev/null 2>&1
-  pn add "path:$L#slow" > "$t/log/slow" 2>&1 & local s=$!
+  pn add "$F#fast1" > /dev/null 2>&1
+  pn add "$F#slow" > "$t/log/slow" 2>&1 & local s=$!
   sleep 5
-  local rc=0; pn add "path:$L#fast0" > "$t/log/fast" 2>&1 || rc=$?
+  local rc=0; pn add "$F#fast0" > "$t/log/fast" 2>&1 || rc=$?
   if kill -0 "$s" 2>/dev/null; then pass "fast add finishes while the slow one builds (rc=$rc)"
   else fail "fast add waited for the slow build (rc=$rc)"; fi
   pn remove fast1 > /dev/null 2>&1 || fail "remove during the slow add failed"
   rc=0; wait "$s" || rc=$?
-  [ "$rc" = 0 ] || fail "slow add: rc=$rc: $(grep -a error "$t/log/slow" | head -n 2 | cut -c1-200)"
+  [ "$rc" = 0 ] || { fail "slow add: rc=$rc"; why "$t/log/slow"; }
   check "fast add kept, remove not resurrected" fast0 slow
 }
 
@@ -230,18 +238,18 @@ scenario_interrupted_build() {
   local sig
   for sig in INT KILL; do
     reset "kill$sig"
-    pn add "path:$L#fast0" > /dev/null 2>&1
+    pn add "$F#fast0" > /dev/null 2>&1
     stamp
     # Not through pn: timeout would put nix in a process group of its own.
-    if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "path:$L#slow" > /dev/null 2>&1 &
-    else setsid nix profile add "path:$L#slow" > /dev/null 2>&1 &
+    if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "$F#slow" > /dev/null 2>&1 &
+    else setsid nix profile add "$F#slow" > /dev/null 2>&1 &
     fi
     local c=$!
     sleep 6
     kill -"$sig" -- "-$c" 2>/dev/null
     wait "$c" 2>/dev/null
     check "SIG$sig during the build leaves the state alone" fast0
-    pn add "path:$L#fast1" > /dev/null 2>&1 || fail "add after SIG$sig failed"
+    pn add "$F#fast1" > "$t/log/a" 2>&1 || { fail "add after SIG$sig failed"; why "$t/log/a"; }
     check "no lock left behind by SIG$sig" fast0 fast1
   done
 }
@@ -249,9 +257,9 @@ scenario_interrupted_build() {
 scenario_two_backends() {
   # A plain slow add during a declaration add: the switch's new home-manager-path is kept.
   reset mixed
-  nix profile add --profile-backend profile "path:$L#slow" > "$t/log/s" 2>&1 & local s=$!
+  nix profile add --profile-backend profile "$F#slow" > "$t/log/s" 2>&1 & local s=$!
   sleep 5
-  local rc=0; timeout 300 nix profile add "path:$L#fast0" > "$t/log/f" 2>&1 || rc=$?
+  local rc=0; timeout 300 nix profile add "$F#fast0" > "$t/log/f" 2>&1 || rc=$?
   [ "$rc" = 0 ] || fail "declaration add: rc=$rc"
   rc=0; wait "$s" || rc=$?
   [ "$rc" = 0 ] || fail "plain slow add: rc=$rc"
@@ -261,7 +269,7 @@ scenario_two_backends() {
   reset undo
   local e1 e2; e1=$(path_of extra1); e2=$(path_of extra2)
   echo "$e2" > "$t/fail-hook"
-  rc=0; timeout 300 nix profile add "path:$L#fast0" "$e1" > "$t/log/u" 2>&1 || rc=$?
+  rc=0; timeout 300 nix profile add "$F#fast0" "$e1" > "$t/log/u" 2>&1 || rc=$?
   [ "$rc" != 0 ] && pass "two-backend add fails with its hook" || fail "two-backend add succeeded although its hook failed"
   check "undo removes only its own element, another command's commit survives" -- extra2
 
@@ -270,7 +278,7 @@ scenario_two_backends() {
   local m; m=$(path_of moved)
   timeout 300 nix profile add "$m" > /dev/null 2>&1 || fail "adding moved"
   : > "$t/fail-hook"
-  rc=0; timeout 300 nix profile add "path:$L#moved" > "$t/log/u" 2>&1 || rc=$?
+  rc=0; timeout 300 nix profile add "$F#moved" > "$t/log/u" 2>&1 || rc=$?
   [ "$rc" != 0 ] && pass "moving add fails with its hook" || fail "moving add succeeded although its hook failed"
   check "undo restores the moved element" -- moved
   rm -f "$t/fail-hook"
@@ -279,7 +287,7 @@ scenario_two_backends() {
   reset shadow
   timeout 300 nix profile add --impure --expr "$(expr_of shadowSlowPath)" > "$t/log/s" 2>&1 & s=$!
   sleep 5
-  timeout 300 nix profile add "path:$L#shadow" > /dev/null 2>&1 || fail "declaring shadow"
+  timeout 300 nix profile add "$F#shadow" > /dev/null 2>&1 || fail "declaring shadow"
   rc=0; wait "$s" || rc=$?
   if [ "$rc" != 0 ] && grep -aq 'is declared in' "$t/log/s"; then pass "store path refused: its name was declared meanwhile"
   else fail "store path not refused (rc=$rc)"; fi
@@ -287,11 +295,11 @@ scenario_two_backends() {
 
   # The reverse: a store path added while the flake output of that name built moves out of the profile.
   reset shadowrev
-  timeout 300 nix profile add "path:$L#shadowSlow" > "$t/log/s" 2>&1 & s=$!
+  timeout 300 nix profile add "$F#shadowSlow" > "$t/log/s" 2>&1 & s=$!
   sleep 5
   timeout 300 nix profile add --impure --expr "$(expr_of shadowFastPath)" > /dev/null 2>&1 || fail "adding the store path"
   rc=0; wait "$s" || rc=$?
-  [ "$rc" = 0 ] || fail "flake add over a store path: rc=$rc: $(grep -a error "$t/log/s" | head -n 2 | cut -c1-200)"
+  [ "$rc" = 0 ] || { fail "flake add over a store path: rc=$rc"; why "$t/log/s"; }
   check "the store path moved out when the flake output landed" shadowSlow
 }
 
