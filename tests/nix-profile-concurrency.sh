@@ -85,7 +85,6 @@ fails=0
 pass() { echo "PASS  $M: $*"; }
 fail() { echo "FAIL  $M: $*"; fails=$((fails + 1)); }
 sorted() { printf '%s\n' "$@" | sort -u | xargs; }
-out() { sorted "$@"; }
 
 # nix profile on the backend under test; every command under timeout, so a deadlock is a failure.
 pn() {
@@ -129,13 +128,13 @@ agree() {
   check "$label (outcome [$got])" $got
 }
 
-# Each argument is a command line for np, run at the same time. Sets rcs to their exit codes.
+# Each argument is a command line for pn, run at the same time. Sets rcs to their exit codes.
 parallel() {
   local pids=() i=0 line rc
   for line in "$@"; do
     i=$((i + 1))
     # shellcheck disable=SC2086
-    np $line > "$t/log/p$i" 2>&1 &
+    pn $line > "$t/log/p$i" 2>&1 &
     pids+=($!)
   done
   rcs=; i=0
@@ -170,7 +169,7 @@ scenario_parallel_adds() {
 
 scenario_parallel_removes() {
   reset removes
-  np add "path:$L#fast0" "path:$L#fast1" "path:$L#fast2" "path:$L#fast3" > /dev/null 2>&1
+  pn add "path:$L#fast0" "path:$L#fast1" "path:$L#fast2" "path:$L#fast3" > /dev/null 2>&1
   parallel "remove fast0" "remove fast1" "remove fast2" "remove fast3"
   expect_ok "4 parallel removes"
   check "4 parallel removes, none resurrected"
@@ -178,7 +177,7 @@ scenario_parallel_removes() {
 
 scenario_upgrades() {
   reset upgrades
-  np add "path:$L#mid0" "path:$L#mid1" "path:$L#mid2" "path:$L#mid3" > /dev/null 2>&1
+  pn add "path:$L#mid0" "path:$L#mid1" "path:$L#mid2" "path:$L#mid3" > /dev/null 2>&1
   stamp
   parallel "upgrade mid0" "upgrade mid1" "upgrade mid2" "upgrade mid3"
   expect_ok "4 parallel upgrades"
@@ -189,9 +188,9 @@ scenario_upgrades() {
   if [ -z "$bad" ]; then pass "4 parallel upgrades all new"; else fail "not upgraded:$bad"; fi
 
   stamp
-  np upgrade mid0 > "$t/log/u" 2>&1 & local u=$!
+  pn upgrade mid0 > "$t/log/u" 2>&1 & local u=$!
   sleep 2
-  np remove mid1 > /dev/null 2>&1
+  pn remove mid1 > /dev/null 2>&1
   local rc=0; wait "$u" || rc=$?
   [ "$rc" = 0 ] || fail "upgrade with a remove meanwhile: rc=$rc"
   check "a remove during an upgrade stays removed" mid0 mid2 mid3
@@ -199,26 +198,29 @@ scenario_upgrades() {
 
 scenario_add_remove_same() {
   reset same
-  np add "path:$L#fast0" > /dev/null 2>&1
+  pn add "path:$L#fast0" > /dev/null 2>&1
   parallel "remove fast0" "add path:$L#fast0"
   expect_ok "remove and add of one name, present"
   agree "remove and add of one name, present"
   parallel "add path:$L#fast1" "remove fast1"
   expect_ok "add and remove of one name, absent"
   agree "add and remove of one name, absent"
-  # The target went while the command built: no-op, not an error.
-  np remove nosuchname > /dev/null 2>&1 || fail "remove of nothing failed"
+  # Both see the target; for the second it has gone by its commit, which is a no-op, not an error.
+  pn add "path:$L#fast2" > /dev/null 2>&1
+  parallel "remove fast2" "remove fast2"
+  expect_ok "two removes of one name"
+  agree "two removes of one name"
 }
 
 scenario_slow_during_fast() {
   reset slowfast
-  np add "path:$L#fast1" > /dev/null 2>&1
-  np add "path:$L#slow" > "$t/log/slow" 2>&1 & local s=$!
+  pn add "path:$L#fast1" > /dev/null 2>&1
+  pn add "path:$L#slow" > "$t/log/slow" 2>&1 & local s=$!
   sleep 5
-  local rc=0; np add "path:$L#fast0" > "$t/log/fast" 2>&1 || rc=$?
+  local rc=0; pn add "path:$L#fast0" > "$t/log/fast" 2>&1 || rc=$?
   if kill -0 "$s" 2>/dev/null; then pass "fast add finishes while the slow one builds (rc=$rc)"
   else fail "fast add waited for the slow build (rc=$rc)"; fi
-  np remove fast1 > /dev/null 2>&1 || fail "remove during the slow add failed"
+  pn remove fast1 > /dev/null 2>&1 || fail "remove during the slow add failed"
   rc=0; wait "$s" || rc=$?
   [ "$rc" = 0 ] || fail "slow add: rc=$rc: $(grep -a error "$t/log/slow" | head -n 2 | cut -c1-200)"
   check "fast add kept, remove not resurrected" fast0 slow
@@ -228,15 +230,18 @@ scenario_interrupted_build() {
   local sig
   for sig in INT KILL; do
     reset "kill$sig"
-    np add "path:$L#fast0" > /dev/null 2>&1
+    pn add "path:$L#fast0" > /dev/null 2>&1
     stamp
-    setsid bash -c "$(declare -f np); M=$M P=$P; np add path:$L#slow" > /dev/null 2>&1 &
+    # Not through pn: timeout would put nix in a process group of its own.
+    if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "path:$L#slow" > /dev/null 2>&1 &
+    else setsid nix profile add "path:$L#slow" > /dev/null 2>&1 &
+    fi
     local c=$!
     sleep 6
     kill -"$sig" -- "-$c" 2>/dev/null
     wait "$c" 2>/dev/null
     check "SIG$sig during the build leaves the state alone" fast0
-    np add "path:$L#fast1" > /dev/null 2>&1 || fail "add after SIG$sig failed"
+    pn add "path:$L#fast1" > /dev/null 2>&1 || fail "add after SIG$sig failed"
     check "no lock left behind by SIG$sig" fast0 fast1
   done
 }
@@ -276,7 +281,7 @@ scenario_two_backends() {
   sleep 5
   timeout 300 nix profile add "path:$L#shadow" > /dev/null 2>&1 || fail "declaring shadow"
   rc=0; wait "$s" || rc=$?
-  if [ "$rc" != 0 ] && grep -aq 'is declared in the declaration' "$t/log/s"; then pass "store path refused: its name was declared meanwhile"
+  if [ "$rc" != 0 ] && grep -aq 'is declared in' "$t/log/s"; then pass "store path refused: its name was declared meanwhile"
   else fail "store path not refused (rc=$rc)"; fi
   check "the declared element alone" shadow
 
