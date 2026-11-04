@@ -121,26 +121,6 @@ jobs:
           key: ${{ steps.nixpkg.outputs.key }}
       - name: build patched Nix
         run: nix build .#nix-profile-backends -L --no-link
-      - name: TEMP patched and stock Nix evaluate the starter alike
-        run: |
-          sys=$(nix eval --raw --impure --expr builtins.currentSystem)
-          input() { nix eval --raw --impure --expr "(builtins.getFlake (toString ./.)).inputs.$1.outPath"; }
-          np=$(input nixpkgs); hm=$(input home-manager); wf=$PWD/modules/nix-profile/webtop-flake
-          # Several outputs (out, man, ...) are printed: take the one with the binary.
-          pick() { for o in $(cat); do [ -x "$o/bin/nix" ] && echo "$o" && return; done; echo "no bin/nix in outputs" >&2; return 1; }
-          stock=$(nix build --no-link --print-out-paths --impure --expr "(builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.$sys.nixVersions.nix_2_34" | pick)
-          patched=$(nix build .#nix-profile-backends --no-link --print-out-paths | pick)
-          echo "stock $stock"; echo "patched $patched"; "$stock/bin/nix" --version; "$patched/bin/nix" --version
-          cp -r modules/nix-profile/starter /tmp/cmp; chmod -R u+w /tmp/cmp; cd /tmp/cmp
-          sed -i -e "s|url = \"nixpkgs\"|url = \"path:$np\"|; s|url = \"home-manager\"|url = \"path:$hm\"|; s|url = \"flake:webtop\"|url = \"path:$wf\"|" -e "s|@user@|ci|g; s|@home@|/home/ci|g; s|@stateVersion@|25.05|g; s|@system@|$sys|g" flake.nix home.nix
-          "$stock/bin/nix" flake lock
-          ev() { # <nix> <cache dir>
-            s=$SECONDS; XDG_CACHE_HOME=$2 "$1/bin/nix" eval --raw --no-write-lock-file '.#homeConfigurations."ci".activationPackage.drvPath'
-            echo " ($((SECONDS - s))s)" >&2
-          }
-          a=$(ev "$stock" /tmp/c1); b=$(ev "$patched" /tmp/c2); c=$(ev "$patched" /tmp/c2)
-          echo "stock $a"; echo "patched $b"; echo "patched, cached $c"
-          [ "$a" = "$b" ] && [ "$b" = "$c" ] && echo SAME || echo DIFFERENT
       - name: save patched Nix
         if: steps.nix-cache.outputs.cache-hit != 'true'
         run: |
