@@ -67,12 +67,6 @@
             name = "ghcr.io/lhns/webtop-nix";
             tag = "dev";
             nixos = sys;
-            # Change with input bumps only: the sources in the registry, and the all-locales glibc
-            # the prebuilt home-manager generation references.
-            extraGroups = [
-              { name = "sources"; anchors = [ nixpkgs home-manager ]; }
-              { name = "locales"; anchors = [ pkgs.glibcLocales ]; }
-            ];
             copyToRoot = [ rootfs ];
             config = {
               Entrypoint = [ "/sbin/init" ];

@@ -25,12 +25,14 @@ rec {
           p.gst_all_1.gst-plugins-base p.gst_all_1.gst-plugins-good p.gst_all_1.gst-plugins-bad
           c.services.pipewire.package c.services.pipewire.wireplumber.package ]; }
       { name = "data"; buckets = 2; anchors = c.fonts.packages ++ [ k.breeze-icons k.oxygen-icons
-          p.hicolor-icon-theme p.adwaita-icon-theme k.plasma-workspace-wallpapers c.i18n.glibcLocales
+          p.hicolor-icon-theme p.adwaita-icon-theme k.plasma-workspace-wallpapers c.i18n.glibcLocales p.glibcLocales
           p.xkeyboard_config p.tzdata p.cacert p.isocodes p.shared-mime-info p.mobile-broadband-provider-info
           p.sound-theme-freedesktop k.ocean-sound-theme p.hwdata ]; }
       # The nixpkgs source NixOS registers for flakes (nixpkgs.flake.source).
-      # The software center's index is rebuilt on each nixpkgs bump, so it goes here.
+      # The software center's index is rebuilt on each nixpkgs bump, so it goes here, and home-manager's
+      # source, in the registry with nixProfile, changes with input bumps too.
       { name = "nixpkgs"; anchors = p.lib.optional (c.nixpkgs.flake.source != null) c.nixpkgs.flake.source
+          ++ p.lib.optional (c.nix.registry ? home-manager) c.nix.registry.home-manager.to.path
           ++ [ p.nix-software-center-pkgdb ]; }
       { name = "firefox"; anchors = [ (c.programs.firefox.package.unwrapped or p.firefox-unwrapped) ]; }
       { name = "webtop"; anchors = [ c.services.webtop.package p.webtop-app-screen ]; }
