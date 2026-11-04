@@ -96,6 +96,7 @@
         inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
         vm = import ./tests/vm.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
+        latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };
       });
     };
 }
