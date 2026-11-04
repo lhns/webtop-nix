@@ -43,6 +43,15 @@ buildPythonPackage rec {
     # The web client says when it reconnects in place, which claims no display (latest-owner.patch).
     core=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/selkies-core-*.js)
     substituteInPlace "$core" --replace-fail 't.tabId=C()'       't.tabId=C(),t.reconnecting=window.__selkiesSettingsSent===!0,window.__selkiesSettingsSent=!0'
+    # The bundler's file names no longer match the content, so browsers would keep the old files: rename by content hash.
+    web=$out/${python.sitePackages}/selkies/selkies_web
+    for f in "$css" "$core"; do
+      old=$(basename "$f"); new="''${old%.*}-$(sha256sum "$f" | cut -c1-10).''${old##*.}"
+      mv "$f" "$(dirname "$f")/$new"
+      grep -rlF "$old" "$web" | xargs -r sed -i "s/$old/$new/g"
+      grep -rqF "$new" "$web" || { echo "selkies: no reference to $old found" >&2; exit 1; }
+      ! grep -rqF "$old" "$web" || { echo "selkies: $old still referenced" >&2; exit 1; }
+    done
   '';
 
   pythonImportsCheck = [ "selkies" ];
