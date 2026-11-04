@@ -169,6 +169,26 @@ let
             await old.close()
             await b.close()
 
+            # Opened laptop, monitor, phone: closing the phone hands the desktop to the
+            # monitor, the newest page left, not the laptop beside it.
+            lap = Page("tab-lap", (1024, 640))
+            await lap.open(http)
+            check("laptop sizes the desktop", await until(lambda: lap.res == lap.size), f"{lap.res}")
+            mon = Page("tab-mon", (800, 480))
+            await mon.open(http)
+            check("monitor takes the display", await until(lambda: lap.res == mon.size), f"laptop told {lap.res}")
+            phone = Page("tab-phone", (480, 800))
+            await phone.open(http)
+            check("phone takes the display", await until(lambda: mon.res == phone.size), f"monitor told {mon.res}")
+            lap.texts.clear(); mon.texts.clear()
+            await phone.close()
+            check("the monitor is promoted when the phone leaves", await until(lambda: mon.told("DISPLAY_OWNER primary"), GRACE * 2))
+            check("the laptop is not promoted", not lap.told("DISPLAY_OWNER primary"))
+            await mon.send(mon.settings())
+            check("the promoted monitor sizes the desktop", await until(lambda: lap.res == mon.size), f"laptop told {lap.res}")
+            await mon.close()
+            await lap.close()
+
     class Proxy(threading.Thread):
         """A TCP proxy a page connects through, so its socket can be cut with no close frame."""
 

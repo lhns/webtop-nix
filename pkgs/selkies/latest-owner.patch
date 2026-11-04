@@ -17,7 +17,7 @@ written for upstream, see docs/upstream/selkies-latest-owner.md.
 +        # Controllers of a display beside its owner, oldest first: a page that
 +        # lost the display to one opened later, reconnected in place or holds
 +        # less than full permissions takes the stream and input with it, where
-+        # the owner keeps the display's size and encoding, and the oldest owns
++        # the owner keeps the display's size and encoding, and the newest owns
 +        # it once the owner is gone for good (`_promote_co_controller`).
          self.co_controllers: Dict[str, "OrderedDict[Any, Optional[str]]"] = {}
          # Each controller page's last SETTINGS: a later one applies the stream
@@ -42,7 +42,7 @@ written for upstream, see docs/upstream/selkies-latest-owner.md.
          if not getattr(self.cli_args, 'enable_sharing', (True,))[0]:
              return False
          owner = self.display_clients.get('primary')
-@@ -2136,6 +2132,30 @@
+@@ -2136,15 +2132,39 @@
          return (owner_ws is not None and owner_ws is not websocket and not owner_ws.closed
                  and bool(tab_id) and bool(owner.get('tab_id')) and tab_id != owner.get('tab_id'))
  
@@ -71,8 +71,20 @@ written for upstream, see docs/upstream/selkies-latest-owner.md.
 +        data_logger.info("The page that owned 'primary' stays beside the page that takes it.")
 +
      async def _promote_co_controller(self, display_id: str) -> bool:
-         """Hand a display whose owner is gone for good to the oldest controller
-         beside it that holds full permissions, else to the oldest one: told
+-        """Hand a display whose owner is gone for good to the oldest controller
+-        beside it that holds full permissions, else to the oldest one: told
++        """Hand a display whose owner is gone for good to the newest controller
++        beside it that holds full permissions, else to the newest one: told
+         `DISPLAY_OWNER <display>`, the page sends its settings again, and that
+         SETTINGS takes the entry over, with full control of the display, its own
+         changes now applying. False when none is left to tell."""
+         joiners = self.co_controllers.get(display_id)
+         while joiners:
+-            ws = next((w for w in joiners if not w.closed and self._holds_full_control(w)), next(iter(joiners)))
++            ws = next((w for w in reversed(joiners) if not w.closed and self._holds_full_control(w)), next(reversed(joiners)))
+             joiners.pop(ws)
+             if ws.closed:
+                 continue
 @@ -4318,6 +4338,8 @@
          parsed["audioRedundancy"] = get_bool("audioRedundancy")
          # The page's tab, which tells its own reload from another page (`co_controllers`).
