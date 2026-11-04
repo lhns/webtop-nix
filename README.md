@@ -143,8 +143,8 @@ The page opened last owns the primary display: the desktop takes that page's win
 pages before it stay connected beside it, streaming and playing audio, with their input working and
 their own resizes ignored ([patch](pkgs/selkies/latest-owner.patch), [for upstream](docs/upstream/selkies-latest-owner.md)).
 A reload counts as opening the page. A page cut off that reconnects by itself claims nothing, and a
-page beside the owner never takes the display by itself; when the owner leaves, the oldest page beside
-it takes over. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.
+page beside the owner never takes the display by itself; when the owner leaves, the page opened last
+beside it (one with full permissions first) takes over, so closing a phone returns the desktop to the monitor, not the laptop. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.
 
 ## Image
 

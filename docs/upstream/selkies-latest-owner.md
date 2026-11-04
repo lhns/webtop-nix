@@ -9,8 +9,9 @@ small until it is found and closed.
 A socket's first SETTINGS for the primary, from a page of another tab holding full permissions, now
 takes the display. The owner is not killed: it moves into `co_controllers`, keeping its audio and
 pause state, and is told the size with the reset and keyframe a joining page gets. A later SETTINGS
-from a page beside the owner never takes the display. When the owner leaves, promotion works as
-before; a former owner's next SETTINGS counts as a first one so that its window sizes the desktop.
+from a page beside the owner never takes the display. When the owner leaves, the newest page beside it
+with full permissions takes over (else the newest), where it was the oldest: with laptop, monitor and phone
+opened in that order, closing the phone gives the monitor the desktop. A former owner's next SETTINGS counts as a first one so that its window sizes the desktop.
 
 A dropped `r,` from a page beside the owner now answers with the display's `stream_resolution`: the
 web client has by then fitted its canvas to its window, and nothing else would put it back. This also
