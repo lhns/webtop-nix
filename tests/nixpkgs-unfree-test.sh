@@ -13,7 +13,9 @@ sys=$(nix eval --raw --impure --expr builtins.currentSystem)
 attr=hello-unfree
 nixpkgs=$(nix eval --raw --impure --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.outPath')
 unfree=$(nix build .#nixpkgs-unfree-flake --no-link --print-out-paths)
-patched=$(nix build .#nix-profile-backends --no-link --print-out-paths)/bin/nix
+for o in $(nix build .#nix-profile-backends --no-link --print-out-paths); do
+  if [ -x "$o/bin/nix" ]; then patched=$o/bin/nix; fi
+done
 
 # As the module's flake-registry: the image's pins, offline.
 cat > "$t/global.json" <<JSON
