@@ -14,7 +14,11 @@ x() { docker exec "$c" "$@"; }
 asuser() { x runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "$@"; }
 
 docker rm -f "$c" >/dev/null 2>&1 || true
-docker run -d --name "$c" --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:8082 "$image" >/dev/null
+# A home that outlives the container, as an update to a new image does; removed at the end.
+vol=webtop-image-home
+docker volume rm "$vol" >/dev/null 2>&1 || true
+start() { docker run -d --name "$c" --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:8082 -v "$vol:/home" "$image" >/dev/null; }
+start
 
 deadline=$(($(date +%s) + timeout))
 wait_for() { # <what> <command...>
@@ -59,5 +63,22 @@ out=$(touser webtop-home-manager-update) || fail "webtop-home-manager-update fai
 [ "$out" = "already the current template" ] || fail "webtop-home-manager-update: $out"
 echo "nix profile, local.nix: ok"
 
+# A new container on the same home: its store has nothing the user installed, so the declared package
+# and the generation come back with the switch; dangling links move aside.
+touser nix profile add nixpkgs#hello || fail "nix profile add failed"
+touser nix profile add --profile-backend profile nixpkgs#cowsay || fail "nix profile add to the profile failed"
 docker rm -f "$c" >/dev/null
+start
+deadline=$(($(date +%s) + timeout))
+wait_for "KWin compositing on the same home" compositing
+wait_for "home-manager setup on the same home" setup_done
+[ "$(x systemctl show -P Result webtop-home-manager)" = success ] \
+  || { x journalctl -u webtop-home-manager --no-pager | tail -n 50; fail "webtop-home-manager failed on the same home"; }
+touser hello >/dev/null || { x journalctl -u webtop-home-manager --no-pager | tail -n 50; fail "the declared package did not come back"; }
+touser sh -c 'ls -d /home/user/.local/state/nix/profiles.old-*' >/dev/null || fail "dangling generations were not moved aside"
+touser nix profile add --profile-backend profile nixpkgs#tree || fail "the profile cannot be extended after the move aside"
+echo "same home on a new store: ok"
+
+docker rm -f "$c" >/dev/null
+docker volume rm "$vol" >/dev/null
 echo "image boot: ok"

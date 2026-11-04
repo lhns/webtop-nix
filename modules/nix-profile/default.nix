@@ -53,6 +53,11 @@ let
     # In the text, not the unit: a consumer's unit may run this script too.
     text = "WEBTOP_FLAKE=${webtopFlake}\n" + builtins.readFile ./webtop-home-manager.sh;
   };
+  reinstall = pkgs.writeShellApplication {
+    name = "webtop-nix-reinstall";
+    runtimeInputs = with pkgs; [ coreutils gnused jq config.nix.package notify cfg.progress ];
+    text = "WEBTOP_SETUP=${lib.getExe setup}\n" + builtins.readFile ./webtop-nix-reinstall.sh;
+  };
   updateTool = pkgs.writeShellApplication {
     name = "webtop-home-manager-update";
     runtimeInputs = with pkgs; [ coreutils diffutils git config.nix.package templateTool hmPackage ];
@@ -86,6 +91,26 @@ in
       description = ''
         Provides `webtop-restore-progress current TEXT`, called before a switch, and
         `webtop-restore-progress nixconfig`, which prints the NIX_CONFIG for that switch.
+      '';
+    };
+
+    reinstall = lib.mkOption {
+      type = lib.types.package;
+      readOnly = true;
+      default = reinstall;
+      description = ''
+        `webtop-nix-reinstall MANIFEST`, as the user, for what an image update took from the store:
+        dangling generations move aside, the old profile's flake packages come back from MANIFEST, then
+        the setup script. Exit 0 only if all of it worked. Without a file at MANIFEST it reinstalls nothing.
+      '';
+    };
+
+    fromImageStore = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        The store is the image's alone, so the home outlives it: every boot runs the reinstall without
+        a manifest ahead of the switch. Off for a consumer that runs the reinstall after its own restore.
       '';
     };
 
@@ -181,7 +206,7 @@ in
         # Not oneshot: multi-user.target would wait for a switch.
         Type = "exec";
         User = uid;
-        ExecStart = lib.getExe setup;
+        ExecStart = if cfg.fromImageStore then "${lib.getExe reinstall} /nonexistent" else lib.getExe setup;
         # Whatever stops the system must allow for this.
         TimeoutStopSec = "5min";
       };
