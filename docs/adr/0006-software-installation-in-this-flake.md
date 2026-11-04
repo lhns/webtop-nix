@@ -31,3 +31,7 @@ Kubernetes, and the standalone image should install software the same way.
 - A change to the starter is a template upgrade for every user: unmodified flakes follow it, edited
   ones get a notice.
 - Nixpkgs bumps here must keep the Nix minor version the patch applies to, or rebase the patch.
+
+## Amendment 2026-11-04
+
+Without a persistent store the home outlives the image's store: `nixProfile.fromImageStore`, on by default, runs `webtop-nix-reinstall` (no manifest) ahead of the switch at each boot, so a new image brings back what is declared. A consumer with its own restore turns it off and runs the command after that.
