@@ -131,6 +131,9 @@ jobs:
         with:
           path: ~/nix-cache
           key: ${{ steps.nixpkg.outputs.key }}
+      - name: nix profile concurrency test
+        timeout-minutes: 45
+        run: bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
       # references (import from derivation), which needs a build of that system, hence native runners.
