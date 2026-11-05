@@ -17,7 +17,7 @@ pkgs.testers.runNixOSTest {
       conflicts = [ "shutdown.target" ];
       unitConfig.DefaultDependencies = false;
       serviceConfig.Type = "oneshot";
-      script = "echo power-hook-ran > /var/lib/power-hook; logger -t power-hook stop/user";
+      script = "logger -t power-hook stop/user";
     };
   };
   testScript = ''
@@ -62,9 +62,12 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_shutdown()
     machine.start()
     machine.wait_for_unit("multi-user.target")
-    machine.succeed("grep -q power-hook-ran /var/lib/power-hook")
+    print(machine.execute("journalctl --list-boots --no-pager; ls /var/log/journal")[1])
     j = machine.succeed("journalctl -b -1 -o short-monotonic --no-pager").splitlines()
-    mark = next(n for n, l in enumerate(j) if "power-hook" in l and "stop/user" in l)
+    marks = [n for n, l in enumerate(j) if "power-hook" in l and "stop/user" in l]
+    assert marks, "power hook did not report stop/user: " + "
+".join(l for l in j if "poweroff" in l or "power-hook" in l or "Shutdown" in l)
+    mark = marks[0]
     late = [l for l in j[mark:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
     assert not late, "session restarted during shutdown: " + repr(late)
   '';
