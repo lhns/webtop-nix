@@ -39,7 +39,7 @@ buildPythonPackage rec {
     rm -f $out/${python.sitePackages}/selkies/__pycache__/websockets_mode.*.pyc
     css=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.css)
     [ -f "$css" ] || { echo "selkies: web client stylesheet not found" >&2; exit 1; }
-    cat ${./selkies/touch-handle.css} >> "$css"
+    cat ${./selkies/touch-handle.css} ${./selkies/key-bar.css} >> "$css"
     # The web client says when it reconnects in place, which claims no display (latest-owner.patch).
     core=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/selkies-core-*.js)
     substituteInPlace "$core" --replace-fail 't.tabId=C()'       't.tabId=C(),t.reconnecting=window.__selkiesSettingsSent===!0,window.__selkiesSettingsSent=!0'
@@ -47,9 +47,16 @@ buildPythonPackage rec {
     substituteInPlace "$core" --replace-fail 'return 1+2*t*t*(3-2*t)}' 'return 1+.5*t*t*(3-2*t)}'       --replace-fail 'st=.25,ct=4' 'st=.1,ct=4'
     js=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.js)
     substituteInPlace "$js" --replace-fail '[.5,.75,1,1.5,2,3]' '[.1,.25,.5,.75,1,1.5,2,3]'
-    # The bundler's file names no longer match the content, so browsers would keep the old files: rename by content hash.
+    # Special-key bar for touch screens; it drives the client's webrtcInput through these methods (see key-bar.js).
+    for m in _sendKeyEvent _releaseLostKey resetKeyboard _chordModifierHeld _startKeyHeartbeat; do
+      grep -qF "$m(" "$core" || { echo "selkies: web client has no $m, key-bar.js needs it" >&2; exit 1; }
+    done
     web=$out/${python.sitePackages}/selkies/selkies_web
-    for f in "$css" "$core" "$js"; do
+    cp ${./selkies/key-bar.js} $web/assets/key-bar.js
+    sed -i 's|</head>|<script defer src="./assets/key-bar.js"></script></head>|' $web/index.html
+    grep -qF 'assets/key-bar.js' $web/index.html || { echo "selkies: no </head> in index.html" >&2; exit 1; }
+    # The bundler's file names no longer match the content, so browsers would keep the old files: rename by content hash.
+    for f in "$css" "$core" "$js" "$web/assets/key-bar.js"; do
       old=$(basename "$f"); new="''${old%.*}-$(sha256sum "$f" | cut -c1-10).''${old##*.}"
       mv "$f" "$(dirname "$f")/$new"
       grep -rlF "$old" "$web" | xargs -r sed -i "s/$old/$new/g"

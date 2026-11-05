@@ -18,6 +18,20 @@ env:
   IMAGE: ghcr.io/lhns/webtop-nix
 
 jobs:
+  # The touch key bar of the web client, in mobile-emulated Chromium against a stub of the client's key input.
+  # A real Android keyboard is not covered.
+  key-bar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: key bar test
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pw"
+          "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
+          "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py
+
   nix:
     # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
     # (kube-webtop-workspaces boot-tests the image on both).
@@ -147,6 +161,14 @@ jobs:
         run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval
         run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest -L
+      - name: key bar in the built client
+        if: matrix.system == 'x86_64-linux'
+        run: |
+          nix build .#selkies -o selkies-out
+          python3 -m venv "$RUNNER_TEMP/pw"
+          "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
+          "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py --built "$(echo selkies-out/lib/python*/site-packages/selkies/selkies_web)"
       - name: VM test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.vm -L
