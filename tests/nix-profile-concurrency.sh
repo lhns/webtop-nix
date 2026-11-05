@@ -131,6 +131,15 @@ why() {
 builder_killed() { grep -aq 'builder failed due to signal 9' "$1"; }
 pass() { echo "PASS  $M: $*"; }
 fail() { echo "FAIL  $M: $*"; fails=$((fails + 1)); }
+# A scenario's setup: must work, or what follows tests nothing. A killed builder gets one more try.
+given_add() {
+  pn add "$@" > "$t/log/given" 2>&1 && return 0
+  if builder_killed "$t/log/given"; then
+    echo "NOTE  builder killed from outside, the setup add runs again"
+    pn add "$@" > "$t/log/given" 2>&1 && return 0
+  fi
+  fail "setup: nix profile add $*"; why "$t/log/given"
+}
 sorted() { printf '%s\n' "$@" | sort -u | xargs; }
 
 # Nothing holds the apply lock any more: orphaned hooks and switches have finished.
@@ -250,7 +259,7 @@ scenario_parallel_removes() {
   local round
   for round in $(seq "$rounds"); do
     reset "removes$round"
-    pn add "$F#fast0" "$F#fast1" "$F#fast2" "$F#fast3" > /dev/null 2>&1
+    given_add "$F#fast0" "$F#fast1" "$F#fast2" "$F#fast3"
     parallel "remove fast0" "remove fast1" "remove fast2" "remove fast3"
     expect_ok "4 parallel removes, round $round"
     check "4 parallel removes, round $round, none resurrected"
@@ -259,7 +268,7 @@ scenario_parallel_removes() {
 
 scenario_upgrades() {
   reset upgrades
-  pn add "$F#mid0" "$F#mid1" "$F#mid2" "$F#mid3" > /dev/null 2>&1
+  given_add "$F#mid0" "$F#mid1" "$F#mid2" "$F#mid3"
   stamp
   parallel "upgrade mid0" "upgrade mid1" "upgrade mid2" "upgrade mid3"
   expect_ok "4 parallel upgrades"
@@ -282,7 +291,7 @@ scenario_add_remove_same() {
   local round
   for round in $(seq "$rounds"); do
     reset "same$round"
-    pn add "$F#fast0" > /dev/null 2>&1
+    given_add "$F#fast0"
     parallel "remove fast0" "add $F#fast0"
     expect_ok "remove and add of one name, present, round $round"
     agree "remove and add of one name, present, round $round"
@@ -292,7 +301,7 @@ scenario_add_remove_same() {
   done
   # Both see the target; for the second it has gone by its commit, which is a no-op, not an error.
   reset sameremove
-  pn add "$F#fast2" > /dev/null 2>&1
+  given_add "$F#fast2"
   parallel "remove fast2" "remove fast2"
   expect_ok "two removes of one name"
   check "two removes of one name"
@@ -300,7 +309,7 @@ scenario_add_remove_same() {
 
 scenario_slow_during_fast() {
   reset slowfast
-  pn add "$F#fast1" > /dev/null 2>&1
+  given_add "$F#fast1"
   pn add "$F#slow" > "$t/log/slow" 2>&1 & local s=$!
   sleep 5
   local rc=0; pn add "$F#fast0" > "$t/log/fast" 2>&1 || rc=$?
@@ -318,7 +327,7 @@ scenario_interrupted() {
   for sig in INT KILL; do
     for delay in 0.3 6; do
       reset "kill$sig$delay"
-      pn add "$F#fast0" > /dev/null 2>&1
+      given_add "$F#fast0"
       stamp
       # Not through pn: timeout would put nix in a process group of its own.
       if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "$F#slow" > /dev/null 2>&1 &
@@ -338,7 +347,7 @@ scenario_interrupted() {
 # A hook failing after the profile's lock was released: the revert keeps another command's commit.
 scenario_plain_revert() {
   reset plainrevert
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   local e rc=0; e=$(path_of extra2)
   echo "$e" > "$t/fail-plain-hook"
   pn add "$F#fast1" > "$t/log/r" 2>&1 || rc=$?
@@ -611,7 +620,7 @@ scenario_repairs() {
   local rc before
   # A generation that did not write the marker (older, or a pointer moved): both paths switch.
   reset repairgen
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   echo "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) /nix/store/other-generation" > "$APPLIED"
   pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add with another generation's marker"; why "$t/log/add"; }
   check "another generation's marker: a command with nothing to change switches" fast0
@@ -634,7 +643,7 @@ scenario_repairs() {
 
   # A switch that fails, at evaluation and in activation: the command fails, the file and generation are back.
   reset repairfail
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   echo '{ ... }: throw "broken on purpose"' > "$H/local.nix"
   rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
   rm -f "$H/local.nix"
@@ -654,7 +663,7 @@ scenario_repairs() {
 
   # A hand edit, valid: applied by the next command or the boot; invalid: refused, nothing changes.
   reset repairedit
-  pn add "$F#fast0" "$F#fast1" > /dev/null 2>&1
+  given_add "$F#fast0" "$F#fast1"
   jq 'del(.elements.fast0)' "$H/packages.json" > "$t/e" && cat "$t/e" > "$H/packages.json"
   pn add "$F#fast1" > "$t/log/add" 2>&1 || { fail "add after a hand edit"; why "$t/log/add"; }
   check "a hand edit: the next command applies it" fast1
@@ -707,7 +716,7 @@ scenario_commands() {
   check "install and add, none lost" fast0 fast1 fast2
 
   reset cmdrollback
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   parallel "rollback" "add $F#fast1"
   quiesce
   agree "rollback and add at once (exit codes $rcs)"
@@ -740,7 +749,7 @@ scenario_mixed() {
   local round r1 r2 rc
   for round in $(seq "${mixed_rounds:-2}"); do
     reset "mixed$round"
-    pn add "$F#fast0" "$F#fast1" > /dev/null 2>&1
+    given_add "$F#fast0" "$F#fast1"
     stamp
     timeout 300 home-manager switch --flake "$H" > "$t/log/m1" 2>&1 & r1=$!
     timeout 300 "$hm/bin/home-manager" switch --flake "$H" > "$t/log/m2" 2>&1 & r2=$!
@@ -833,7 +842,7 @@ scenario_disk_full() {
   }
 
   reset fullconfig
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   on_small_disk "$H" || { fail "mounting a small disk"; return; }
   rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
   if [ "$rc" != 0 ] && jq -e . "$H/packages.json" > /dev/null && ! file_has fast1; then pass "full disk at the declaration: the command fails, the file is as it was"
@@ -847,7 +856,7 @@ scenario_disk_full() {
   # At the state: the marker cannot be written, so the activation fails and the previous one comes back.
   dir=$HOME/.local/state
   reset fullstate
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   on_small_disk "$dir" || { fail "mounting a small disk"; return; }
   rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
   if [ "$rc" != 0 ]; then pass "full disk at the state: the command fails"; else fail "full disk at the state: the command succeeded"; fi
@@ -933,7 +942,7 @@ EOF
 
   # --rollback is not refused, and a forward switch returns to the declaration.
   reset activationsrollback
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   rc=0; timeout 120 home-manager switch --rollback > "$t/log/rb" 2>&1 || rc=$?
   if [ "$rc" = 0 ]; then pass "home-manager switch --rollback works"; else fail "rollback rc=$rc"; tail -n 5 "$t/log/rb"; fi
   timeout 120 home-manager switch --flake "$H" > "$t/log/rb2" 2>&1 || fail "switch after rollback failed"
@@ -994,12 +1003,12 @@ EOF
 scenario_hm_atomic() {
   local p src r cnt d g
   reset hmatomic
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   touch "$t/poll"
   ( missing=0; polls=0
     while [ -e "$t/poll" ]; do polls=$((polls + 1)); [ -x "$HOME/.nix-profile/bin/tb-fast0" ] || missing=$((missing + 1)); sleep 0.005; done
     echo "$missing/$polls" > "$t/pollres" ) &
-  for p in fast1 fast2 fast3; do pn add "$F#$p" > /dev/null 2>&1; done
+  for p in fast1 fast2 fast3; do given_add "$F#$p"; done
   rm -f "$t/poll"; sleep 0.5
   if [ "$(cut -d/ -f1 "$t/pollres")" = 0 ]; then pass "no moment without the declared packages over 3 switches ($(cat "$t/pollres") polls missing)"
   else fail "declared packages missing during switches: $(cat "$t/pollres")"; fi
@@ -1034,7 +1043,7 @@ scenario_hm_atomic() {
   # record how activation calls Nix; its PATH is only the directory nix-env resolves to, so these must
   # be real files here.
   reset hmstock
-  pn add "$F#fast0" > /dev/null 2>&1
+  given_add "$F#fast0"
   g=$(readlink -f "$D/home-manager")
   if "$stock_nix_dir/nix" config show profile-backend > /dev/null 2>&1; then fail "$stock_nix_dir/nix has profile-backend: not stock"; fi
   mkdir "$t/stock"
