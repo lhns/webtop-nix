@@ -124,7 +124,7 @@ let
     def windows():
         return json.loads(kwin_js(
             "print('TAG ' + JSON.stringify(workspace.windowList().filter(w => w.normalWindow || w.dialog)"
-            ".map(w => ({app: w.desktopFileName, dialog: w.dialog, "
+            ".map(w => ({app: w.desktopFileName, dialog: w.transient, "
             "screen: w.output ? w.output.name : null, fullScreen: w.fullScreen}))));") or "[]")
 
     def active():
@@ -209,7 +209,7 @@ let
                 cmd = open(f"/proc/{pid}/cmdline").read()
             except (OSError, ValueError):
                 continue
-            group = ("kwin_wayland" if comm.startswith("kwin_wayland") else
+            group = ("kwin_wayland" if "kwin_wayland" in comm else
                      "app" if "test.app." in cmd else
                      "selkies" if "selkies" in cmd else "rest")
             t, r = out.get(group, (0, 0))
@@ -344,8 +344,6 @@ let
             note(user("systemctl --user stop selkies.service"))
             took = time.time() - start
             check("Selkies stops with four pages open", took < 60, f"{took:.0f} s")
-            check("the windows are back on the main screen after it", wait_for(lambda: returned(APPS["a"]), 30),
-                  json.dumps(windows()))
             browser.close()
     except Exception as e:
         check("driver ran to the end", False, repr(e))

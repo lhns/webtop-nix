@@ -155,7 +155,20 @@ a KWin output plus a capture and encoder: see "Cost of app screens".
 
 ### Cost of app screens
 
-MEASURED_COST
+From `checks.app-screens` (CI VM, 4 vCPUs shared with the test's browser, llvmpipe, JPEG since the headless
+browser has no H.264; each screen 1024x640; session processes without the apps themselves):
+
+| app screens | memory | CPU, apps idle | CPU, every app repainting all pixels at 30 fps |
+| --- | --- | --- | --- |
+| 0 | 1980 MiB | 1% of a core | |
+| 1 | 2076 MiB | 2% | 136% |
+| 2 | 2185 MiB | 5% | 160% |
+| 4 | 2418 MiB | 7% | 127% |
+
+So about 110 MiB and 2% of a core per screen at rest. Under full repaint the Selkies process grows by
+10-15% of a core per screen (17%, 27%, 46%), while the total is limited by the shared VM rather than
+growing with the count, so it is no per-screen figure; expect a busy screen to cost more than one core
+on software rendering. x264 was not measured. A hidden tab stops its capture.
 
 ## Several pages on one desktop
 
