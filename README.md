@@ -139,7 +139,12 @@ dialogs to the screen, makes normal windows fullscreen (maximized if they cannot
 them. It stays loaded: windows opened later are moved too, so none stays on the primary screen that
 nobody may be watching, and if the screen goes and comes back (page reload) they return. `place`
 can run before the app starts or the screen exists; running it again replaces the previous one.
-`release` unloads it and leaves the windows where they are. Both need `DBUS_SESSION_BUS_ADDRESS`
+When the screen goes (page closed) the script puts the windows it changed back on the main screen (any
+screen that is not a `SELKIES-<n>`) and restores their state, so the panel is reachable; a window the
+user had fullscreened before stays fullscreen. `release` unloads the script, then runs a one-shot
+script that sends the app's windows on a `SELKIES-<n>` screen to the main screen and un-fullscreens
+and un-maximizes them (prior state is gone with the unloaded script); with no main screen it moves
+nothing. Only one app at a time is supported: release the previous app before placing the next. Both need `DBUS_SESSION_BUS_ADDRESS`
 and `XDG_RUNTIME_DIR`; exit status 2 is a usage error, 1 means KWin refused the script.
 
 Starting the app is the caller's job. Only `display2` exists in Selkies' web client, so one app at a
