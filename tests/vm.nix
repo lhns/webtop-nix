@@ -126,10 +126,14 @@ WEBTOP_LOCALE=de_DE.UTF-8
     machine.fail("test -e /pwned")
     # A bad user value does not discard a good one on another line.
     expect("Asia/Tokyo", "fr_FR.UTF-8", restart_session("timeZone=Mars/Olympus\nlocale=fr_FR.UTF-8\n"))
-    # Links, directories and oversized files are not read.
-    machine.succeed(f"rm -f {conf}; ln -s /etc/webtop-locale.env {conf}")
+    # A link is followed as the user (home-manager's file is one into the store); what the user cannot read is not.
+    machine.succeed(f"printf 'timeZone=Europe/Paris\nlocale=fr_FR.UTF-8\n' > /etc/webtop-link-ok; chmod 644 /etc/webtop-link-ok; rm -f {conf}; ln -s /etc/webtop-link-ok {conf}")
+    machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
+    expect("Europe/Paris", "fr_FR.UTF-8", session_env())
+    machine.succeed(f"printf 'timeZone=Europe/Paris\n' > /etc/webtop-link-root; chmod 600 /etc/webtop-link-root; rm -f {conf}; ln -s /etc/webtop-link-root {conf}")
     machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())
+    # Oversized files are not read.
     machine.succeed(f"rm -f {conf}; head -c 100000 /dev/zero | tr '\0' '#' > {conf}; printf 'timeZone=Europe/Paris\n' >> {conf}; chown user: {conf}")
     machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())

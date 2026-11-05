@@ -32,35 +32,45 @@ locale_ok() {
   grep -qxF -- "$name$cs" <<<"$all"
 }
 
-# The user file is untrusted: read as the user (the kernel then refuses what they cannot open, and a
-# link cannot reach other files), a regular file of at most 64 KiB, a timeout against a FIFO.
+# The user file is untrusted: read as the user, so the kernel refuses what they cannot open. It is
+# usually a link into the store (home-manager), so links are followed. Bounded to 64 KiB by head, a
+# timeout against a FIFO swapped in after the check.
 user_tz='' user_locale=''
 if pw=$(getent passwd "$uid") && home=$(cut -d: -f6 <<<"$pw") && name=$(cut -d: -f1 <<<"$pw") && [ -d "$home" ]; then
   f=$home/.config/webtop/session.conf
   rc=0
   # shellcheck disable=SC2016 # expanded by the user's sh
   content=$(runuser -u "$name" -- timeout 5 sh -c \
-    '[ -f "$1" ] && [ ! -L "$1" ] || exit 3; [ "$(stat -c %s "$1")" -le 65536 ] || exit 4; cat -- "$1"' sh "$f" 2>/dev/null) || rc=$?
+    '[ -f "$1" ] || exit 3; head -c 65537 -- "$1" | tr -d "\000"' sh "$f" 2>/dev/null) || rc=$?
   case $rc in
     0) ;;
     3) [ ! -e "$f" ] && [ ! -L "$f" ] || log "ignoring $f: not a regular file" ;;
-    *) log "ignoring $f: unreadable or over 64 KiB" ;;
+    *) log "ignoring $f: unreadable" ;;
   esac
+  if [ "$rc" = 0 ] && [ "$(LC_ALL=C; echo "${#content}")" -gt 65536 ]; then
+    log "ignoring $f: over 64 KiB"
+    rc=4
+  fi
   if [ "$rc" = 0 ]; then
+    ignored=0 unknown=''
     while IFS= read -r line || [ -n "$line" ]; do
       line=${line%$'\r'}
-      case $line in '' | '#'*) continue ;; esac
-      if [[ $line =~ ^([A-Za-z]+)=(.*)$ ]]; then
+      # Same grammar as the gateway's reader: key=value, blanks around either ignored, # starts a comment line.
+      if [[ $line =~ ^[[:space:]]*([A-Za-z]+)[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]]; then
         case ${BASH_REMATCH[1]} in
           timeZone) user_tz=${BASH_REMATCH[2]} ;;
           locale) user_locale=${BASH_REMATCH[2]} ;;
           onLogout | onLock) ;; # the gateway's
-          *) log "session.conf: ignoring unknown key '$(printable "${BASH_REMATCH[1]}")'" ;;
+          *) unknown=${BASH_REMATCH[1]} ignored=$((ignored + 1)) ;;
         esac
+      elif [[ $line =~ ^[[:space:]]*(#|$) ]]; then
+        :
       else
-        log "session.conf: ignoring a line that is not key=value"
+        ignored=$((ignored + 1))
       fi
     done <<<"$content"
+    # One line per start, however many lines the file has.
+    [ "$ignored" = 0 ] || log "session.conf: ignored $ignored lines (unknown keys or not key=value${unknown:+, e.g. $(printable "$unknown")})"
   fi
 else
   log "no home for uid $uid: the user's session.conf is not read"
