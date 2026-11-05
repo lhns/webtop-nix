@@ -544,7 +544,7 @@ scenario_store_path_lock() {
 
 # home-manager's own install of its generation: no moment without it, and never none after a kill.
 scenario_hm_atomic() {
-  local p src r n d g
+  local p src r cnt d g
   reset hmatomic
   pn add "$F#fast0" > /dev/null 2>&1
   touch "$t/poll"
@@ -563,9 +563,9 @@ scenario_hm_atomic() {
     setsid nix profile add --replace home-manager-path "$p" > /dev/null 2>&1 & c=$!
     sleep "$d"
     kill -9 "$c" 2> /dev/null; wait "$c" 2> /dev/null
-    n=$(jq -r '.elements | keys[]' "$D/profile/manifest.json" | grep -c '^home-manager-path')
-    if [ "$n" = 1 ]; then pass "kill -9 during --replace after $d s: one home-manager-path"
-    else fail "kill -9 during --replace after $d s: $n home-manager-path elements"; fi
+    cnt=$(jq -r '.elements | keys[]' "$D/profile/manifest.json" | grep -c '^home-manager-path')
+    if [ "$cnt" = 1 ]; then pass "kill -9 during --replace after $d s: one home-manager-path"
+    else fail "kill -9 during --replace after $d s: $cnt home-manager-path elements"; fi
   done
 
   # The text of home-manager's installPackages that webtop-flake/packages.nix replaces.
