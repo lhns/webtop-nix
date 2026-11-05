@@ -41,7 +41,7 @@ index 4f56319..34e51b6 100644
          StringSet versions;
          for (auto & path : storePaths)
              versions.insert(DrvName(path.name()).version);
-@@ -312,6 +333,632 @@ struct ProfileManifest
+@@ -312,6 +333,635 @@ struct ProfileManifest
      }
  };
  
@@ -503,6 +503,9 @@ index 4f56319..34e51b6 100644
 +
 +    void lockForCommit() override
 +    {
++        // Earlier in the lock order than what a hook or a switch holds (ADR 0008): it would wait forever.
++        if (getEnv("NIX_PROFILE_BACKEND"))
++            throw Error("'nix profile' cannot change %s from inside its hook or a home-manager switch", PathFmt(file));
 +        if (locked)
 +            return;
 +        lockProfile(lock, history);

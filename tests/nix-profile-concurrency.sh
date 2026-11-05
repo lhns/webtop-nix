@@ -76,6 +76,7 @@ cat >> "$H/home.nix" <<'EOF'
       echo "start $(date +%s.%N)" >> $webtop_ctl/act-log
       touch $webtop_ctl/act-started
       if [ -e $webtop_ctl/act-oom ]; then tail /dev/zero; fi
+      if [ -e $webtop_ctl/act-fail ]; then rm $webtop_ctl/act-fail; exit 1; fi
       while [ -e $webtop_ctl/hold-act ]; do sleep 0.2; done
       if [ -e $webtop_ctl/act-sleep ]; then sleep 1.5; fi
       if [ -e $webtop_ctl/act-bg ]; then ( sleep 25 ) & fi
@@ -628,6 +629,26 @@ scenario_repairs() {
   jq -e .nodes "$H/flake.lock" > /dev/null || fail "flake.lock was not written again"
   rm -f "$H/flake.lock.bad"
 
+  # A switch that fails, at evaluation and in activation: the command fails, the file and generation are back.
+  reset repairfail
+  pn add "$F#fast0" > /dev/null 2>&1
+  echo '{ ... }: throw "broken on purpose"' > "$H/local.nix"
+  rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
+  rm -f "$H/local.nix"
+  [ "$rc" != 0 ] || fail "an add with a flake that does not evaluate succeeded"
+  check "a switch that does not evaluate: reverted" fast0
+  touch "$CTL/act-on" "$CTL/act-fail"
+  rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
+  rm -f "$CTL/act-on" "$CTL/act-fail"
+  [ "$rc" != 0 ] || fail "an add with a failing activation succeeded"
+  check "an activation that fails: reverted, the previous generation active" fast0
+
+  # A build that fails: nothing is committed.
+  reset repairbuild
+  rc=0; timeout 120 nix profile add --impure --expr 'derivation { name = "broken"; system = builtins.currentSystem; builder = "/bin/false"; }' > "$t/log/add" 2>&1 || rc=$?
+  [ "$rc" != 0 ] || fail "an add of a failing build succeeded"
+  check "a failed build changes nothing"
+
   # A hand edit, valid: applied by the next command or the boot; invalid: refused, nothing changes.
   reset repairedit
   pn add "$F#fast0" "$F#fast1" > /dev/null 2>&1
@@ -957,6 +978,13 @@ EOF
   rc=0; wait "$s" || rc=$?; [ "$rc" = 0 ] || { fail "the declaration add: rc=$rc"; why "$t/log/add"; }
   quiesce
   check "both, in the other lock order" fast0 -- extra1
+
+  # A change of the declaration from inside a hook or a switch (a user's activation entry) would wait for
+  # a lock that comes earlier, or that its own command holds: it fails at once instead.
+  reset storenested
+  rc=0; NIX_PROFILE_BACKEND=activation timeout 60 nix profile add "$F#fast0" > "$t/log/n" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && [ "$rc" != 124 ] && grep -q 'from inside' "$t/log/n" && ! file_has fast0; then pass "a declaration change from inside a switch fails with a message"
+  else fail "a declaration change from inside a switch: rc=$rc"; tail -n 3 "$t/log/n"; fi
 }
 
 # home-manager's own install of its generation: no moment without it, and never none after a kill.
