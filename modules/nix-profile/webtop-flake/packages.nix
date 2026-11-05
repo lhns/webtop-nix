@@ -42,7 +42,7 @@ let
   # The apply lock, the marker and the check below: ADR 0008.
   hash = builtins.hashFile "sha256" file;
   declared = "${config.xdg.configHome}/home-manager/packages.json";
-  stateDir = ''${XDG_STATE_HOME:-$HOME/.local/state}/webtop'';
+  stateDir = "\${XDG_STATE_HOME:-$HOME/.local/state}/webtop";
   hmLocked = import ./home-manager-locked.nix { inherit pkgs; real = config.programs.home-manager.package; };
 in
 {
