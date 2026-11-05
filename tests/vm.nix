@@ -71,7 +71,7 @@ WEBTOP_LOCALE=de_DE.UTF-8
     machine.succeed("curl -sfL http://localhost:8082/api/files/ -o /tmp/files.html && grep -q Documents /tmp/files.html")
 
     # Time zone and locale. A change needs a session restart, which applies it again.
-    import base64
+    import base64, shlex
     problems = []
     conf = "/home/user/.config/webtop/session.conf"
     def session_env():
@@ -95,6 +95,10 @@ WEBTOP_LOCALE=de_DE.UTF-8
             problems.append("localectl disagrees")
         assert f"LANG={lang}" in env.splitlines(), "session lacks LANG"
         assert not any(l.startswith(("TZ=", "LC_ALL=")) for l in env.splitlines()), "TZ/LC_ALL leaked"
+        # A terminal: a shell started from the session's environment (it sources NixOS's profile scripts).
+        shell_env = " ".join(shlex.quote(l) for l in env.splitlines() if "=" in l)
+        term = machine.succeed(f"runuser -u user -- env -i {shell_env} /run/current-system/sw/bin/bash -ic 'echo LANG=$LANG; date +%Z' 2>/dev/null").split()
+        assert term[0] == f"LANG={lang}", f"a terminal sees {term}"
 
     # Boot: the env file beats the module's defaults.
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())

@@ -84,7 +84,7 @@ let
   # Session time zone and locale (README, "Time zone and locale"). Root, before the session starts.
   applyLocale = pkgs.writeShellApplication {
     name = "webtop-locale";
-    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.util-linux pkgs.glibc.bin pkgs.bash ];
+    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.util-linux pkgs.glibc.bin pkgs.getent pkgs.bash ];
     text = builtins.readFile ./webtop-locale.sh;
   };
   applyLocaleCommand = lib.escapeShellArgs ([
@@ -363,6 +363,9 @@ in
       newDependency = pkgs.kwinSoftwarePresentation;
     }];
 
+    # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
+    # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
+    i18n.imperativeLocale = lib.mkDefault true;
     i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];

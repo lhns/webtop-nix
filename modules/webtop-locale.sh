@@ -62,6 +62,8 @@ if pw=$(getent passwd "$uid") && home=$(cut -d: -f6 <<<"$pw") && name=$(cut -d: 
       fi
     done <<<"$content"
   fi
+else
+  log "no home for uid $uid: the user's session.conf is not read"
 fi
 
 env_tz='' env_locale=''
