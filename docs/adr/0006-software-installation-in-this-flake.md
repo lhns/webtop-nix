@@ -40,4 +40,4 @@ Nix also carries `path-input-fingerprint.patch` on `nix-fetchers`, which rebuild
 
 ## Amendment 2026-11-04 (2)
 
-The patch takes its locks at commit and re-applies each command's change on current state: [ADR 0007](0007-nix-profile-commit-locks.md) has the lock order.
+The patch takes its locks at commit and re-applies each command's change on current state: [ADR 0007](0007-nix-profile-commit-locks.md) has the lock order, [ADR 0009](0009-one-apply-lock-and-an-applied-marker.md) the apply lock.

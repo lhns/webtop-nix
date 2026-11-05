@@ -1,8 +1,8 @@
 diff --git a/profile.cc b/profile.cc
-index 4f56319..c3e2e02 100644
+index 4f56319..34e51b6 100644
 --- a/profile.cc
 +++ b/profile.cc
-@@ -12,10 +12,18 @@
+@@ -12,10 +12,19 @@
  #include "nix/store/names.hh"
  #include "nix/util/url.hh"
  #include "nix/flake/url-name.hh"
@@ -12,6 +12,7 @@ index 4f56319..c3e2e02 100644
 +#include "nix/util/config-global.hh"
 +#include "nix/util/environment-variables.hh"
 +#include "nix/util/processes.hh"
++#include "nix/util/signals.hh"
 +#include "nix/util/terminal.hh"
  
  #include <nlohmann/json.hpp>
@@ -21,7 +22,7 @@ index 4f56319..c3e2e02 100644
  
  #include "nix/util/strings.hh"
  
-@@ -78,6 +86,18 @@ struct ProfileElement
+@@ -78,6 +87,18 @@ struct ProfileElement
  
      std::string versions() const
      {
@@ -40,7 +41,7 @@ index 4f56319..c3e2e02 100644
          StringSet versions;
          for (auto & path : storePaths)
              versions.insert(DrvName(path.name()).version);
-@@ -312,6 +332,607 @@ struct ProfileManifest
+@@ -312,6 +333,635 @@ struct ProfileManifest
      }
  };
  
@@ -141,6 +142,24 @@ index 4f56319..c3e2e02 100644
 +    runProgram2({.program = *hook, .lookupPath = false, .environment = std::move(env)});
 +}
 +
++/* Runs the hook. A cancel (SIGINT, SIGTERM) must neither stop the hook halfway nor revert what it applied:
++   the hook is idempotent and waits for the apply lock (ADR 0009), so it runs again instead. Nix kills only
++   the hook process it started, not what that started. */
++static void runProfileHookUninterrupted(
++    std::string_view backend,
++    const std::filesystem::path & profile,
++    const std::optional<std::filesystem::path> & declaration,
++    std::string_view operation)
++{
++    while (true)
++        try {
++            runProfileHook(backend, profile, declaration, operation);
++            return;
++        } catch (Interrupted &) {
++            setInterrupted(false);
++        }
++}
++
 +/* Runs the hook; on failure calls `revert` and fails. */
 +static void runProfileHookOrRevert(
 +    std::string_view backend,
@@ -150,8 +169,9 @@ index 4f56319..c3e2e02 100644
 +    std::function<void()> revert)
 +{
 +    try {
-+        runProfileHook(backend, profile, declaration, operation);
++        runProfileHookUninterrupted(backend, profile, declaration, operation);
 +    } catch (Error & e) {
++        setInterrupted(false);
 +        // A revert is a commit of its own, which can fail too (a file conflict with what others committed).
 +        try {
 +            revert();
@@ -483,6 +503,9 @@ index 4f56319..c3e2e02 100644
 +
 +    void lockForCommit() override
 +    {
++        // Earlier in the lock order than what a hook or a switch holds (ADR 0009): it would wait forever.
++        if (getEnv("NIX_PROFILE_BACKEND"))
++            throw Error("'nix profile' cannot change %s from inside its hook or a home-manager switch", PathFmt(file));
 +        if (locked)
 +            return;
 +        lockProfile(lock, history);
@@ -524,9 +547,12 @@ index 4f56319..c3e2e02 100644
 +        manifest = parse(previous, file);
 +        bool changed = applyDeltas(deltas, manifest);
 +        auto contents = serialize(manifest);
-+        // Equal contents: e.g. an upgrade that re-locked to the same source, nothing to apply.
-+        if (!changed || contents == previous)
++        // Nothing to write, but the file may not be applied yet (a command killed after writing it, a
++        // failed switch): the hook decides, and returns at once if it is. No revert: nothing changed.
++        if (!changed || contents == previous) {
++            runProfileHookUninterrupted(kind(), profile, file, operation);
 +            return []() {};
++        }
 +        apply(store, previous, contents, operation);
 +        record(store, contents);
 +        // commitBackends commits this backend last, so nothing can fail after it.
@@ -620,13 +646,16 @@ index 4f56319..c3e2e02 100644
 +
 +/* Commits the backends with deltas, the profile first (a declaration's hook may change the profile
 +   itself); if one fails, the ones already committed are reverted too. A command that changes the
-+   declaration holds its lock from the start, so its profile commit and any undo run inside it. */
++   declaration holds its lock from the start, so its profile commit and any undo run inside it.
++   `lockDeclaration` takes it for a command that changes only the profile but must not interleave with
++   one that changes the declaration. */
 +static void commitBackends(
 +    const std::vector<ref<ProfileBackend>> & backends,
 +    const std::vector<std::vector<Delta>> & deltas,
++    bool lockDeclaration,
 +    std::function<std::function<void()>(size_t)> commitOne)
 +{
-+    if (!deltas[0].empty())
++    if (lockDeclaration || !deltas[0].empty())
 +        backends[0]->lockForCommit();
 +    std::vector<std::function<void()>> undo;
 +    try {
@@ -648,7 +677,24 @@ index 4f56319..c3e2e02 100644
  static std::map<Installable *, std::pair<BuiltPaths, ref<ExtraPathInfo>>>
  builtPathsPerInstallable(const std::vector<std::pair<ref<Installable>, BuiltPathWithResult>> & builtPaths)
  {
-@@ -361,7 +982,16 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
+@@ -336,9 +983,16 @@ builtPathsPerInstallable(const std::vector<std::pair<ref<Installable>, BuiltPath
+ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
+ {
+     std::optional<int64_t> priority;
++    std::optional<std::string> replace;
+ 
+     CmdProfileAdd()
+     {
++        addFlag({
++            .longName = "replace",
++            .description = "Drop this element in the same generation that adds the new one.",
++            .labels = {"name"},
++            .handler = {&replace},
++        });
+         addFlag({
+             .longName = "priority",
+             .description = "The priority of the package to add.",
+@@ -361,7 +1015,18 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
  
      void run(ref<Store> store, Installables && installables) override
      {
@@ -663,10 +709,12 @@ index 4f56319..c3e2e02 100644
 +                }
 +        auto manifests = loadManifests(*getEvalState(), backends);
 +        std::vector<std::vector<Delta>> deltas(backends.size());
++        // A store path is added to the profile while a declaration command may be declaring its name.
++        bool storePathAdded = false;
  
          auto builtPaths = builtPathsPerInstallable(
              Installable::build2(getEvalStore(), store, Realise::Outputs, installables, bmNormal));
-@@ -392,27 +1022,90 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
+@@ -392,27 +1057,102 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
  
              element.updateStorePaths(getEvalStore(), store, res);
  
@@ -680,6 +728,10 @@ index 4f56319..c3e2e02 100644
 +                    "'nix shell' tries a package without adding it",
 +                    element.identifier());
 +            auto & manifest = manifests[b];
++            if (b > 0)
++                storePathAdded = true;
++            if (replace)
++                manifest.elements.erase(*replace);
 +
              auto elementName = getNameFromElement(element);
  
@@ -742,20 +794,28 @@ index 4f56319..c3e2e02 100644
 -            manifest.addElement(elementName, std::move(element));
 +            if (alreadyAdded) {
 +                warn("'%s' is already added", elementName);
++                // Still commits: the hook applies a declaration that an earlier, killed command left unapplied.
++                if (backends[b]->kind() == "declaration")
++                    deltas[b].push_back([](ProfileManifest &) { return false; });
 +                continue;
 +            }
 +
 +            manifest.addElement(elementName, ProfileElement(element));
-+            deltas[b].push_back([elementName, element](ProfileManifest & m) {
++            deltas[b].push_back([elementName, element, replace = replace](ProfileManifest & m) {
++                bool changed = replace && m.elements.erase(*replace) > 0;
 +                auto existing = m.elements.find(elementName);
 +                if (existing != m.elements.end() && sameFlakeOutput(existing->second, element))
-+                    return false;
++                    return changed;
 +                m.addElement(elementName, ProfileElement(element));
 +                return true;
 +            });
          }
  
-+        commitBackends(backends, deltas, [&](size_t b) { return commit(store, *backends[b], deltas[b]); });
++        // Under the declaration's lock, unless a hook or an activation adds it: they run inside that
++        // lock, or inside the apply lock that the declaration's hook waits for (ADR 0009).
++        commitBackends(backends, deltas, storePathAdded && !getEnv("NIX_PROFILE_BACKEND"), [&](size_t b) {
++            return commit(store, *backends[b], deltas[b]);
++        });
 +    }
 +
 +    std::function<void()> commit(ref<Store> store, ProfileBackend & backend, const std::vector<Delta> & deltas)
@@ -767,7 +827,7 @@ index 4f56319..c3e2e02 100644
          } catch (BuildEnvFileConflictError & conflictError) {
              // FIXME use C++20 std::ranges once macOS has it
              //       See
-@@ -479,6 +1172,12 @@ struct Matcher
+@@ -479,6 +1219,12 @@ struct Matcher
  
      virtual std::string getTitle() = 0;
      virtual bool matches(const std::string & name, const ProfileElement & element) = 0;
@@ -780,7 +840,7 @@ index 4f56319..c3e2e02 100644
  };
  
  struct RegexMatcher final : public Matcher
-@@ -497,6 +1196,11 @@ struct RegexMatcher final : public Matcher
+@@ -497,6 +1243,11 @@ struct RegexMatcher final : public Matcher
          return fmt("Regex '%s'", pattern);
      }
  
@@ -792,7 +852,7 @@ index 4f56319..c3e2e02 100644
      bool matches(const std::string & name, const ProfileElement & element) override
      {
          return std::regex_match(element.identifier(), regex);
-@@ -550,6 +1254,11 @@ struct AllMatcher final : public Matcher
+@@ -550,6 +1301,11 @@ struct AllMatcher final : public Matcher
          return "--all";
      }
  
@@ -804,7 +864,7 @@ index 4f56319..c3e2e02 100644
      bool matches(const std::string & name, const ProfileElement & element) override
      {
          return true;
-@@ -595,7 +1304,8 @@ public:
+@@ -595,7 +1351,8 @@ public:
               }}});
      }
  
@@ -814,7 +874,7 @@ index 4f56319..c3e2e02 100644
      {
          if (_matchers.empty()) {
              throw UsageError("No packages specified.");
-@@ -610,20 +1320,22 @@ public:
+@@ -610,20 +1367,22 @@ public:
              throw UsageError("--all cannot be used with package names or regular expressions.");
          }
  
@@ -845,19 +905,19 @@ index 4f56319..c3e2e02 100644
              if (!foundMatch) {
                  warn("%s does not match any packages in the profile.", matcher->getTitle());
              }
-@@ -648,27 +1360,37 @@ struct CmdProfileRemove : virtual EvalCommand, MixDefaultProfile, MixProfileElem
+@@ -648,27 +1407,37 @@ struct CmdProfileRemove : virtual EvalCommand, MixDefaultProfile, MixProfileElem
  
      void run(ref<Store> store) override
      {
 -        ProfileManifest oldManifest(*getEvalState(), *profile);
--
--        ProfileManifest newManifest = oldManifest;
 +        auto backends = getProfileBackends(*this);
 +        auto manifests = loadManifests(*getEvalState(), backends);
  
--        auto matchingElementNames = getMatchingElementNames(oldManifest);
+-        ProfileManifest newManifest = oldManifest;
 +        auto matching = getMatchingElementNames(manifests);
  
+-        auto matchingElementNames = getMatchingElementNames(oldManifest);
+-
 -        if (matchingElementNames.empty()) {
 +        if (std::all_of(matching.begin(), matching.end(), [](auto & names) { return names.empty(); })) {
              warn("No packages to remove. Use 'nix profile list' to see the current profile.");
@@ -889,14 +949,14 @@ index 4f56319..c3e2e02 100644
 -        printInfo("removed %d packages, kept %d packages", removedCount, newManifest.elements.size());
 -
 -        updateProfile(*store, newManifest.build(store));
-+        commitBackends(backends, deltas, [&](size_t b) {
++        commitBackends(backends, deltas, false, [&](size_t b) {
 +            ProfileManifest manifest;
 +            return backends[b]->commit(store, *getEvalState(), deltas[b], "remove", manifest);
 +        });
      }
  };
  
-@@ -688,22 +1410,27 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -688,22 +1457,27 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
  
      void run(ref<Store> store) override
      {
@@ -929,7 +989,7 @@ index 4f56319..c3e2e02 100644
  
              if (!element.source) {
                  warn(
-@@ -759,6 +1486,8 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -759,6 +1533,8 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
  
              installables.push_back(installable);
              elems.push_back(&element);
@@ -938,7 +998,7 @@ index 4f56319..c3e2e02 100644
          }
  
          if (upgradedCount == 0) {
-@@ -766,6 +1495,10 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -766,6 +1542,10 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
              return;
          }
  
@@ -949,7 +1009,7 @@ index 4f56319..c3e2e02 100644
          auto builtPaths = builtPathsPerInstallable(
              Installable::build2(getEvalStore(), store, Realise::Outputs, installables, bmNormal));
  
-@@ -773,9 +1506,21 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -773,9 +1553,21 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
              auto & installable = installables.at(i);
              auto & element = *elems.at(i);
              element.updateStorePaths(getEvalStore(), store, builtPaths.find(&*installable)->second.first);
@@ -965,14 +1025,14 @@ index 4f56319..c3e2e02 100644
          }
  
 -        updateProfile(*store, manifest.build(store));
-+        commitBackends(backends, deltas, [&](size_t b) {
++        commitBackends(backends, deltas, false, [&](size_t b) {
 +            ProfileManifest manifest;
 +            return backends[b]->commit(store, *getEvalState(), deltas[b], "upgrade", manifest);
 +        });
      }
  };
  
-@@ -795,11 +1540,44 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
+@@ -795,11 +1587,44 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
  
      void run(ref<Store> store) override
      {
@@ -1019,7 +1079,7 @@ index 4f56319..c3e2e02 100644
              for (const auto & [i, e] : enumerate(manifest.elements)) {
                  auto & [name, element] = e;
                  if (i)
-@@ -815,7 +1593,11 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
+@@ -815,7 +1640,11 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
                      logger->cout("Locked flake URL:   %s", element.source->lockedRef.to_string());
                  }
                  logger->cout(
@@ -1032,7 +1092,7 @@ index 4f56319..c3e2e02 100644
              }
          }
      }
-@@ -837,7 +1619,7 @@ struct CmdProfileDiffClosures : virtual StoreCommand, MixDefaultProfile
+@@ -837,7 +1666,7 @@ struct CmdProfileDiffClosures : virtual StoreCommand, MixDefaultProfile
  
      void run(ref<Store> store) override
      {
@@ -1041,7 +1101,7 @@ index 4f56319..c3e2e02 100644
  
          std::optional<Generation> prevGen;
          bool first = true;
-@@ -876,14 +1658,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
+@@ -876,14 +1705,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
  
      void run(ref<Store> store) override
      {
@@ -1058,7 +1118,7 @@ index 4f56319..c3e2e02 100644
              if (!first)
                  logger->cout("");
              first = false;
-@@ -895,6 +1676,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
+@@ -895,6 +1723,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
                  std::put_time(std::gmtime(&gen.creationTime), "%Y-%m-%d"),
                  prevGen ? fmt(" <- %d", prevGen->first.number) : "");
  
@@ -1072,7 +1132,7 @@ index 4f56319..c3e2e02 100644
              ProfileManifest::printDiff(prevGen ? prevGen->second : ProfileManifest(), manifest, "  ");
  
              prevGen = {gen, std::move(manifest)};
-@@ -930,7 +1718,7 @@ struct CmdProfileRollback : virtual StoreCommand, MixDefaultProfile, MixDryRun
+@@ -930,7 +1765,7 @@ struct CmdProfileRollback : virtual StoreCommand, MixDefaultProfile, MixDryRun
  
      void run(ref<Store> store) override
      {
@@ -1081,7 +1141,7 @@ index 4f56319..c3e2e02 100644
      }
  };
  
-@@ -964,11 +1752,12 @@ struct CmdProfileWipeHistory : virtual StoreCommand, MixDefaultProfile, MixDryRu
+@@ -964,11 +1799,12 @@ struct CmdProfileWipeHistory : virtual StoreCommand, MixDefaultProfile, MixDryRu
  
      void run(ref<Store> store) override
      {

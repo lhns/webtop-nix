@@ -6,9 +6,16 @@
 # (Run by a consumer's unit or, with fromImageStore, by webtop-home-manager.service: the messages name both.)
 manifest=$1
 
+# The apply lock (ADR 0009) for the whole script; flock stays its parent, and -o keeps the lock out of
+# anything left running.
+if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
+  WEBTOP_HM_LOCK_HELD=1 exec flock -o "${XDG_STATE_HOME:-$HOME/.local/state}/webtop/home-manager.lock" "$0" "$@"
+fi
+
 # nixProfile.progress; never fatal.
 progress() { webtop-restore-progress "$@" || true; }
-failed=0
+failures=
 progress start 1
 profiles="$HOME/.local/state/nix/profiles"
 old="$profiles.old-$(date +%s)"
@@ -44,7 +51,7 @@ else
     for ref in $refs; do
       echo "reinstalling $ref"
       progress current "Reinstalling $ref"
-      NIX_CONFIG=$(progress nixconfig) nix profile add --profile-backend profile "$ref" || { echo "failed: $ref"; failed=1; }
+      NIX_CONFIG=$(progress nixconfig) nix profile add --profile-backend profile "$ref" || { echo "failed: $ref"; failures="$failures $ref"; }
       progress step
     done
     jq -r '.elements | to_entries[] | .value | select(.url == null) | .storePaths[]?' "$manifest" \
@@ -53,14 +60,15 @@ else
 fi
 
 # home-manager: relock, switch.
-"$WEBTOP_SETUP" || failed=1
+"$WEBTOP_SETUP" || failures="$failures home-manager-switch"
 progress step
 
-if [ "$failed" = 0 ]; then
+if [ -z "$failures" ]; then
   progress finish
 else
+  echo "incomplete, retried next boot:$failures"
   progress finish "Some of your software could not be restored; see: journalctl -u webtop-nix-reinstall -u webtop-home-manager"
   webtop-notify "Package reinstall incomplete" "See: journalctl -u webtop-nix-reinstall -u webtop-home-manager" system-software-update &
 fi
 wait
-exit "$failed"
+[ -z "$failures" ]

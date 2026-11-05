@@ -1,0 +1,60 @@
+# tests/nix-profile-concurrency.sh with many rounds, for rare interleavings; PR CI runs few. A push to a
+# concurrency-proof-* branch runs it too, to show a test fails with a fix reverted.
+name: nix concurrency stress
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Scenario names; `plain:` in front for the plain backend
+        default: plain:scenario_parallel_adds scenario_parallel_adds scenario_parallel_removes scenario_mixed
+      rounds:
+        description: Rounds of the repeated ones
+        default: '20'
+  push:
+    branches: ['concurrency-proof-*']
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SCENARIOS: ${{ inputs.scenarios || 'plain:scenario_parallel_adds scenario_parallel_adds scenario_parallel_removes scenario_mixed' }}
+      ROUNDS: ${{ inputs.rounds || '20' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = file:///home/runner/nix-cache
+            require-sigs = false
+      - name: patched Nix store path
+        id: nixpkg
+        run: |
+          out=$(nix eval --raw .#nix-profile-backends.outPath)
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          echo "key=nix-profile-backends-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
+      - run: mkdir -p ~/nix-cache
+      - uses: actions/cache/restore@v6
+        id: nix-cache
+        with:
+          path: ~/nix-cache
+          key: ${{ steps.nixpkg.outputs.key }}
+      - run: nix build .#nix-profile-backends -L --no-link
+      - name: save patched Nix
+        if: steps.nix-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo chown -R "$USER" ~/nix-cache
+          nix copy --to "file://$HOME/nix-cache?compression=zstd" "${{ steps.nixpkg.outputs.out }}"
+      - uses: actions/cache/save@v6
+        if: steps.nix-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/nix-cache
+          key: ${{ steps.nixpkg.outputs.key }}
+      - name: stress
+        run: WEBTOP_TEST_SCENARIOS="$SCENARIOS" WEBTOP_TEST_ROUNDS="$ROUNDS" bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
