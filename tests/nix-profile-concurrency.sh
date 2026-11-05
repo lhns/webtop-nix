@@ -592,7 +592,8 @@ scenario_process_kills() {
 { ... }: { home.sessionVariables.WEBTOP_TEST = "$RANDOM"; }
 EOF
   touch "$CTL/act-on" "$CTL/hold-act"
-  setsid home-manager switch --flake "$H" > "$t/log/k" 2>&1 & c=$!
+  # env: a background job of a script starts with SIGINT ignored, a terminal's foreground job does not.
+  setsid env --default-signal=INT home-manager switch --flake "$H" > "$t/log/k" 2>&1 & c=$!
   wait_for 120 has_file act-started || fail "no activation started"
   kill -INT -- "-$c"
   rm -f "$CTL/hold-act" "$CTL/act-on"
@@ -1035,6 +1036,8 @@ scenario_hm_atomic() {
   g=$(readlink -f "$D/home-manager")
   if "$stock_nix_dir/nix" config show profile-backend > /dev/null 2>&1; then fail "$stock_nix_dir/nix has profile-backend: not stock"; fi
   mkdir "$t/stock"
+  ln -s "$stock_nix_dir"/nix-* "$t/stock/"
+  rm "$t/stock/nix-env"
   for p in nix nix-env; do
     printf '#!/usr/bin/env bash\necho "$*" >> "%s"\nexec "%s" "$@"\n' "$t/log/stock-calls" "$stock_nix_dir/$p" > "$t/stock/$p"
     chmod +x "$t/stock/$p"
