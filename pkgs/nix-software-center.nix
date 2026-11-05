@@ -4,8 +4,8 @@ let
   src = fetchFromGitHub {
     owner = "lhns";
     repo = "nix-software-center";
-    rev = "4ced1a02165b05ed079c58642465f950951e1f43";
-    hash = "sha256-K3aqxzLShvuZQzrF7xLXilQRtuYpw2rVkNd40I86GNU=";
+    rev = "896a62b78f41f85f7b8f30aadc2bf05b7f92a1c9";
+    hash = "sha256-3mdfvtM+UY4YqW+A5sVB7AyMZ8QQhkrcT9kCuxSVJVY=";
   };
   # Evaluated from the image's nixpkgs, which the flake registry's `nixpkgs` resolves to too.
   pkgdb = callPackage "${src}/nix/pkgdb.nix" { };
