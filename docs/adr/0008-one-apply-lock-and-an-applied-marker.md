@@ -32,7 +32,8 @@ the boot unit or a restore, in any mix, and any of them can be cancelled or kill
   changes nothing still runs the hook, so a retry applies what a killed command left.
 - A store path added to the profile takes `L_D` first, so it cannot interleave with a declaration command
   (this closes the window recorded in 0007). A hook or an activation adds store paths itself and runs inside
-  those locks: it is told apart by `NIX_PROFILE_BACKEND` and takes no `L_D`.
+  those locks: it is told apart by `NIX_PROFILE_BACKEND`, which the `home-manager` wrapper also sets for any
+  generation it runs, and takes no `L_D`.
 - home-manager's install of its own generation drops and adds `home-manager-path` in one generation
   (`nix profile add --replace NAME`), under whatever name the profile has it. Without the patched Nix it
   removes and adds as before. The packages module replaces upstream's `installPackages` entry; a test fails
@@ -40,7 +41,9 @@ the boot unit or a restore, in any mix, and any of them can be cancelled or kill
 
 ## Consequences
 
-- A terminal `home-manager switch` that races a package change fails with a message and is run again.
+- A terminal `home-manager switch` that races a package change fails with a message and is run again; the
+  boot script does that itself. Activating an older generation directly is refused the same way, and the
+  message names `WEBTOP_ACTIVATE_ANY=1`.
 - Stock `nix profile` from a terminal still takes none of these locks, and a user flake that drops the
   packages module loses the activation side of this.
 - Killing the `flock` process itself (not the script) releases the lock while the switch it started runs on.

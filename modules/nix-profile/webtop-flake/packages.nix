@@ -74,9 +74,11 @@ in
     fi
     # Built from an older packages.json than the file now: refuse, the next switch has the new one.
     # (The driver has already pointed the profile at this generation: put it back.)
-    if [ -z "''${WEBTOP_ACTIVATE_ANY:-}" ] \
+    # No such file: a flake kept elsewhere, and no `nix profile` that could have changed it.
+    if [ -z "''${WEBTOP_ACTIVATE_ANY:-}" ] && [ -e "${declared}" ] \
       && [ "$(${pkgs.coreutils}/bin/sha256sum < "${declared}" | ${pkgs.coreutils}/bin/cut -d' ' -f1)" != "${hash}" ]; then
       echo "webtop: this generation was built from an older packages.json; run home-manager switch again" >&2
+      echo "webtop: to go back to it anyway: home-manager switch --rollback, or WEBTOP_ACTIVATE_ANY=1 $0" >&2
       if (( hmDriverVersion >= 1 )) && [ -n "''${oldGenPath:-}" ] \
         && [ "$(readlink -f "$genProfilePath")" = "$(readlink -f "$newGenPath")" ]; then
         nix-env --profile "$genProfilePath" --set "$oldGenPath" > /dev/null 2>&1 || true
@@ -129,7 +131,8 @@ in
     ''));
 
   # What the active generation was built from: the hook and the boot unit compare it with the file.
-  home.activation.webtopApplied = lib.hm.dag.entryAfter [ "installPackages" ] ''
+  # After every step that applies it: a kill before this must leave the retry something to do.
+  home.activation.webtopApplied = lib.hm.dag.entryAfter [ "installPackages" "linkGeneration" "onFilesChange" "reloadSystemd" ] ''
     if [[ ! -v DRY_RUN ]]; then
       state="${stateDir}"
       mkdir -p "$state"

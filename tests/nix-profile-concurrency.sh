@@ -120,7 +120,12 @@ stamp
 stamp
 
 fails=0
-why() { grep -av 'SQLite database' "$1" | grep -a -A3 '^error' | head -n 6 | cut -c1-200; }
+why() {
+  grep -av 'SQLite database' "$1" | grep -a -A3 '^error' | head -n 6 | cut -c1-200
+  if builder_killed "$1"; then echo "--- kernel: $(sudo -n dmesg 2> /dev/null | grep -iE 'out of memory|oom-kill|killed process' | tail -n 5)"; free -m; fi
+}
+# The test cannot do this: builders run as nixbld users, and its kills reach only its own clients.
+builder_killed() { grep -aq 'builder failed due to signal 9' "$1"; }
 pass() { echo "PASS  $M: $*"; }
 fail() { echo "FAIL  $M: $*"; fails=$((fails + 1)); }
 sorted() { printf '%s\n' "$@" | sort -u | xargs; }
@@ -200,8 +205,17 @@ parallel() {
   rcs=; i=0
   for p in "${pids[@]}"; do
     i=$((i + 1)); rc=0; wait "$p" || rc=$?
-    rcs="$rcs$rc"
     [ "$rc" = 0 ] || { echo "--- command $i rc=$rc:"; why "$t/log/p$i"; }
+    # A command that reports a killed builder failed honestly, before its commit, and the checks would
+    # count it as lost. Its package must then land like any other; a command that exited 0 still has to.
+    if [ "$rc" != 0 ] && builder_killed "$t/log/p$i"; then
+      echo "NOTE  builder killed from outside, command $i runs again"
+      line=${*:$i:1}
+      rc=0
+      # shellcheck disable=SC2086
+      pn $line > "$t/log/p$i" 2>&1 || { rc=$?; why "$t/log/p$i"; }
+    fi
+    rcs="$rcs$rc"
   done
 }
 expect_ok() { case "$rcs" in *[!0]*) fail "$1: exit codes $rcs" ;; *) pass "$1: all exit 0" ;; esac; }
@@ -493,6 +507,25 @@ EOF
     quiesce
     check "stale switch via the $how binary leaves the new package" fast0
   done
+
+  # The boot script has nobody to run it again: it does so itself.
+  reset activationsboot
+  printf '#!/usr/bin/env bash\n[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"\n' > "$t/stubs/webtop-restore-progress"; cp "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify"
+  { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_FLAKE=%s\n' "$repo/modules/nix-profile/webtop-flake"
+    cat "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
+  chmod +x "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify" "$t/setup.sh"
+  touch "$HOME/.local/state/webtop/home-manager-switch"
+  cat > "$H/local.nix" <<EOF
+{ pkgs, ... }: { home.packages = [ (pkgs.runCommand "slowhm-$RANDOM" { } "sleep 20; mkdir \$out") ]; }
+EOF
+  PATH=$t/stubs:$PATH timeout 300 "$t/setup.sh" > "$t/log/setup" 2>&1 & sw=$!
+  sleep 6
+  pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add during the boot switch failed"; why "$t/log/add"; }
+  rc=0; wait "$sw" || rc=$?
+  if [ "$rc" = 0 ] && [ ! -e "$HOME/.local/state/webtop/home-manager-switch" ]; then pass "a package change during the boot switch: it switches again"
+  else fail "boot switch with a package change: rc=$rc"; tail -n 5 "$t/log/setup"; fi
+  quiesce
+  check "after the boot switch" fast0
   rm -f "$H/local.nix"
 
   # Killed holder: the lock is released with it, the next switch is not blocked.
@@ -540,6 +573,31 @@ scenario_store_path_lock() {
   [ "$rc" = 0 ] || { fail "store path add rc=$rc"; why "$t/log/e1"; }
   wait "$holder"
   check "both store paths added" -- extra1 extra2
+
+  # The other order, a generation without the module's install entry (older, or the module dropped):
+  # its plain store-path add under the wrapper's apply lock while a declaration add holds L_D and waits
+  # for L_A. Neither may wait for the other.
+  reset storeorder
+  e1=$(path_of extra1)
+  cat > "$t/stubs/old-hm" <<EOF
+#!/usr/bin/env bash
+touch "$CTL/old-hm"
+# Committed, so it holds the declaration's lock and its hook waits for the apply lock.
+until grep -q fast0 "$H/packages.json"; do sleep 0.2; done
+exec nix profile add "$e1"
+EOF
+  { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_HM_REAL=%s\n' "$t/stubs/old-hm"
+    cat "$repo/modules/nix-profile/webtop-flake/home-manager-locked.sh"; } > "$t/stubs/old-hm-locked"
+  chmod +x "$t/stubs/old-hm" "$t/stubs/old-hm-locked"
+  timeout 90 "$t/stubs/old-hm-locked" > "$t/log/old" 2>&1 & holder=$!
+  wait_for 30 has_file old-hm || fail "the old generation's install never started"
+  pn add "$F#fast0" > "$t/log/add" 2>&1 & s=$!
+  rc=0; wait "$holder" || rc=$?
+  if [ "$rc" = 0 ]; then pass "a plain store-path add under the apply lock does not wait for the declaration lock"
+  else fail "store-path add under the apply lock: rc=$rc (124: deadlock)"; tail -n 5 "$t/log/old"; fi
+  rc=0; wait "$s" || rc=$?; [ "$rc" = 0 ] || { fail "the declaration add: rc=$rc"; why "$t/log/add"; }
+  quiesce
+  check "both, in the other lock order" fast0 -- extra1
 }
 
 # home-manager's own install of its generation: no moment without it, and never none after a kill.
@@ -576,12 +634,25 @@ scenario_hm_atomic() {
     pass "home-manager's installPackages is the text packages.nix replaces"
   else fail "home-manager's installPackages changed: update webtop-flake/packages.nix"; fi
 
-  # A generation with the new entries under an older image's Nix: the remove-and-add fallback.
+  # The marker comes after every step that applies the generation.
+  g=$(readlink -f "$D/home-manager")
+  if grep -o '_iNote "Activating %s" "[a-zA-Z]*"' "$g/activate" | sed -n '/reloadSystemd/,$p' | grep -q webtopApplied; then
+    pass "the applied marker is written after the generation is linked and reloaded"
+  else fail "the applied marker is written before reloadSystemd"; fi
+
+  # A generation with the new entries under an older image's Nix: the remove-and-add fallback. The shim
+  # records how activation called Nix.
   reset hmstock
   pn add "$F#fast0" > /dev/null 2>&1
   g=$(readlink -f "$D/home-manager")
-  if ( export PATH=$stock_nix_dir:$PATH; "$g/activate" --driver-version 1 ) > "$t/log/stock" 2>&1; then pass "a new generation activates under stock Nix"
+  if "$stock_nix_dir/nix" config show profile-backend > /dev/null 2>&1; then fail "$stock_nix_dir/nix has profile-backend: not stock"; fi
+  mkdir "$t/stock"
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s"\nexec "%s" "$@"\n' "$t/log/stock-calls" "$stock_nix_dir/nix" > "$t/stock/nix"
+  chmod +x "$t/stock/nix"
+  if ( export PATH=$t/stock:$stock_nix_dir:$PATH; "$g/activate" --driver-version 1 ) > "$t/log/stock" 2>&1; then pass "a new generation activates under stock Nix"
   else fail "activation under stock Nix"; tail -n 8 "$t/log/stock"; fi
+  if grep -q '^profile install ' "$t/log/stock-calls" && ! grep -q -- --replace "$t/log/stock-calls"; then pass "under stock Nix it removes and adds"
+  else fail "not the stock fallback: $(tr '\n' ';' < "$t/log/stock-calls" | cut -c1-300)"; fi
   check "after an activation under stock Nix" fast0
 }
 

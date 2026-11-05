@@ -4,6 +4,9 @@
 for a in "$@"; do
   if [ "$a" = --rollback ]; then export WEBTOP_ACTIVATE_ANY=1; fi
 done
+# Whatever adds a store path under this lock must not wait for the declaration's, which comes first in
+# the lock order: a generation without the packages module's install entry does not mark itself.
+export NIX_PROFILE_BACKEND=${NIX_PROFILE_BACKEND:-activation}
 if [ -n "${WEBTOP_HM_LOCK_HELD:-}" ]; then exec "$WEBTOP_HM_REAL" "$@"; fi
 state=${XDG_STATE_HOME:-$HOME/.local/state}/webtop
 mkdir -p "$state"

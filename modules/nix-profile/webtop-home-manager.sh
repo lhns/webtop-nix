@@ -27,7 +27,7 @@ if [ -e "$switch_marker" ]; then switch=1; fi
 # A package change that was declared but not applied (a command killed after writing the file, a
 # power cut): the generation records the packages.json it was built from. Without a record there
 # is nothing to compare; the hook's first switch writes one.
-if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ]   && [ "$(cat "$state/webtop/applied")" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ]; then
+if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ] && [ "$(cat "$state/webtop/applied")" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ]; then
   switch=1
 fi
 
@@ -61,10 +61,15 @@ for l in "$gen" "$gen"-*-link; do
 done
 
 if [ -z "$switch" ] || [ ! -f "$hm/flake.nix" ]; then exit 0; fi
-rc=0
 progress current "home-manager switch"
 echo "home-manager switch --flake $hm"
-NIX_CONFIG=$(progress nixconfig) home-manager switch --flake "$hm" || rc=$?
+# 75: a package change landed during the evaluation (ADR 0008). Its hook now waits for this lock and
+# holds the declaration's, so the next attempt sees the final file. Nobody is here to run it again.
+for _ in 1 2 3; do
+  rc=0
+  NIX_CONFIG=$(progress nixconfig) home-manager switch --flake "$hm" || rc=$?
+  [ "$rc" = 75 ] || break
+done
 if [ "$rc" = 0 ]; then
   rm -f "$switch_marker"
   exit 0
