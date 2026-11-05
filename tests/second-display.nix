@@ -1,6 +1,6 @@
 # One app on its own screen, streamed by a Selkies second-display page with no primary page open:
 # the screen is grown, streams, takes input at the page's coordinates, keeps the app's windows
-# (also ones opened later) and goes away with the page. Writes summary.txt, screenshots and logs to
+# (also ones opened later), goes away with the page and hands the windows back (also on release). Writes summary.txt, screenshots and logs to
 # the output directory, also on failure, then asserts.
 { pkgs, self }:
 
@@ -58,22 +58,36 @@ let
         return stat.mean[0], stat.stddev[0]
 
     query_n = [0]
-    def windows():
-        """[{app, screen, fullScreen}] of every normal window, read by a one-shot KWin script."""
+    def kwin_js(code):
+        """Runs a one-shot KWin script; returns what it print()s, after its tag."""
         query_n[0] += 1
         tag = f"webtop-query-{query_n[0]}"
         path = f"/tmp/{tag}.js"
         with open(path, "w") as f:
-            f.write("print('%s ' + JSON.stringify(workspace.windowList().filter(w => w.normalWindow)"
-                    ".map(w => ({app: w.resourceClass, screen: w.output ? w.output.name : null, fullScreen: w.fullScreen}))));" % tag)
+            f.write(code.replace("TAG", tag))
         os.chmod(path, 0o644)
         sid = user(f"busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss {path} {tag}")
         user(f"busctl --user call org.kde.KWin /Scripting/Script{sid.split()[-1]} org.kde.kwin.Script run")
         time.sleep(1)
         user(f"busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting unloadScript s {tag}")
         log = subprocess.run(["journalctl", "-b", "--no-pager", "-o", "cat"], capture_output=True, text=True).stdout
-        line = [l for l in log.splitlines() if tag + " " in l][-1]
-        return json.loads(line.split(tag + " ", 1)[1])
+        lines = [l for l in log.splitlines() if tag + " " in l]
+        return lines[-1].split(tag + " ", 1)[1] if lines else None
+
+    def windows():
+        """[{id, app, screen, fullScreen}] of every normal window."""
+        return json.loads(kwin_js("print('TAG ' + JSON.stringify(workspace.windowList().filter(w => w.normalWindow)"
+                                  ".map(w => ({id: String(w.internalId), app: w.resourceClass, "
+                                  "screen: w.output ? w.output.name : null, fullScreen: w.fullScreen}))));"))
+
+    def app_windows(app):
+        return [w for w in windows() if w["app"] == app]
+
+    def on_main_normal(ws):
+        return bool(ws) and all(w["screen"] not in (None, SCREEN) and not w["fullScreen"] for w in ws)
+
+    def on_app_screen(ws):
+        return bool(ws) and all(w["screen"] == SCREEN and w["fullScreen"] for w in ws)
 
     def wev(n):
         return subprocess.Popen(
@@ -134,6 +148,45 @@ let
             ctx.close()
             check("closing the page removes the screen", wait_for(lambda: SCREEN not in screens(), 30),
                   f"screens: {screens()}")
+            check("the windows go back to the main screen, not fullscreen (panel reachable)",
+                  wait_for(lambda: on_main_normal(app_windows("wev")), 15), json.dumps(app_windows("wev")))
+
+            ctx = browser.new_context(viewport={"width": PAGE_W, "height": PAGE_H})
+            page = ctx.new_page()
+            page.goto(URL + "#display2-right")
+            check("the screen coming back takes the windows again",
+                  wait_for(lambda: on_app_screen(app_windows("wev")), 60), json.dumps(app_windows("wev")))
+
+            note("release: " + user("webtop-app-screen release wev"))
+            time.sleep(2)
+            check("release sends the windows to the main screen, not fullscreen",
+                  on_main_normal(app_windows("wev")), json.dumps(app_windows("wev")))
+
+            subprocess.Popen(f"runuser -u user -- env {ENV} ${pkgs.kdePackages.kcalc}/bin/kcalc", shell=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            wait_for(lambda: app_windows("org.kde.kcalc"), 30)
+            note("place B: " + user(f"webtop-app-screen place org.kde.kcalc {SCREEN}"))
+            check("a second app replaces the first on the app screen",
+                  wait_for(lambda: on_app_screen(app_windows("org.kde.kcalc")), 15)
+                  and on_main_normal(app_windows("wev")),
+                  json.dumps(windows()))
+            note("release B: " + user("webtop-app-screen release org.kde.kcalc"))
+            subprocess.run(["pkill", "-f", "bin/kcalc"])
+
+            # A window the user fullscreened before place stays fullscreen when the screen goes.
+            first = app_windows("wev")[0]["id"]
+            kwin_js("workspace.windowList().filter(w => String(w.internalId) === '%s').forEach(w => w.fullScreen = true);"
+                    "print('TAG');" % first)
+            note("place again: " + user(f"webtop-app-screen place wev {SCREEN}"))
+            check("both windows on the app screen again",
+                  wait_for(lambda: on_app_screen(app_windows("wev")), 15), json.dumps(app_windows("wev")))
+            ctx.close()
+            wait_for(lambda: SCREEN not in screens(), 30)
+            time.sleep(3)
+            ws = {w["id"]: w for w in app_windows("wev")}
+            check("only the window the user fullscreened stays fullscreen",
+                  len(ws) == 2 and ws[first]["fullScreen"] and ws[first]["screen"] != SCREEN
+                  and all(not w["fullScreen"] for i, w in ws.items() if i != first), json.dumps(ws))
             browser.close()
     except Exception as e:
         check("driver ran to the end", False, repr(e))
@@ -154,7 +207,7 @@ pkgs.testers.runNixOSTest {
     services.webtop.enable = true;
     # The headless browser has no H.264; JPEG needs no codec.
     services.webtop.extraEnvironment.SELKIES_ENCODER = "jpeg";
-    environment.systemPackages = [ pkgs.wev pkgs.kdePackages.libkscreen ];
+    environment.systemPackages = [ pkgs.wev pkgs.kdePackages.libkscreen pkgs.kdePackages.kcalc ];
     virtualisation.memorySize = 6144;
     virtualisation.cores = 4;
   };
