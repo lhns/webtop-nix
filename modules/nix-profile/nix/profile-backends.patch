@@ -40,7 +40,7 @@ index 4f56319..c3e2e02 100644
          StringSet versions;
          for (auto & path : storePaths)
              versions.insert(DrvName(path.name()).version);
-@@ -312,6 +332,607 @@ struct ProfileManifest
+@@ -312,6 +332,523 @@ struct ProfileManifest
      }
  };
  
@@ -152,71 +152,9 @@ index 4f56319..c3e2e02 100644
 +    try {
 +        runProfileHook(backend, profile, declaration, operation);
 +    } catch (Error & e) {
-+        // A revert is a commit of its own, which can fail too (a file conflict with what others committed).
-+        try {
-+            revert();
-+        } catch (Error & revertError) {
-+            throw Error(
-+                "profile-hook '%s' failed and the change could not be reverted: %s; the hook's failure: %s",
-+                profileSettings.hook.get(),
-+                revertError.msg(),
-+                e.msg());
-+        }
++        revert();
 +        throw Error("profile-hook '%s' failed, so the change was reverted: %s", profileSettings.hook.get(), e.msg());
 +    }
-+}
-+
-+/** One command's change, re-applied under the lock to the state current then. Returns whether it changed
-+    anything: a remove or upgrade whose target has gone does not. */
-+using Delta = std::function<bool(ProfileManifest &)>;
-+
-+static bool applyDeltas(const std::vector<Delta> & deltas, ProfileManifest & manifest)
-+{
-+    bool changed = false;
-+    for (auto & delta : deltas)
-+        changed |= delta(manifest);
-+    return changed;
-+}
-+
-+static bool sameElement(const ProfileElement & a, const ProfileElement & b)
-+{
-+    if (a.storePaths != b.storePaths || a.active != b.active || a.priority != b.priority
-+        || a.source.has_value() != b.source.has_value())
-+        return false;
-+    return !a.source
-+           || (a.source->to_string() == b.source->to_string()
-+               && a.source->lockedRef.to_string() == b.source->lockedRef.to_string());
-+}
-+
-+/* Whether adding `b` again would add nothing. */
-+static bool sameFlakeOutput(const ProfileElement & a, const ProfileElement & b)
-+{
-+    return a.source && b.source && a.priority == b.priority && a.source->originalRef == b.source->originalRef
-+           && a.source->attrPath == b.source->attrPath;
-+}
-+
-+/* Undoes the commit from `before` to `after` on `current`, which may hold later commits of others: a name
-+   goes back only if it is still what the commit made it. Returns whether `current` changed. */
-+static bool undoCommit(const ProfileManifest & before, const ProfileManifest & after, ProfileManifest & current)
-+{
-+    bool changed = false;
-+    for (auto & [name, made] : after.elements) {
-+        auto was = before.elements.find(name);
-+        if (was != before.elements.end() && sameElement(was->second, made))
-+            continue;
-+        auto now = current.elements.find(name);
-+        if (now == current.elements.end() || !sameElement(now->second, made))
-+            continue;
-+        if (was != before.elements.end())
-+            now->second = was->second;
-+        else
-+            current.elements.erase(now);
-+        changed = true;
-+    }
-+    for (auto & [name, was] : before.elements)
-+        if (!after.elements.contains(name) && current.elements.emplace(name, was).second)
-+            changed = true;
-+    return changed;
 +}
 +
 +/**
@@ -234,21 +172,12 @@ index 4f56319..c3e2e02 100644
 +
 +    virtual ProfileManifest load(EvalState & state) = 0;
 +
-+    /** Checks that a change can be committed, before anything is built. Takes no lock. */
++    /** Checks that a change can be committed and takes the backend's lock, before anything is built. */
 +    virtual void prepare() {}
 +
-+    /** Takes the lock a commit holds through its hook, if the backend has one. Lock order: ADR 0007. */
-+    virtual void lockForCommit() {}
-+
-+    /** Under the backend's lock, applies `deltas` to the current state (left in `manifest`) and records the
-+        result if they changed it, then runs `profile-hook`; reverts if it fails. Returns how to undo the
-+        change when a later backend of the same command fails. */
-+    virtual std::function<void()> commit(
-+        ref<Store> store,
-+        EvalState & state,
-+        const std::vector<Delta> & deltas,
-+        std::string_view operation,
-+        ProfileManifest & manifest) = 0;
++    /** Records `manifest`, then runs `profile-hook`; reverts if it fails. Returns how to undo the change
++        when a later backend of the same command fails. */
++    virtual std::function<void()> commit(ref<Store> store, ProfileManifest & manifest, std::string_view operation) = 0;
 +
 +    /** The profile whose generations are this backend's versions. */
 +    virtual std::filesystem::path generations() const = 0;
@@ -264,6 +193,22 @@ index 4f56319..c3e2e02 100644
 +    if (!local)
 +        throw Error("'nix profile' is not supported for this Nix store");
 +    return *local;
++}
++
++/* Back to generation `prev` (none: no profile), deleting the current one if it is newer than `last`,
++   the newest generation before the change (createGeneration may have reused an older one). */
++static void revertProfile(
++    const std::filesystem::path & profile, std::optional<GenerationNumber> prev, GenerationNumber last)
++{
++    auto cur = findGenerations(profile).second;
++    if (!cur || cur == prev)
++        return;
++    if (prev)
++        switchGeneration(profile, prev, false);
++    else
++        std::filesystem::remove(profile);
++    if (*cur > last)
++        deleteGeneration(profile, *cur);
 +}
 +
 +/** Stock `nix profile`: a profile's generations. */
@@ -291,35 +236,13 @@ index 4f56319..c3e2e02 100644
 +        return ProfileManifest(state, profile);
 +    }
 +
-+    void install(ref<Store> store, ProfileManifest & manifest)
++    std::function<void()> commit(ref<Store> store, ProfileManifest & manifest, std::string_view operation) override
 +    {
-+        switchLink(profile, createGeneration(requireLocalFSStore(*store), profile, manifest.build(store)));
-+    }
-+
-+    std::function<void()> commit(
-+        ref<Store> store,
-+        EvalState & state,
-+        const std::vector<Delta> & deltas,
-+        std::string_view operation,
-+        ProfileManifest & manifest) override
-+    {
-+        PathLocks lock;
-+        lockProfile(lock, profile);
-+        manifest = load(state);
-+        auto before = manifest;
-+        if (!applyDeltas(deltas, manifest))
-+            return []() {};
-+        install(store, manifest);
-+        // Before the hook: an activation inside it changes this profile. Others can commit from here on,
-+        // so a revert is a commit of its own, not a step back to the previous generation.
-+        lock.unlock();
-+        auto revert = [this, store, &state, before, after = manifest]() {
-+            PathLocks lock;
-+            lockProfile(lock, profile);
-+            auto current = load(state);
-+            if (undoCommit(before, after, current))
-+                install(store, current);
-+        };
++        auto & local = requireLocalFSStore(*store);
++        auto [gens, prev] = findGenerations(profile);
++        GenerationNumber last = gens.empty() ? 0 : gens.back().number;
++        switchLink(profile, createGeneration(local, profile, manifest.build(store)));
++        auto revert = [profile = profile, prev, last]() { revertProfile(profile, prev, last); };
 +        runProfileHookOrRevert(kind(), profile, std::nullopt, operation, revert);
 +        return revert;
 +    }
@@ -377,8 +300,10 @@ index 4f56319..c3e2e02 100644
 +    /** The default profile, for `NIX_PROFILE`. */
 +    std::filesystem::path profile;
 +    std::filesystem::path history;
++    /** The file's contents at `load()`, to detect a concurrent change. */
++    std::optional<std::string> loaded;
 +    PathLocks lock;
-+    bool locked = false;
++    bool prepared = false;
 +
 +    DeclarationProfileBackend(std::filesystem::path file, std::filesystem::path profile)
 +        : file(std::move(file))
@@ -444,8 +369,8 @@ index 4f56319..c3e2e02 100644
 +
 +    ProfileManifest load(EvalState & state) override
 +    {
-+        auto contents = readFileIfExists(file);
-+        return contents ? parse(*contents, file) : ProfileManifest();
++        loaded = readFileIfExists(file);
++        return loaded ? parse(*loaded, file) : ProfileManifest();
 +    }
 +
 +    StorePath storePathOf(Store & store, const std::string & contents)
@@ -481,28 +406,33 @@ index 4f56319..c3e2e02 100644
 +        switchLink(history, createGeneration(requireLocalFSStore(*store), history, path));
 +    }
 +
-+    void lockForCommit() override
-+    {
-+        if (locked)
-+            return;
-+        lockProfile(lock, history);
-+        locked = true;
-+    }
-+
 +    void prepare() override
 +    {
++        if (prepared)
++            return;
 +        if (!profileHook())
 +            throw Error(
 +                "the declaration backend needs 'profile-hook' to install what %s declares", PathFmt(file));
++        lockProfile(lock, history);
 +        if (!std::filesystem::exists(file))
 +            throw Error(
 +                "declaration %s does not exist; create it with {\"version\": 1, \"elements\": {}}, "
 +                "or use '--profile-backend profile'",
 +                PathFmt(file));
++        prepared = true;
 +    }
 +
-+    /* Writes `contents` and runs the hook; puts `previous` back if the hook fails. The lock is held
-+       throughout, so `previous` is still the state to return to. */
++    /* Returns the current contents; fails if the file changed since `load()`. */
++    std::string current()
++    {
++        prepare();
++        auto contents = readFileIfExists(file);
++        if (contents != loaded)
++            throw Error("declaration %s changed while 'nix profile' ran; try again", PathFmt(file));
++        return *contents;
++    }
++
++    /* Writes `contents` and runs the hook; puts `previous` back if the hook fails. */
 +    void apply(ref<Store> store, const std::string & previous, const std::string & contents, std::string_view operation)
 +    {
 +        // Hand edits since the last change become a version of their own.
@@ -511,26 +441,16 @@ index 4f56319..c3e2e02 100644
 +        runProfileHookOrRevert(kind(), profile, file, operation, [&]() { writeFileAtomic(file, previous); });
 +    }
 +
-+    std::function<void()> commit(
-+        ref<Store> store,
-+        EvalState & state,
-+        const std::vector<Delta> & deltas,
-+        std::string_view operation,
-+        ProfileManifest & manifest) override
++    std::function<void()> commit(ref<Store> store, ProfileManifest & manifest, std::string_view operation) override
 +    {
-+        lockForCommit();
-+        prepare();
-+        auto previous = readFile(file);
-+        manifest = parse(previous, file);
-+        bool changed = applyDeltas(deltas, manifest);
++        auto previous = current();
 +        auto contents = serialize(manifest);
-+        // Equal contents: e.g. an upgrade that re-locked to the same source, nothing to apply.
-+        if (!changed || contents == previous)
++        // E.g. an upgrade that re-locked to the same source: nothing to apply.
++        if (contents == previous)
 +            return []() {};
 +        apply(store, previous, contents, operation);
 +        record(store, contents);
-+        // commitBackends commits this backend last, so nothing can fail after it.
-+        return []() {};
++        return [file = file, previous]() { writeFileAtomic(file, previous); };
 +    }
 +
 +    std::filesystem::path generations() const override
@@ -545,9 +465,8 @@ index 4f56319..c3e2e02 100644
 +
 +    void rollback(ref<Store> store, std::optional<GenerationNumber> version, bool dryRun) override
 +    {
-+        lockForCommit();
-+        prepare();
-+        auto previous = readFile(file);
++        loaded = readFileIfExists(file);
++        auto previous = current();
 +        auto [gens, cur] = findGenerations(history);
 +        // After a hand edit, the previous version is the current generation itself.
 +        bool edited = !isCurrent(*store, previous);
@@ -618,20 +537,17 @@ index 4f56319..c3e2e02 100644
 +    return manifests;
 +}
 +
-+/* Commits the backends with deltas, the profile first (a declaration's hook may change the profile
-+   itself); if one fails, the ones already committed are reverted too. A command that changes the
-+   declaration holds its lock from the start, so its profile commit and any undo run inside it. */
++/* Commits the changed backends, the profile first (a declaration's hook may change the profile
++   itself); if one fails, the ones already committed are reverted too. */
 +static void commitBackends(
 +    const std::vector<ref<ProfileBackend>> & backends,
-+    const std::vector<std::vector<Delta>> & deltas,
++    const std::vector<bool> & changed,
 +    std::function<std::function<void()>(size_t)> commitOne)
 +{
-+    if (!deltas[0].empty())
-+        backends[0]->lockForCommit();
 +    std::vector<std::function<void()>> undo;
 +    try {
 +        for (size_t b = backends.size(); b-- > 0;)
-+            if (!deltas[b].empty())
++            if (changed[b])
 +                undo.push_back(commitOne(b));
 +    } catch (...) {
 +        for (auto i = undo.rbegin(); i != undo.rend(); ++i) {
@@ -648,7 +564,7 @@ index 4f56319..c3e2e02 100644
  static std::map<Installable *, std::pair<BuiltPaths, ref<ExtraPathInfo>>>
  builtPathsPerInstallable(const std::vector<std::pair<ref<Installable>, BuiltPathWithResult>> & builtPaths)
  {
-@@ -361,7 +982,16 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
+@@ -361,7 +898,16 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
  
      void run(ref<Store> store, Installables && installables) override
      {
@@ -662,11 +578,11 @@ index 4f56319..c3e2e02 100644
 +                    break;
 +                }
 +        auto manifests = loadManifests(*getEvalState(), backends);
-+        std::vector<std::vector<Delta>> deltas(backends.size());
++        std::vector<bool> changed(backends.size());
  
          auto builtPaths = builtPathsPerInstallable(
              Installable::build2(getEvalStore(), store, Realise::Outputs, installables, bmNormal));
-@@ -392,27 +1022,90 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
+@@ -392,27 +938,75 @@ struct CmdProfileAdd : InstallablesCommand, MixDefaultProfile
  
              element.updateStorePaths(getEvalStore(), store, res);
  
@@ -683,46 +599,35 @@ index 4f56319..c3e2e02 100644
 +
              auto elementName = getNameFromElement(element);
  
-+            // A store path must not shadow a declared package of the same name. Checked again under the
-+            // profile's lock, reading the declaration without its lock: an activation adds store paths
-+            // and must not wait for that lock (ADR 0007).
-+            auto checkNotDeclared = [&backends, elementName](const ProfileManifest & declared) {
-+                if (declared.elements.contains(elementName))
-+                    throw Error(
-+                        "'%s' is declared in the %s; remove it there first ('nix profile remove %s'), or try the "
-+                        "store path with 'nix shell'",
-+                        elementName,
-+                        backends[0]->kind(),
-+                        elementName);
-+            };
-+            if (b > 0) {
-+                checkNotDeclared(manifests[0]);
-+                deltas[b].push_back([this, &backends, checkNotDeclared](ProfileManifest &) {
-+                    checkNotDeclared(backends[0]->load(*getEvalState()));
-+                    return false;
-+                });
-+            }
++            // A store path must not shadow a declared package of the same name.
++            if (b > 0 && manifests[0].elements.contains(elementName))
++                throw Error(
++                    "'%s' is declared in the %s; remove it there first ('nix profile remove %s'), or try the "
++                    "store path with 'nix shell'",
++                    elementName,
++                    backends[0]->kind(),
++                    elementName);
 +
              // Check if the element already exists.
 +            bool alreadyAdded = false;
              auto existingPair = manifest.elements.find(elementName);
              if (existingPair != manifest.elements.end()) {
--                auto existingElement = existingPair->second;
--                auto existingSource = existingElement.source;
--                auto elementSource = element.source;
+                 auto existingElement = existingPair->second;
+                 auto existingSource = existingElement.source;
+                 auto elementSource = element.source;
 -                if (existingSource && elementSource && existingElement.priority == element.priority
 -                    && existingSource->originalRef == elementSource->originalRef
 -                    && existingSource->attrPath == elementSource->attrPath) {
 -                    warn("'%s' is already added", elementName);
 -                    continue;
-+                alreadyAdded = sameFlakeOutput(existingPair->second, element);
++                alreadyAdded = existingSource && elementSource && existingElement.priority == element.priority
++                               && existingSource->originalRef == elementSource->originalRef
++                               && existingSource->attrPath == elementSource->attrPath;
 +            }
 +
 +            // The same package in a later backend moves here (or goes, if already here), so it is
-+            // recorded once. Decided again under that backend's lock: it may have gained the name meanwhile.
-+            for (size_t later = b + 1; later < backends.size(); ++later) {
-+                deltas[later].push_back(
-+                    [elementName](ProfileManifest & m) { return m.elements.erase(elementName) > 0; });
++            // recorded once.
++            for (size_t later = b + 1; later < backends.size(); ++later)
 +                if (manifests[later].elements.erase(elementName)) {
 +                    if (alreadyAdded)
 +                        notice(
@@ -736,38 +641,30 @@ index 4f56319..c3e2e02 100644
 +                            elementName,
 +                            backends[later]->kind(),
 +                            backends[b]->kind());
++                    changed[later] = true;
                  }
-             }
- 
--            manifest.addElement(elementName, std::move(element));
++
 +            if (alreadyAdded) {
 +                warn("'%s' is already added", elementName);
 +                continue;
-+            }
-+
-+            manifest.addElement(elementName, ProfileElement(element));
-+            deltas[b].push_back([elementName, element](ProfileManifest & m) {
-+                auto existing = m.elements.find(elementName);
-+                if (existing != m.elements.end() && sameFlakeOutput(existing->second, element))
-+                    return false;
-+                m.addElement(elementName, ProfileElement(element));
-+                return true;
-+            });
+             }
+ 
+             manifest.addElement(elementName, std::move(element));
++            changed[b] = true;
          }
  
-+        commitBackends(backends, deltas, [&](size_t b) { return commit(store, *backends[b], deltas[b]); });
++        commitBackends(backends, changed, [&](size_t b) { return commit(store, *backends[b], manifests[b]); });
 +    }
 +
-+    std::function<void()> commit(ref<Store> store, ProfileBackend & backend, const std::vector<Delta> & deltas)
++    std::function<void()> commit(ref<Store> store, ProfileBackend & backend, ProfileManifest & manifest)
 +    {
-+        ProfileManifest manifest;
          try {
 -            updateProfile(*store, manifest.build(store));
-+            return backend.commit(store, *getEvalState(), deltas, "add", manifest);
++            return backend.commit(store, manifest, "add");
          } catch (BuildEnvFileConflictError & conflictError) {
              // FIXME use C++20 std::ranges once macOS has it
              //       See
-@@ -479,6 +1172,12 @@ struct Matcher
+@@ -479,6 +1073,12 @@ struct Matcher
  
      virtual std::string getTitle() = 0;
      virtual bool matches(const std::string & name, const ProfileElement & element) = 0;
@@ -780,7 +677,7 @@ index 4f56319..c3e2e02 100644
  };
  
  struct RegexMatcher final : public Matcher
-@@ -497,6 +1196,11 @@ struct RegexMatcher final : public Matcher
+@@ -497,6 +1097,11 @@ struct RegexMatcher final : public Matcher
          return fmt("Regex '%s'", pattern);
      }
  
@@ -792,7 +689,7 @@ index 4f56319..c3e2e02 100644
      bool matches(const std::string & name, const ProfileElement & element) override
      {
          return std::regex_match(element.identifier(), regex);
-@@ -550,6 +1254,11 @@ struct AllMatcher final : public Matcher
+@@ -550,6 +1155,11 @@ struct AllMatcher final : public Matcher
          return "--all";
      }
  
@@ -804,7 +701,7 @@ index 4f56319..c3e2e02 100644
      bool matches(const std::string & name, const ProfileElement & element) override
      {
          return true;
-@@ -595,7 +1304,8 @@ public:
+@@ -595,7 +1205,8 @@ public:
               }}});
      }
  
@@ -814,7 +711,7 @@ index 4f56319..c3e2e02 100644
      {
          if (_matchers.empty()) {
              throw UsageError("No packages specified.");
-@@ -610,20 +1320,22 @@ public:
+@@ -610,20 +1221,22 @@ public:
              throw UsageError("--all cannot be used with package names or regular expressions.");
          }
  
@@ -845,7 +742,7 @@ index 4f56319..c3e2e02 100644
              if (!foundMatch) {
                  warn("%s does not match any packages in the profile.", matcher->getTitle());
              }
-@@ -648,27 +1360,37 @@ struct CmdProfileRemove : virtual EvalCommand, MixDefaultProfile, MixProfileElem
+@@ -648,27 +1261,35 @@ struct CmdProfileRemove : virtual EvalCommand, MixDefaultProfile, MixProfileElem
  
      void run(ref<Store> store) override
      {
@@ -868,16 +765,16 @@ index 4f56319..c3e2e02 100644
 -            auto & element = oldManifest.elements[name];
 -            notice("removing '%s'", element.identifier());
 -            newManifest.elements.erase(name);
-+        std::vector<std::vector<Delta>> deltas(backends.size());
++        std::vector<bool> changed(backends.size());
 +        std::vector<ProfileManifest> newManifests = manifests;
 +        for (size_t b = 0; b < backends.size(); ++b) {
 +            if (matching[b].empty())
 +                continue;
 +            backends[b]->prepare();
++            changed[b] = true;
 +            for (auto & name : matching[b]) {
 +                notice("removing '%s'", manifests[b].elements[name].identifier());
 +                newManifests[b].elements.erase(name);
-+                deltas[b].push_back([name](ProfileManifest & m) { return m.elements.erase(name) > 0; });
 +            }
 +            printInfo(
 +                "removed %d packages, kept %d packages",
@@ -889,14 +786,12 @@ index 4f56319..c3e2e02 100644
 -        printInfo("removed %d packages, kept %d packages", removedCount, newManifest.elements.size());
 -
 -        updateProfile(*store, newManifest.build(store));
-+        commitBackends(backends, deltas, [&](size_t b) {
-+            ProfileManifest manifest;
-+            return backends[b]->commit(store, *getEvalState(), deltas[b], "remove", manifest);
-+        });
++        commitBackends(
++            backends, changed, [&](size_t b) { return backends[b]->commit(store, newManifests[b], "remove"); });
      }
  };
  
-@@ -688,22 +1410,27 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -688,22 +1309,25 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
  
      void run(ref<Store> store) override
      {
@@ -907,8 +802,6 @@ index 4f56319..c3e2e02 100644
  
          Installables installables;
          std::vector<ProfileElement *> elems;
-+        std::vector<std::pair<size_t, std::string>> elemNames;
-+        std::vector<std::vector<Delta>> deltas(backends.size());
  
          auto upgradedCount = 0;
  
@@ -929,16 +822,15 @@ index 4f56319..c3e2e02 100644
  
              if (!element.source) {
                  warn(
-@@ -759,6 +1486,8 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -759,6 +1383,7 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
  
              installables.push_back(installable);
              elems.push_back(&element);
-+            elemNames.emplace_back(b, name);
 +            changed[b] = true;
          }
  
          if (upgradedCount == 0) {
-@@ -766,6 +1495,10 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
+@@ -766,6 +1391,10 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
              return;
          }
  
@@ -949,30 +841,17 @@ index 4f56319..c3e2e02 100644
          auto builtPaths = builtPathsPerInstallable(
              Installable::build2(getEvalStore(), store, Realise::Outputs, installables, bmNormal));
  
-@@ -773,9 +1506,21 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
-             auto & installable = installables.at(i);
-             auto & element = *elems.at(i);
+@@ -775,7 +1404,8 @@ struct CmdProfileUpgrade : virtual SourceExprCommand, MixDefaultProfile, MixProf
              element.updateStorePaths(getEvalStore(), store, builtPaths.find(&*installable)->second.first);
-+            auto & [b, name] = elemNames.at(i);
-+            // An element removed meanwhile stays removed.
-+            deltas[b].push_back([name = name, element = element](ProfileManifest & m) {
-+                auto existing = m.elements.find(name);
-+                if (existing == m.elements.end() || sameElement(existing->second, element))
-+                    return false;
-+                existing->second = element;
-+                return true;
-+            });
          }
  
 -        updateProfile(*store, manifest.build(store));
-+        commitBackends(backends, deltas, [&](size_t b) {
-+            ProfileManifest manifest;
-+            return backends[b]->commit(store, *getEvalState(), deltas[b], "upgrade", manifest);
-+        });
++        commitBackends(
++            backends, changed, [&](size_t b) { return backends[b]->commit(store, manifests[b], "upgrade"); });
      }
  };
  
-@@ -795,11 +1540,44 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
+@@ -795,11 +1425,44 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
  
      void run(ref<Store> store) override
      {
@@ -1019,7 +898,7 @@ index 4f56319..c3e2e02 100644
              for (const auto & [i, e] : enumerate(manifest.elements)) {
                  auto & [name, element] = e;
                  if (i)
-@@ -815,7 +1593,11 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
+@@ -815,7 +1478,11 @@ struct CmdProfileList : virtual EvalCommand, virtual StoreCommand, MixDefaultPro
                      logger->cout("Locked flake URL:   %s", element.source->lockedRef.to_string());
                  }
                  logger->cout(
@@ -1032,7 +911,7 @@ index 4f56319..c3e2e02 100644
              }
          }
      }
-@@ -837,7 +1619,7 @@ struct CmdProfileDiffClosures : virtual StoreCommand, MixDefaultProfile
+@@ -837,7 +1504,7 @@ struct CmdProfileDiffClosures : virtual StoreCommand, MixDefaultProfile
  
      void run(ref<Store> store) override
      {
@@ -1041,7 +920,7 @@ index 4f56319..c3e2e02 100644
  
          std::optional<Generation> prevGen;
          bool first = true;
-@@ -876,14 +1658,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
+@@ -876,14 +1543,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
  
      void run(ref<Store> store) override
      {
@@ -1058,7 +937,7 @@ index 4f56319..c3e2e02 100644
              if (!first)
                  logger->cout("");
              first = false;
-@@ -895,6 +1676,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
+@@ -895,6 +1561,13 @@ struct CmdProfileHistory : virtual StoreCommand, EvalCommand, MixDefaultProfile
                  std::put_time(std::gmtime(&gen.creationTime), "%Y-%m-%d"),
                  prevGen ? fmt(" <- %d", prevGen->first.number) : "");
  
@@ -1072,7 +951,7 @@ index 4f56319..c3e2e02 100644
              ProfileManifest::printDiff(prevGen ? prevGen->second : ProfileManifest(), manifest, "  ");
  
              prevGen = {gen, std::move(manifest)};
-@@ -930,7 +1718,7 @@ struct CmdProfileRollback : virtual StoreCommand, MixDefaultProfile, MixDryRun
+@@ -930,7 +1603,7 @@ struct CmdProfileRollback : virtual StoreCommand, MixDefaultProfile, MixDryRun
  
      void run(ref<Store> store) override
      {
@@ -1081,7 +960,7 @@ index 4f56319..c3e2e02 100644
      }
  };
  
-@@ -964,11 +1752,12 @@ struct CmdProfileWipeHistory : virtual StoreCommand, MixDefaultProfile, MixDryRu
+@@ -964,11 +1637,12 @@ struct CmdProfileWipeHistory : virtual StoreCommand, MixDefaultProfile, MixDryRu
  
      void run(ref<Store> store) override
      {
