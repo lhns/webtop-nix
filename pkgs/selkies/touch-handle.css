@@ -3,5 +3,10 @@
    from the handle; the handle can still overlap the panel. */
 .toggle-handle{left:8px}
 .sidebar{width:285px;max-width:100vw;padding-left:23px}
-/* Larger target on touch; the bar stays where a mouse sees it: 8 + (35 - 4) / 2 from the edge. */
-@media (pointer:coarse){.toggle-handle{width:44px;height:72px;box-sizing:border-box;justify-content:flex-start;padding-left:15.5px}}
+/* Larger target on touch; the bar stays where a mouse sees it: 8 + (15 - 4) / 2 from the edge.
+   The 35px width in the stock stylesheet is iOS only. While the panel is open the target must end at its content
+   (23px), or it takes taps meant for the panel's buttons; it starts at the edge there to stay usable. */
+@media (pointer:coarse){
+.toggle-handle{width:44px;height:72px;box-sizing:border-box;justify-content:flex-start;padding-left:5.5px}
+.toggle-handle:has(~ .sidebar.is-open){left:0;width:23px;padding-left:13.5px}
+}
