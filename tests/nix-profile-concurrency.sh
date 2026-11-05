@@ -1028,7 +1028,7 @@ scenario_hm_atomic() {
   else fail "the applied marker is written before reloadSystemd"; fi
 
   # A generation with the new entries under an older image's Nix: the remove-and-add fallback. The shims
-  # record how activation calls Nix; its PATH starts with the directory nix-env resolves to, so both must
+  # record how activation calls Nix; its PATH is only the directory nix-env resolves to, so these must
   # be real files here.
   reset hmstock
   pn add "$F#fast0" > /dev/null 2>&1

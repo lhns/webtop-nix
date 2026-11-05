@@ -60,6 +60,9 @@ home-manager switch --flake "$dir" || rc=$?
 cur=$(readlink -f "$gen" || true)
 if [ -n "$prev" ] && [ "$cur" != "$prev" ]; then
   echo "webtop-profile-hook: re-activating the previous home-manager generation" >&2
+  # By hand: an activation that failed before linking leaves home-manager's record at the previous
+  # generation, so activating that "changes nothing" and would leave the profile at the failed one.
+  nix-env --profile "$gen" --set "$prev" || echo "webtop-profile-hook: pointing the profile at $prev failed" >&2
   WEBTOP_ACTIVATE_ANY=1 "$prev/activate" || echo "webtop-profile-hook: re-activating $prev failed" >&2
 fi
 exit "$rc"

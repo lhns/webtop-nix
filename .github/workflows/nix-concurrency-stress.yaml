@@ -48,7 +48,9 @@ jobs:
       - run: nix build .#nix-profile-backends -L --no-link
       - name: save patched Nix
         if: steps.nix-cache.outputs.cache-hit != 'true'
-        run: nix copy --to "file://$HOME/nix-cache?compression=zstd" "${{ steps.nixpkg.outputs.out }}"
+        run: |
+          sudo chown -R "$USER" ~/nix-cache
+          nix copy --to "file://$HOME/nix-cache?compression=zstd" "${{ steps.nixpkg.outputs.out }}"
       - uses: actions/cache/save@v6
         if: steps.nix-cache.outputs.cache-hit != 'true'
         with:
