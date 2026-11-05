@@ -125,19 +125,12 @@ stamp
 fails=0
 why() {
   grep -av 'SQLite database' "$1" | grep -a -A3 '^error' | head -n 6 | cut -c1-200
-  if builder_killed "$1"; then echo "--- kernel: $(sudo -n dmesg 2> /dev/null | grep -iE 'out of memory|oom-kill|killed process' | tail -n 5)"; free -m; fi
 }
-# The test cannot do this: builders run as nixbld users, and its kills reach only its own clients.
-builder_killed() { grep -aq 'builder failed due to signal 9' "$1"; }
 pass() { echo "PASS  $M: $*"; }
 fail() { echo "FAIL  $M: $*"; fails=$((fails + 1)); }
-# A scenario's setup: must work, or what follows tests nothing. A killed builder gets one more try.
+# A scenario's setup: must work, or what follows tests nothing.
 given_add() {
   pn add "$@" > "$t/log/given" 2>&1 && return 0
-  if builder_killed "$t/log/given"; then
-    echo "NOTE  builder killed from outside, the setup add runs again"
-    pn add "$@" > "$t/log/given" 2>&1 && return 0
-  fi
   fail "setup: nix profile add $*"; why "$t/log/given"
 }
 sorted() { printf '%s\n' "$@" | sort -u | xargs; }
@@ -218,15 +211,6 @@ parallel() {
   for p in "${pids[@]}"; do
     i=$((i + 1)); rc=0; wait "$p" || rc=$?
     [ "$rc" = 0 ] || { echo "--- command $i rc=$rc:"; why "$t/log/p$i"; }
-    # A command that reports a killed builder failed honestly, before its commit, and the checks would
-    # count it as lost. Its package must then land like any other; a command that exited 0 still has to.
-    if [ "$rc" != 0 ] && builder_killed "$t/log/p$i"; then
-      echo "NOTE  builder killed from outside, command $i runs again"
-      line=${*:$i:1}
-      rc=0
-      # shellcheck disable=SC2086
-      pn $line > "$t/log/p$i" 2>&1 || { rc=$?; why "$t/log/p$i"; }
-    fi
     rcs="$rcs$rc"
   done
 }
