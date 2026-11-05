@@ -14,7 +14,7 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | --- | --- | --- |
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
-| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with [one patch](pkgs/selkies/second-display-without-primary.patch) |
+| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with three patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch) |
 | Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) and [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
