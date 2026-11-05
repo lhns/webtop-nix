@@ -97,6 +97,13 @@ A home kept across containers survives a new image: each boot (`nixProfile.fromI
 `services.webtop.softwareCenter.enable` also writes `/etc/nsc/system-manifest.json` (name, version and store path of each `environment.systemPackages` entry) and points the session's `NSC_SYSTEM_MANIFEST` at it, so the software center shows those apps as "Included with desktop" instead of Install. It is matched by package name, read at startup, and a user's own install wins.
 A consumer whose home is reached through other paths sets `nixProfile.homeStoragePath`, and can receive progress with `nixProfile.progress`.
 
+## Time zone and locale
+
+The session's time zone and locale come from, in order: the user's `webtop.timeZone` / `webtop.locale` (home-manager options of the `packages` home module, or alone as `webtop.homeModules.timeLocale`; they write `timeZone=` and `locale=` to `~/.config/webtop/session.conf`), then `WEBTOP_TIME_ZONE` / `WEBTOP_LOCALE` from `services.webtop.localeEnvironmentFiles` (kube-webtop-workspaces passes its chart values this way), then `services.webtop.timeZone` / `services.webtop.locale`. With none set, `time.timeZone` and `i18n.defaultLocale` apply.
+Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image. It then relinks `/etc/localtime` and rewrites `/etc/locale.conf` (`LANG` only), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user, must be a regular file of at most 64 KiB, and unknown keys are ignored.
+A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then.
+`services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale`.
+
 ## KWin without a GPU
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
