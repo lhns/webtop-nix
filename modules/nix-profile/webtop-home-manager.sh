@@ -3,6 +3,13 @@
 # stale, and switches when that or the template unit changed something, or the active generation
 # did not survive the update. WEBTOP_FLAKE, the image's `webtop` flake, is set by the module.
 
+# The apply lock (ADR 0009) for the whole script; flock stays its parent, and -o keeps the lock out of
+# anything left running.
+if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
+  WEBTOP_HM_LOCK_HELD=1 exec flock -o "${XDG_STATE_HOME:-$HOME/.local/state}/webtop/home-manager.lock" "$0" "$@"
+fi
+
 hm=$HOME/.config/home-manager
 state=${XDG_STATE_HOME:-$HOME/.local/state}
 gen=$state/nix/profiles/home-manager
@@ -16,6 +23,27 @@ progress() { webtop-restore-progress "$@" || true; }
 notify() { webtop-notify "$1" "$2" "${3:-system-software-install}" & }
 
 if [ -e "$switch_marker" ]; then switch=1; fi
+
+# A package change that was declared but not applied (a command killed after writing the file, an OOM
+# of the container, a full disk), or a generation that was not finished or never wrote this: the record
+# has the packages.json a generation was built from and that generation. Without a record there is
+# nothing to compare; the hook's first switch writes one.
+if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ]; then
+  applied_hash=
+  applied_gen=
+  read -r applied_hash applied_gen < "$state/webtop/applied" || true
+  if [ "$applied_hash" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ] || [ "$applied_gen" != "$(readlink -f "$gen" || true)" ]; then
+    switch=1
+  fi
+fi
+
+# Nix writes flake.lock in place: a full disk or a crash during that leaves it invalid, and every
+# switch would fail on it. Set aside, the inputs relock from the registry.
+if [ -f "$hm/flake.lock" ] && ! jq -e . "$hm/flake.lock" > /dev/null 2>&1; then
+  echo "flake.lock is not valid: moved to flake.lock.bad, relocking"
+  mv "$hm/flake.lock" "$hm/flake.lock.bad"
+  switch=1
+fi
 
 # Root inputs resolved through the image's registry are locked to the old image's store paths;
 # relock those that are no longer valid with the locked content (a path that merely exists may not be
@@ -47,10 +75,15 @@ for l in "$gen" "$gen"-*-link; do
 done
 
 if [ -z "$switch" ] || [ ! -f "$hm/flake.nix" ]; then exit 0; fi
-rc=0
 progress current "home-manager switch"
 echo "home-manager switch --flake $hm"
-NIX_CONFIG=$(progress nixconfig) home-manager switch --flake "$hm" || rc=$?
+# 75: a package change landed during the evaluation (ADR 0009). Its hook now waits for this lock and
+# holds the declaration's, so the next attempt sees the final file. Nobody is here to run it again.
+for _ in 1 2 3; do
+  rc=0
+  NIX_CONFIG=$(progress nixconfig) home-manager switch --flake "$hm" || rc=$?
+  [ "$rc" = 75 ] || break
+done
 if [ "$rc" = 0 ]; then
   rm -f "$switch_marker"
   exit 0
