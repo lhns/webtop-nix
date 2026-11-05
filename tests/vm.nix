@@ -56,8 +56,17 @@ WEBTOP_LOCALE=de_DE.UTF-8
     env = machine.succeed(f"xargs -0 -n1 < /proc/{pid}/environ")
     assert "SELKIES_USE_BROWSER_CURSORS=false" in env, "environmentFiles entry did not override the default"
     assert "SELKIES_FRAMERATE=33" in env, "allowlisted user setting not applied"
+    assert "XCURSOR_THEME=breeze_cursors" in env and "XCURSOR_SIZE=24" in env, "cursor defaults missing"
     assert "SELKIES_FILE_TRANSFERS=upload,download" in env, "non-allowlisted user setting was applied"
     assert "SELKIES_UPLOAD_PATH=/home/user/Inbox" in env, "upload path is not the XDG download dir"
+
+    # No framerate in the user's file: the module's default applies. DrKonqi's pickup unit has no runtime limit.
+    assert user("systemctl --user show -p RuntimeMaxUSec --value drkonqi-coredump-pickup.service").strip() == "infinity"
+    machine.succeed("install -D -o user -m644 /dev/null /home/user/.config/webtop/selkies.env")
+    user("systemctl --user restart selkies.service")
+    machine.wait_for_open_port(8082)
+    pid = user("systemctl --user show -p MainPID --value selkies.service").strip()
+    assert "SELKIES_FRAMERATE=30,8-240" in machine.succeed(f"xargs -0 -n1 < /proc/{pid}/environ"), "default framerate"
 
     machine.succeed(
         "curl -sf -X POST -H 'X-Upload-Path: hello.txt' --data-binary 'hi there' http://localhost:8082/api/upload"

@@ -45,7 +45,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it), `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
-`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
 a patch in [pkgs/selkies](pkgs/selkies/upload-path.patch)). `null` resolves `xdg-user-dir DOWNLOAD` at each start of `selkies.service`, so
@@ -176,6 +176,48 @@ go to the caller's groups, so its own packages never move the stack's layers. Th
 table (`nix build .#image.layerSplit`, `table.txt`); `nix run .#layer-report -- <image json> <groups.json> --previous <ref>`
 shows which layers are new against a published image. Push with zstd at the level CI uses
 (`nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 docker://…`), so unchanged layers keep their blob.
+
+## Features and third-party changes
+
+What this flake provides, all without Kubernetes:
+
+- Selkies + pixelflux + pcmflux stream a nested KWin/Plasma 6 session over HTTP ([ADR 0001](docs/adr/0001-selkies-with-kwin-nested-in-pixelflux.md)); a real logind session with standard power management ([0003](docs/adr/0003-a-real-logind-session-with-standard-power-management.md)); a null audio sink, clipboard, file upload and download, per-user Selkies settings (`userSettings`), several pages on one desktop, one app per screen.
+- GPU-less rendering through a patched KWin ([0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
+- Software installation from one declaration (`nixProfile`, the Software Center; [0006](docs/adr/0006-software-installation-in-this-flake.md), [0007](docs/adr/0007-nix-profile-commit-locks.md)).
+- The container module and its options (below, [0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)); the layered image builder `lib.buildImage` ([0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)); module defaults for cursors (`XCURSOR_*`), a 30 fps start and DrKonqi's crash pickup without a runtime limit.
+
+Every change to a third-party program, and why:
+
+| what | change | why |
+| --- | --- | --- |
+| KWin 6.8 | [software presentation](pkgs/kwin/kwin-6.8-software-shm-presentation.patch) (LinuxServer's, vendored) and [finishing each frame](pkgs/kwin/kwin-6.8-shm-presentation-finish.patch) | KWin 6.8 has no QPainter compositing; without a GPU, nested in Selkies, it shows a gray screen |
+| KWin 6.7 | [output device globals](pkgs/kwin/kwin-6.7-output-device-globals.patch) (LinuxServer's, vendored) | pixelflux confirms a second display by a `kde_output_device_v2` global |
+| Selkies | [second display without primary](pkgs/selkies/second-display-without-primary.patch) | a page for one app's screen connects on its own |
+| Selkies | [upload path](pkgs/selkies/upload-path.patch) | downloads serve the whole home while uploads land in one inbox |
+| Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), plus a web client edit that tells a reconnect from a new page | with several pages open, the one opened last drives the primary display |
+| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; stale browser copies would hide the change |
+| Nix 2.34 | [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) | `nix profile` edits `packages.json` and runs home-manager |
+| Nix 2.34 | [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) | a locked `path:` input (the registry's nixpkgs) otherwise copies all of nixpkgs into the store on each evaluation; drop it once upstream has a fingerprint |
+| Nix Software Center | [fork `lhns/nix-software-center`](pkgs/nix-software-center.nix), pinned | no network probe (`onlineCheckUrl = ""`), no system package set (`systemPackages = false`), unfree apps through the `nixpkgs-unfree` registry flake, apps of the image shown as "Included with desktop" |
+| pixelflux, pcmflux | none | built from source at the commits that released the PyPI wheels |
+
+## Container module
+
+`nixosModules.container` is the desktop as a container with systemd as PID 1 (runtime-owned `resolv.conf`/`hosts`, no consoles,
+no core dumps, no rtkit or oomd); the standalone image is `webtop` plus this ([ADR 0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)). It sets no `services.webtop.*` and no `stateVersion`.
+
+| option | default | what |
+| --- | --- | --- |
+| `services.webtop.storeOverlay.enable` | `false` | the Nix daemon uses a `local-overlay` store: the image's store (`lowerRoot`, `/.lower`) is read-only below, a volume (`upperLayer`) above. The entrypoint must mount overlayfs on `/nix/store` before systemd runs; the daemon alone opens the store, clients go through it. `trusted-users`, `fsync-store-paths` and `sandbox` stay with the consumer |
+| `services.webtop.journalRelay.enable` | `false` | writes the journal to the fifo `path` (`/run/webtop/console`) for the entrypoint to copy to the container log |
+| `services.webtop.adminTools.enable` | `false` | ps, ip, lsof, git, jq, curl, wget, htop and a few more in the system (the standalone image sets it) |
+| `services.webtop.sudo.enable` | `false` | the desktop user joins `wheel` with an empty password and passwordless sudo; only where the container is the user's own |
+
+Not in this flake because they need Kubernetes or its daemon: the entrypoint that mounts the overlay, the agent (power actions and
+boot progress reported to a controller) and the restore around an image update, including `webtop-session-save`, which writes the
+Plasma session when a pod is deleted. A standalone container stopped from outside loses the unsaved session unless the user logs out first.
+The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
+(`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
 
 ## Tests
 
