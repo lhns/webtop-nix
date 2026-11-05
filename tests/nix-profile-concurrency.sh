@@ -485,7 +485,7 @@ boot_script() {
   printf '#!/usr/bin/env bash\n[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"\n' > "$t/stubs/webtop-restore-progress"; cp "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify"
   { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_FLAKE=%s\n' "$repo/modules/nix-profile/webtop-flake"
     # Without the relock: here the webtop input is no store path, so it would always relock and switch,
-    # and hide whether the repair under test decided to. tests/image-boot.sh has the relock.
+    # and hide whether the repair under test decided to.
     sed '/^# Root inputs resolved/,/^# Dangling generation links/{/^# Dangling/!d}' "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
   chmod +x "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify" "$t/setup.sh"
 }
@@ -804,7 +804,7 @@ scenario_cgroup() {
   done
 
   # SIGKILL of everything after a range of delays, so every stage of a commit gets hit.
-  for delay in 2 4 6 8 10 12 15 18 22 26; do
+  for delay in 1 2 3 4 5 6 8 10; do
     reset "killall$delay"
     start_unit
     sleep "$delay"

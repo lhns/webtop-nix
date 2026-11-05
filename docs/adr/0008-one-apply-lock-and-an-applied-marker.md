@@ -107,7 +107,7 @@ what is on `PATH` and the marker agree.
 | what an activation leaves running | none | holds no lock | activations |
 | `kill -9` during `--replace` | SIGKILL | one `home-manager-path` | hm_atomic |
 | all of it, memory-limited cgroup | kernel OOM with `memory.oom.group=1`, at hook and in activation | valid file, no lock held, marker differs; boot converges | cgroup (systemd unit, not a container) |
-| all of it | SIGKILL of the cgroup after 2..26 s | valid file; boot converges | cgroup |
+| all of it | SIGKILL of the cgroup after 1..10 s | valid file; boot converges | cgroup |
 | all of it | pod deletion: SIGTERM, then SIGKILL | valid file; boot converges | cgroup (`systemctl stop`) |
 | lock files after a restart | any | `flock` files hold nothing; the kernel released them | cgroup |
 | crash between marker and switch | any | cannot happen: the marker is the last step | hm_atomic (order); cgroup |
