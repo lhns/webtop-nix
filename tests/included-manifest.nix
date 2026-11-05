@@ -18,26 +18,9 @@ pkgs.runCommand "included-manifest-check" { nativeBuildInputs = [ pkgs.jq pkgs.s
     jq -e --arg n "$n" 'any(.packages[]; .pname == $n)' $m >/dev/null || fail "$n is not in the manifest"
   done
 
-  q() { sqlite3 -batch "$db" "$1"; }
-  entries=$(jq '.packages | length' $m)
-  names=$(jq -r '[.packages[].pname] | unique | .[]' $m)
-  matched=0; unmatched=""; ties=""; picks=""
-  for n in $names; do
-    attrs=$(q "SELECT attribute FROM pkgs WHERE pname = '$n' AND instr(attribute, ':') = 0 ORDER BY 1")
-    [ -n "$attrs" ] || { unmatched="$unmatched $n"; continue; }
-    matched=$((matched + 1))
-    exact=$(echo "$attrs" | awk -F. -v n="$n" '$NF == n')
-    if [ -n "$exact" ]; then pick=$exact; else pick=$attrs; fi
-    [ "$(echo "$attrs" | wc -l)" = 1 ] || ties="$ties
-    $n: candidates [$(echo $attrs)] -> [$(echo $pick)]"
-    picks="$picks $n=$(echo $pick | tr ' ' ',')"
-  done
-  echo "manifest: $entries entries, $(echo "$names" | wc -w) distinct pnames, $matched matched by pname, $(echo $unmatched | wc -w) unmatched"
-  echo "unmatched:$unmatched"
-  echo "ties:$ties"
-  echo "picks:$picks"
-
-  echo "$picks" | grep -q ' dolphin=kdePackages.dolphin ' || fail "dolphin does not match kdePackages.dolphin"
+  smoke=${pkgs.nix-software-center}/libexec/nix-software-center/nsc-backend-smoke
+  $smoke --system-manifest $m --pkgdb $db | tee report.txt
+  grep -q '^match: dolphin .* -> \[kdePackages.dolphin\]$' report.txt || fail "dolphin"
 
   touch $out
 ''
