@@ -146,7 +146,7 @@ jobs:
       - name: reinstall test
         run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval
-        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval -L
+        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.included-manifest -L
       - name: VM test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.vm -L
