@@ -45,7 +45,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it), `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
 `lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
-`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
 a patch in [pkgs/selkies](pkgs/selkies/upload-path.patch)). `null` resolves `xdg-user-dir DOWNLOAD` at each start of `selkies.service`, so
@@ -207,9 +207,8 @@ no core dumps, no rtkit or oomd); the standalone image is `webtop` plus this ([A
 | `services.webtop.sudo.enable` | `false` | the desktop user joins `wheel` with an empty password and passwordless sudo; only where the container is the user's own |
 
 Not in this flake because they need Kubernetes or its daemon: the entrypoint that mounts the overlay, the agent (power actions and
-boot progress reported to a controller) and the restore around an image update. `webtop-session-save` is one of them: kube-webtop-workspaces
-runs it on a pod deletion to write the Plasma session before the user manager stops (Plasma's own logout saves it, an external stop does not), and it calls that agent.
-A standalone container stopped from outside loses the unsaved session unless the user logs out first.
+boot progress reported to a controller) and the restore around an image update, including `webtop-session-save`, which writes the
+Plasma session when a pod is deleted. A standalone container stopped from outside loses the unsaved session unless the user logs out first.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
 (`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
 
