@@ -100,6 +100,10 @@ if [ -n "$lc" ]; then
   # Replaces NixOS's link into the store, so localectl and the next start see it too.
   if ! { printf 'LANG=%s\n' "$lc" > /etc/locale.conf.new && mv -T /etc/locale.conf.new /etc/locale.conf; }; then log "could not set /etc/locale.conf"; fi
 fi
-# timedated and localed keep what they read; a daemon that is up would report the previous start's.
-if [ -n "$tz$lc" ]; then systemctl try-restart systemd-timedated.service systemd-localed.service || log "could not refresh timedated/localed"; fi
+# timedated and localed keep what they read; stopping them (D-Bus starts them again on demand) makes
+# the next query report this start's values. reset-failed keeps a quick series of starts under the rate limit.
+if [ -n "$tz$lc" ]; then
+  systemctl reset-failed systemd-timedated.service systemd-localed.service 2>/dev/null || true
+  systemctl stop systemd-timedated.service systemd-localed.service || log "could not refresh timedated/localed"
+fi
 exit 0
