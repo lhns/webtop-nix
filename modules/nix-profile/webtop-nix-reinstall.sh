@@ -6,7 +6,7 @@
 # (Run by a consumer's unit or, with fromImageStore, by webtop-home-manager.service: the messages name both.)
 manifest=$1
 
-# The apply lock (ADR 0008) for the whole script; flock stays its parent, and -o keeps the lock out of
+# The apply lock (ADR 0009) for the whole script; flock stays its parent, and -o keeps the lock out of
 # anything left running.
 if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
   mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"

@@ -143,7 +143,7 @@ index 4f56319..34e51b6 100644
 +}
 +
 +/* Runs the hook. A cancel (SIGINT, SIGTERM) must neither stop the hook halfway nor revert what it applied:
-+   the hook is idempotent and waits for the apply lock (ADR 0008), so it runs again instead. Nix kills only
++   the hook is idempotent and waits for the apply lock (ADR 0009), so it runs again instead. Nix kills only
 +   the hook process it started, not what that started. */
 +static void runProfileHookUninterrupted(
 +    std::string_view backend,
@@ -503,7 +503,7 @@ index 4f56319..34e51b6 100644
 +
 +    void lockForCommit() override
 +    {
-+        // Earlier in the lock order than what a hook or a switch holds (ADR 0008): it would wait forever.
++        // Earlier in the lock order than what a hook or a switch holds (ADR 0009): it would wait forever.
 +        if (getEnv("NIX_PROFILE_BACKEND"))
 +            throw Error("'nix profile' cannot change %s from inside its hook or a home-manager switch", PathFmt(file));
 +        if (locked)
@@ -812,7 +812,7 @@ index 4f56319..34e51b6 100644
          }
  
 +        // Under the declaration's lock, unless a hook or an activation adds it: they run inside that
-+        // lock, or inside the apply lock that the declaration's hook waits for (ADR 0008).
++        // lock, or inside the apply lock that the declaration's hook waits for (ADR 0009).
 +        commitBackends(backends, deltas, storePathAdded && !getEnv("NIX_PROFILE_BACKEND"), [&](size_t b) {
 +            return commit(store, *backends[b], deltas[b]);
 +        });

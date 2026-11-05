@@ -21,7 +21,7 @@ esac
 
 if [ -n "$apply" ] && [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
   mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
-  # The apply lock (ADR 0008) for the whole run, as the switch and the restore of flake.lock belong together.
+  # The apply lock (ADR 0009) for the whole run, as the switch and the restore of flake.lock belong together.
   WEBTOP_HM_LOCK_HELD=1 exec flock -o "${XDG_STATE_HOME:-$HOME/.local/state}/webtop/home-manager.lock" "$0" "$@"
 fi
 

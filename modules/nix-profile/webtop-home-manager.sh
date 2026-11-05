@@ -3,7 +3,7 @@
 # stale, and switches when that or the template unit changed something, or the active generation
 # did not survive the update. WEBTOP_FLAKE, the image's `webtop` flake, is set by the module.
 
-# The apply lock (ADR 0008) for the whole script; flock stays its parent, and -o keeps the lock out of
+# The apply lock (ADR 0009) for the whole script; flock stays its parent, and -o keeps the lock out of
 # anything left running.
 if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
   mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
@@ -77,7 +77,7 @@ done
 if [ -z "$switch" ] || [ ! -f "$hm/flake.nix" ]; then exit 0; fi
 progress current "home-manager switch"
 echo "home-manager switch --flake $hm"
-# 75: a package change landed during the evaluation (ADR 0008). Its hook now waits for this lock and
+# 75: a package change landed during the evaluation (ADR 0009). Its hook now waits for this lock and
 # holds the declaration's, so the next attempt sees the final file. Nobody is here to run it again.
 for _ in 1 2 3; do
   rc=0

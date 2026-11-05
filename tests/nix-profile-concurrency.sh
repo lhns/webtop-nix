@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Concurrent `nix profile` commands (ADR 0007) and their cancels, kills and activations (ADR 0008) with the
+# Concurrent `nix profile` commands (ADR 0007) and their cancels, kills and activations (ADR 0009) with the
 # patched Nix, real builds and home-manager: every command ends with the declaration, the manifest, what
 # is on PATH and the applied marker in agreement.
 # Usage: nix-profile-concurrency.sh <patched Nix out path>. Needs network; home is a temporary one.
@@ -501,7 +501,7 @@ marker_matches() {
   [ "$(cat "$APPLIED" 2> /dev/null)" = "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) $(readlink -f "$D/home-manager")" ]
 }
 
-# Killing a process that holds a lock. flock -o: only that process holds it (ADR 0008).
+# Killing a process that holds a lock. flock -o: only that process holds it (ADR 0009).
 scenario_lock_holders() {
   local rc k s
   # The apply lock's holder, terminal switch: the lock goes, the activation's own lock still keeps others out.

@@ -1,7 +1,7 @@
 # profile-hook of the patched `nix profile` (ADR 0006): applies a changed packages.json with
 # home-manager. Exits 0 only once it is applied; on failure the previous generation is active again.
 # Idempotent and cheap when there is nothing to apply: nix runs it again after a cancel, and for a
-# command that changed nothing (ADR 0008).
+# command that changed nothing (ADR 0009).
 
 # Profile changes, home-manager's own install of its generation included: nothing to apply. Must
 # stay cheap, it runs for every one of them.

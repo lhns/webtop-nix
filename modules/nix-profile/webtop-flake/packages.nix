@@ -39,7 +39,7 @@ let
       selected = if outputs == null then [ drv ]
         else map (o: drv.${o}) (if lib.elem "*" outputs then drv.outputs else outputs);
     in map (lib.setPrio (e.priority or 5)) selected;
-  # The apply lock, the marker and the check below: ADR 0008.
+  # The apply lock, the marker and the check below: ADR 0009.
   hash = builtins.hashFile "sha256" file;
   declared = "${config.xdg.configHome}/home-manager/packages.json";
   stateDir = "\${XDG_STATE_HOME:-$HOME/.local/state}/webtop";
@@ -107,7 +107,7 @@ in
         local oldNix="$(command -v nix)"
 
         if $oldNix config show profile-backend > /dev/null 2>&1; then
-          # Under whatever name the profile has it (NIX_PROFILE_BACKEND: no declaration lock, ADR 0008).
+          # Under whatever name the profile has it (NIX_PROFILE_BACKEND: no declaration lock, ADR 0009).
           local name
           name=$(${pkgs.jq}/bin/jq -r '(.elements | if type == "array" then [] else to_entries end)[]
             | select(.value.storePaths // [] | any(test("-home-manager-path$"))) | .key' \

@@ -1,4 +1,4 @@
-# 0008 — One apply lock and an applied marker: commands cannot half-apply or interleave
+# 0009 — One apply lock and an applied marker: commands cannot half-apply or interleave
 
 - Status: Accepted
 - Date: 2026-11-05

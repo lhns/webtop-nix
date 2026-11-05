@@ -37,7 +37,7 @@ let
       (import ./webtop-flake/packages.nix ./starter/packages.json)
     ];
   };
-  # home-manager under the apply lock (ADR 0008), here and in the user's profile (the packages module).
+  # home-manager under the apply lock (ADR 0009), here and in the user's profile (the packages module).
   hmPackage = import ./webtop-flake/home-manager-locked.nix { inherit pkgs; real = home-manager.packages.${system}.home-manager; };
   notify = pkgs.writeShellApplication {
     name = "webtop-notify";

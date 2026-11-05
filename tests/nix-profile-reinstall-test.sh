@@ -13,7 +13,7 @@ stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$t/bin/$1"; chmod +x "$t/bin
 stub nix 'echo "nix $*" >> "$T/calls"; [ "${KILL_AT:-}" != "$5" ] || [ -z "${KILL_AT:-}" ] || kill -9 "$PPID"; [ "${NIX_FAIL:-}" != "$5" ] || [ -z "${NIX_FAIL:-}" ] || exit 1'
 stub webtop-restore-progress 'echo "progress $*" >> "$T/calls"; [ "$1" != nixconfig ] || printf %s "${NIX_CONFIG:-}"'
 stub webtop-notify 'echo "notify $1" >> "$T/calls"'
-# The apply lock (ADR 0008) must be held while the switch runs.
+# The apply lock (ADR 0009) must be held while the switch runs.
 stub setup 'echo setup >> "$T/calls"; ! flock -n "$HOME/.local/state/webtop/home-manager.lock" true || echo unlocked >> "$T/calls"; [ -z "${SETUP_FAIL:-}" ] || exit 1'
 export T=$t PATH=$t/bin:$PATH WEBTOP_SETUP=$t/bin/setup
 

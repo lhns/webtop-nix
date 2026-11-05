@@ -1,4 +1,4 @@
-# home-manager under the apply lock (ADR 0008); `real` is the home-manager package.
+# home-manager under the apply lock (ADR 0009); `real` is the home-manager package.
 { pkgs, real }:
 pkgs.writeShellApplication {
   name = "home-manager";

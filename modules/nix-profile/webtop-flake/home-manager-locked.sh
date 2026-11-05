@@ -1,4 +1,4 @@
-# `home-manager` under the apply lock (ADR 0008): one command holds it from evaluation through
+# `home-manager` under the apply lock (ADR 0009): one command holds it from evaluation through
 # activation. The caller sets WEBTOP_HM_REAL, the real binary, ahead of this text.
 # --rollback activates an older generation, whose packages.json may differ: allowed.
 for a in "$@"; do

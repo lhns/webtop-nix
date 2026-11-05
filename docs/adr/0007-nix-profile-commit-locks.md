@@ -45,5 +45,5 @@ the commit is the only one every path goes through.
 
 ## Amendment 2026-11-05
 
-`L_A` is defined by [ADR 0008](0008-one-apply-lock-and-an-applied-marker.md). Store-path adds now take `L_D`
+`L_A` is defined by [ADR 0009](0009-one-apply-lock-and-an-applied-marker.md). Store-path adds now take `L_D`
 unless a hook or an activation runs them, which closes the window above.
