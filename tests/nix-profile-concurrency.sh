@@ -95,9 +95,12 @@ cat > "$L/flake.nix" <<EOF
     stamp = builtins.readFile ./stamp;
     mk = delay: n: derivation {
       name = n; system = "$system"; builder = "\${p.bash}/bin/bash"; PATH = "\${p.coreutils}/bin";
+      # Ends in a builtin: bash would exec a last external command, coreutils closes its output before
+      # exiting, and the daemon SIGKILLs a builder whose output closes ("builder failed due to signal 9").
       args = [ "-c" ''
         sleep \${delay}; mkdir -p \$out/bin
         printf '#!/bin/sh\necho \${stamp}\n' > \$out/bin/tb-\${n}; chmod +x \$out/bin/tb-\${n}
+        exit 0
       '' ];
     };
     many = pre: delay: builtins.listToAttrs (builtins.genList (i: rec { name = "\${pre}\${toString i}"; value = mk delay name; }) 4);
