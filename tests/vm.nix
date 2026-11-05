@@ -84,7 +84,7 @@ WEBTOP_LOCALE=de_DE.UTF-8
         if text is not None:
             b64 = base64.b64encode(text.encode()).decode()
             machine.succeed(f"echo {b64} | base64 -d > {conf} && chown user: {conf}")
-        machine.succeed("systemctl restart webtop-session.service")
+        machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
         return session_env()
     def expect(zone, lang, env):
         assert machine.succeed("readlink /etc/localtime").strip() == f"/etc/zoneinfo/{zone}", "localtime"
@@ -119,21 +119,21 @@ WEBTOP_LOCALE=de_DE.UTF-8
     expect("Asia/Tokyo", "fr_FR.UTF-8", restart_session("timeZone=Mars/Olympus\nlocale=fr_FR.UTF-8\n"))
     # Links, directories and oversized files are not read.
     machine.succeed(f"rm -f {conf}; ln -s /etc/webtop-locale.env {conf}")
-    machine.succeed("systemctl restart webtop-session.service")
+    machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())
     machine.succeed(f"rm -f {conf}; head -c 100000 /dev/zero | tr '\0' '#' > {conf}; printf 'timeZone=Europe/Paris\n' >> {conf}; chown user: {conf}")
-    machine.succeed("systemctl restart webtop-session.service")
+    machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())
 
     # Nothing valid anywhere: the module's defaults (here after the env file is gone).
     machine.succeed("rm -f /etc/webtop-locale.env")
-    machine.succeed(f"rm -f {conf}; systemctl restart webtop-session.service")
+    machine.succeed(f"rm -f {conf}; systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Europe/Berlin", "en_GB.UTF-8", session_env())
 
     # KDE's settings page writes through timedated to /etc/localtime; the next start applies the setting again.
     machine.succeed("timedatectl set-timezone Europe/London")
     assert machine.succeed("timedatectl show -P Timezone").strip() == "Europe/London"
-    machine.succeed("systemctl restart webtop-session.service")
+    machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Europe/Berlin", "en_GB.UTF-8", session_env())
     assert not problems, problems
   '';
