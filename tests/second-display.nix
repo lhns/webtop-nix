@@ -175,8 +175,7 @@ let
 
             # A window the user fullscreened before place stays fullscreen when the screen goes.
             first = app_windows("wev")[0]["id"]
-            kwin_js("workspace.windowList().filter(w => String(w.internalId) === '%s').forEach(w => w.fullScreen = true);"
-                    "print('TAG');" % first)
+            note("user fullscreen: " + json.dumps(kwin_js("workspace.windowList().filter(w => String(w.internalId) === '%s').forEach(w => { w.fullScreen = true; print('TAG ' + w.fullScreen); });" % first)))
             note("place again: " + user(f"webtop-app-screen place wev {SCREEN}"))
             check("both windows on the app screen again",
                   wait_for(lambda: on_app_screen(app_windows("wev")), 15), json.dumps(app_windows("wev")))
