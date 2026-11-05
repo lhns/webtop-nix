@@ -11,8 +11,8 @@ active() {
 }
 
 clear_lock() {
-  local s i
-  for i in $(seq 1 30); do
+  local s
+  for _ in $(seq 1 30); do
     for s in $(loginctl show-user "$uid" -p Sessions --value); do
       loginctl unlock-session "$s" || echo "webtop-lock-guard: unlock-session $s failed"
     done
