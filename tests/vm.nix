@@ -72,6 +72,7 @@ WEBTOP_LOCALE=de_DE.UTF-8
 
     # Time zone and locale. A change needs a session restart, which applies it again.
     import base64
+    problems = []
     conf = "/home/user/.config/webtop/session.conf"
     def session_env():
         machine.wait_for_unit("webtop-session.service")
@@ -88,7 +89,10 @@ WEBTOP_LOCALE=de_DE.UTF-8
     def expect(zone, lang, env):
         assert machine.succeed("readlink /etc/localtime").strip() == f"/etc/zoneinfo/{zone}", "localtime"
         assert machine.succeed("timedatectl show -P Timezone").strip() == zone, "timedated disagrees"
-        assert f"LANG={lang}" in machine.succeed("localectl status"), "localectl disagrees"
+        lc = machine.succeed("localectl status")
+        if f"LANG={lang}" not in lc:
+            print("DIAG localectl status:"+chr(10)+lc+machine.execute("ls -l /etc/locale.conf; cat /etc/locale.conf; systemctl status systemd-localed --no-pager; tr '\\0' '\\n' < /proc/1/environ | grep -a LANG")[1])
+            problems.append("localectl disagrees")
         assert f"LANG={lang}" in env.splitlines(), "session lacks LANG"
         assert not any(l.startswith(("TZ=", "LC_ALL=")) for l in env.splitlines()), "TZ/LC_ALL leaked"
 
@@ -127,5 +131,6 @@ WEBTOP_LOCALE=de_DE.UTF-8
     assert machine.succeed("timedatectl show -P Timezone").strip() == "Europe/London"
     machine.succeed("systemctl restart webtop-session.service")
     expect("Europe/Berlin", "en_GB.UTF-8", session_env())
+    assert not problems, problems
   '';
 }
