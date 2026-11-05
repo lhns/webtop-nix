@@ -43,6 +43,9 @@ in
 {
   home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements);
 
+  # Every install switches, and home-manager would notify about all its unread news on the desktop.
+  news.display = lib.mkDefault "silent";
+
   # Not nix.settings: home-manager validates those with nix.package, which would have to be the
   # image's patched Nix, and its nix.conf would replace this one.
   assertions = [{
