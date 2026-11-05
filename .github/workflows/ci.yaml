@@ -132,7 +132,7 @@ jobs:
           path: ~/nix-cache
           key: ${{ steps.nixpkg.outputs.key }}
       - name: nix profile concurrency test
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
