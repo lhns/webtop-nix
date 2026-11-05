@@ -65,8 +65,7 @@ pkgs.testers.runNixOSTest {
     print(machine.execute("journalctl --list-boots --no-pager; ls /var/log/journal")[1])
     j = machine.succeed("journalctl -b -1 -o short-monotonic --no-pager").splitlines()
     marks = [n for n, l in enumerate(j) if "power-hook" in l and "stop/user" in l]
-    assert marks, "power hook did not report stop/user: " + "
-".join(l for l in j if "poweroff" in l or "power-hook" in l or "Shutdown" in l)
+    assert marks, "power hook did not report stop/user: " + " | ".join(l for l in j if "poweroff" in l or "power-hook" in l or "Shutdown" in l)
     mark = marks[0]
     late = [l for l in j[mark:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
     assert not late, "session restarted during shutdown: " + repr(late)
