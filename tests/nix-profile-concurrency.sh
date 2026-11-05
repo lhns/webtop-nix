@@ -58,7 +58,7 @@ profile-backend = declaration:$H/packages.json
 profile-hook = $t/hook"
 
 # home-manager as the image has it, under the apply lock; $hm/bin is the real binary, for the paths around it.
-hm_locked=$(nix build --no-link --print-out-paths --impure --expr   "import $repo/modules/nix-profile/webtop-flake/home-manager-locked.nix { pkgs = (builtins.getFlake \"nixpkgs\").legacyPackages.$system; real = $hm; }") || exit 1
+hm_locked=$(nix build --no-link --print-out-paths --impure --expr "import $repo/modules/nix-profile/webtop-flake/home-manager-locked.nix { pkgs = (builtins.getFlake \"nixpkgs\").legacyPackages.$system; real = $hm; }") || exit 1
 export PATH=$hm_locked/bin:$PATH
 
 for f in flake.nix home.nix packages.json; do
@@ -484,7 +484,9 @@ scenario_signal_sweep() {
 boot_script() {
   printf '#!/usr/bin/env bash\n[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"\n' > "$t/stubs/webtop-restore-progress"; cp "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify"
   { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_FLAKE=%s\n' "$repo/modules/nix-profile/webtop-flake"
-    cat "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
+    # Without the relock: here the webtop input is no store path, so it would always relock and switch,
+    # and hide whether the repair under test decided to. tests/image-boot.sh has the relock.
+    sed '/^# Root inputs resolved/,/^# Dangling generation links/{/^# Dangling/!d}' "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
   chmod +x "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify" "$t/setup.sh"
 }
 # Runs it as a boot would and expects it to end with everything applied; sets rc.
@@ -549,7 +551,7 @@ scenario_lock_holders() {
     rc=0; wait "$c" || rc=$?
     quiesce
     if [ "$rc" = 0 ]; then pass "holder of $(basename "$k") killed during a hook: the command succeeds"
-    else fail "holder of $(basename "$k") killed during a hook: rc=$rc"; cat "$t/log/bg" | tail -n 5; fi
+    else fail "holder of $(basename "$k") killed during a hook: rc=$rc"; tail -n 5 "$t/log/bg"; fi
     check "holder of $(basename "$k") killed during a hook" fast0
   done
 }
