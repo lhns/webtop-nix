@@ -1,0 +1,16 @@
+/* Special-key bar: pinned to the top edge of the on-screen keyboard, above the sidebar handle (1020). */
+.kb-root{position:fixed;left:0;top:0;z-index:1030;box-sizing:border-box;padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  background:#202124;color:#e8eaed;font:14px system-ui,-apple-system,Roboto,sans-serif;-webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none}
+.kb-bar{display:flex;height:44px;touch-action:none}
+.kb-btn{flex:1 1 0;min-width:0;margin:0;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit;
+  -webkit-tap-highlight-color:transparent;touch-action:pan-y}
+.kb-btn.kb-down{background:#3c4043}
+.kb-btn[data-state=armed]{box-shadow:inset 0 -3px #8ab4f8;color:#8ab4f8}
+.kb-btn[data-state=locked]{background:#8ab4f8;color:#202124}
+.kb-panel{box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom);
+  border-top:1px solid #3c4043}
+.kb-panel>.kb-btn{display:block;width:100%;height:44px;text-align:left;padding:0 16px}
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:1px;background:#3c4043}
+.kb-grid .kb-btn{height:44px;background:#202124}
+.kb-grid .kb-btn.kb-down{background:#3c4043}

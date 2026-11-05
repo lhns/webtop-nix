@@ -19,7 +19,8 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
 Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
-same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); touchpad mode accelerates by at most 1.5x instead of 3x
+same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard
+([key-bar.js](pkgs/selkies/key-bar.js), [key-bar.css](pkgs/selkies/key-bar.css)); touchpad mode accelerates by at most 1.5x instead of 3x
 and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at 0.5; a saved speed keeps
 working. The changed assets are renamed by content hash so browsers do not reuse stale copies.
 
@@ -188,7 +189,7 @@ Every change to a third-party program, and why:
 | Selkies | [second display without primary](pkgs/selkies/second-display-without-primary.patch) | a page for one app's screen connects on its own |
 | Selkies | [upload path](pkgs/selkies/upload-path.patch) | downloads serve the whole home while uploads land in one inbox |
 | Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), plus a web client edit that tells a reconnect from a new page | with several pages open, the one opened last drives the primary display |
-| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; stale browser copies would hide the change |
+| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard on touch screens ([js](pkgs/selkies/key-bar.js), [css](pkgs/selkies/key-bar.css), [test](tests/key-bar-test.py)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; the on-screen keyboard has no Esc, Tab, Ctrl, arrows or F-keys; stale browser copies would hide the change |
 | Nix 2.34 | [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) | `nix profile` edits `packages.json` and runs home-manager |
 | Nix 2.34 | [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) | a locked `path:` input (the registry's nixpkgs) otherwise copies all of nixpkgs into the store on each evaluation; drop it once upstream has a fingerprint |
 | Nix Software Center | [fork `lhns/nix-software-center`](pkgs/nix-software-center.nix), pinned | no network probe (`onlineCheckUrl = ""`), no system package set (`systemPackages = false`), unfree apps through the `nixpkgs-unfree` registry flake, apps of the image shown as "Included with desktop" |
