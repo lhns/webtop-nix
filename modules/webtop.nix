@@ -81,6 +81,20 @@ let
     '';
   };
 
+  # Session time zone and locale (README, "Time zone and locale"). Root, before the session starts.
+  applyLocale = pkgs.writeShellApplication {
+    name = "webtop-locale";
+    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.util-linux pkgs.glibc.bin pkgs.getent pkgs.bash config.systemd.package ];
+    text = builtins.readFile ./webtop-locale.sh;
+  };
+  applyLocaleCommand = lib.escapeShellArgs ([
+    (lib.getExe applyLocale)
+    uid
+    "${config.i18n.glibcLocales}/lib/locale/locale-archive"
+    (toString cfg.timeZone)
+    (toString cfg.locale)
+  ] ++ cfg.localeEnvironmentFiles);
+
   startSession = pkgs.writeShellApplication {
     name = "webtop-start-session";
     runtimeInputs = [ pkgs.coreutils pkgs.util-linux ];
@@ -92,6 +106,13 @@ let
         [ -S "$sock" ] && [ -e "$sock.lock" ] && ! flock -n "$sock.lock" true && break
         sleep 0.1
       done
+      # The locale applied before this start (LANG only); systemd's own copy predates it.
+      if [ -r /etc/locale.conf ]; then
+        set -a
+        # shellcheck source=/dev/null
+        . /etc/locale.conf
+        set +a
+      fi
       exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
     '';
   };
@@ -232,6 +253,46 @@ in
       '';
     };
 
+    timeZone = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "Europe/Berlin";
+      description = ''
+        Default time zone of the session (an IANA name), for when neither the user's
+        `webtop.timeZone` nor an environment file (`localeEnvironmentFiles`) gives a valid one.
+        `null` leaves `/etc/localtime` as NixOS has it (`time.timeZone`).
+      '';
+    };
+
+    locale = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "de_DE.UTF-8";
+      description = ''
+        Default locale of the session (one of `locales`), with the same precedence as `timeZone`.
+        `null` leaves `i18n.defaultLocale`.
+      '';
+    };
+
+    locales = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ "en_US.UTF-8" "en_GB.UTF-8" "de_DE.UTF-8" "fr_FR.UTF-8" "es_ES.UTF-8" "it_IT.UTF-8" "nl_NL.UTF-8" "pl_PL.UTF-8" "pt_PT.UTF-8" "C.UTF-8" ];
+      description = ''
+        Locales built into the image, and so the ones `locale` and a user's `webtop.locale` can
+        select. Added to `i18n.supportedLocales`; an entry without `/charset` is UTF-8.
+      '';
+    };
+
+    localeEnvironmentFiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "-/run/webtop/env" ];
+      description = ''
+        Files (a `-` prefix makes one optional) with `WEBTOP_TIME_ZONE=` and `WEBTOP_LOCALE=` lines,
+        later ones winning. Their values rank between the user's and `timeZone` / `locale`.
+      '';
+    };
+
     userSettings = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [
@@ -262,6 +323,11 @@ in
       description = "The Selkies package (from this flake's overlay).";
     };
 
+    sudo.enable = lib.mkEnableOption ''
+      sudo for the desktop user, without a password: the user joins `wheel` with an empty password and
+      `security.sudo.wheelNeedsPassword` is off. Only where the container is the user's own (a user
+      namespace, a personal VM); the desktop is otherwise unprivileged'';
+
     extraEnvironment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -276,8 +342,10 @@ in
     users.users.${cfg.user} = {
       isNormalUser = true;
       uid = cfg.uid;
-      extraGroups = [ "video" "render" "audio" group ];
+      extraGroups = [ "video" "render" "audio" group ] ++ lib.optional cfg.sudo.enable "wheel";
+      initialHashedPassword = lib.mkIf cfg.sudo.enable "";
     };
+    security.sudo.wheelNeedsPassword = lib.mkIf cfg.sudo.enable false;
     users.groups.${group} = { };
 
     services.desktopManager.plasma6.enable = true;
@@ -301,6 +369,11 @@ in
       oldDependency = pkgs.kdePackages.kwin;
       newDependency = pkgs.kwinSoftwarePresentation;
     }];
+
+    # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
+    # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
+    i18n.imperativeLocale = lib.mkDefault true;
+    i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
@@ -352,6 +425,11 @@ in
         SELKIES_UPLOAD_PATH = cfg.uploadPath;
       } // {
         SELKIES_USE_BROWSER_CURSORS = lib.boolToString cfg.browserCursors;
+        # Cursors for Qt apps and pixelflux's own cursor.
+        XCURSOR_THEME = "breeze_cursors";
+        XCURSOR_SIZE = "24";
+        # 30 fps: software x264 on shared CPUs keeps up; the client may still raise it.
+        SELKIES_FRAMERATE = "30,8-240";
       } // cfg.extraEnvironment;
       serviceConfig = {
         # A stale socket would make pixelflux auto-pick a later name than the session waits for.
@@ -362,6 +440,13 @@ in
         Restart = "on-failure";
         RestartSec = 2;
       };
+    };
+
+    # With no crashes to hand off, this unit only watches the journal, and its 30-minute runtime limit
+    # then counts as a failure: the session would report degraded half an hour after login.
+    systemd.user.services.drkonqi-coredump-pickup = {
+      overrideStrategy = "asDropin";
+      serviceConfig.RuntimeMaxSec = "infinity";
     };
 
     # Lingering, so the user manager (and selkies) outlives a restart of the session. By uid:
@@ -403,6 +488,8 @@ in
         NSC_SYSTEM_MANIFEST = manifestPath;
       };
       serviceConfig = {
+        # "-": a failure never blocks the session; "+": root, whatever User= says.
+        ExecStartPre = "-+${applyLocaleCommand}";
         User = uid;
         PAMName = "login";
         StandardInput = "null";
