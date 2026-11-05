@@ -43,11 +43,32 @@
         ];
       };
 
+      # The container module with every option on, for the checks (the storeOverlay needs mounts only
+      # an entrypoint makes, so no test boots it).
+      containerSystem = system: nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          self.nixosModules.webtop
+          self.nixosModules.container
+          {
+            services.webtop = {
+              enable = true;
+              nixProfile.enable = true;
+              sudo.enable = true;
+              storeOverlay.enable = true;
+              journalRelay.enable = true;
+              adminTools.enable = true;
+            };
+            system.stateVersion = "26.05";
+          }
+        ];
+      };
+
       imageLib = system: import ./image { nix2container = nix2container.packages.${system}.nix2container; };
       # The standalone image's system; also the reference other images' layers are classified by.
       standalone = nixpkgs.lib.genAttrs systems (system: nixpkgs.lib.nixosSystem {
         inherit system;
-        modules = [ self.nixosModules.webtop ./image/container.nix ];
+        modules = [ self.nixosModules.webtop self.nixosModules.container ./image/container.nix ];
       });
     in
     {
@@ -102,8 +123,11 @@
       nixosModules = {
         webtop.imports = [
           ./modules/webtop.nix
+          ./modules/restore-progress.nix
           (import ./modules/nix-profile { inherit nixpkgs home-manager flake-registry; })
         ];
+        # The desktop as a container (README, "Image"); beside `webtop`.
+        container = ./modules/container.nix;
         default = self.nixosModules.webtop;
       };
 
@@ -112,6 +136,17 @@
         module-eval =
           let sys = moduleSystem system; in
           pkgs.writeText "module-eval" (builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath);
+        # The container module's options, evaluated and asserted on: the overlay store reaches the daemon only.
+        container-eval =
+          let
+            c = (containerSystem system).config;
+          in
+          assert (nixpkgs.lib.hasPrefix "store = local-overlay://" c.systemd.services.nix-daemon.environment.NIX_CONFIG) || throw "storeOverlay: NIX_CONFIG";
+          assert (c.nix.settings.store == "daemon") || throw "storeOverlay: store";
+          assert (builtins.elem "wheel" c.users.users.user.extraGroups && !c.security.sudo.wheelNeedsPassword) || throw "sudo";
+          assert (c.systemd.services.webtop-journal-relay.serviceConfig.ExecStart != "") || throw "journalRelay";
+          assert (c.systemd.user.services.drkonqi-coredump-pickup.serviceConfig.RuntimeMaxSec == "infinity") || throw "drkonqi";
+          pkgs.writeText "container-eval" (builtins.unsafeDiscardStringContext (containerSystem system).config.system.build.toplevel.drvPath);
         inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
         included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };
         vm = import ./tests/vm.nix { inherit pkgs self; };

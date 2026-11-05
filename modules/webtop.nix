@@ -262,6 +262,11 @@ in
       description = "The Selkies package (from this flake's overlay).";
     };
 
+    sudo.enable = lib.mkEnableOption ''
+      sudo for the desktop user, without a password: the user joins `wheel` with an empty password and
+      `security.sudo.wheelNeedsPassword` is off. Only where the container is the user's own (a user
+      namespace, a personal VM); the desktop is otherwise unprivileged'';
+
     extraEnvironment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -276,8 +281,10 @@ in
     users.users.${cfg.user} = {
       isNormalUser = true;
       uid = cfg.uid;
-      extraGroups = [ "video" "render" "audio" group ];
+      extraGroups = [ "video" "render" "audio" group ] ++ lib.optional cfg.sudo.enable "wheel";
+      initialHashedPassword = lib.mkIf cfg.sudo.enable "";
     };
+    security.sudo.wheelNeedsPassword = lib.mkIf cfg.sudo.enable false;
     users.groups.${group} = { };
 
     services.desktopManager.plasma6.enable = true;
@@ -352,6 +359,11 @@ in
         SELKIES_UPLOAD_PATH = cfg.uploadPath;
       } // {
         SELKIES_USE_BROWSER_CURSORS = lib.boolToString cfg.browserCursors;
+        # Cursors for Qt apps and pixelflux's own cursor.
+        XCURSOR_THEME = "breeze_cursors";
+        XCURSOR_SIZE = "24";
+        # 30 fps: software x264 on shared CPUs keeps up; the client may still raise it.
+        SELKIES_FRAMERATE = "30,8-240";
       } // cfg.extraEnvironment;
       serviceConfig = {
         # A stale socket would make pixelflux auto-pick a later name than the session waits for.
@@ -362,6 +374,13 @@ in
         Restart = "on-failure";
         RestartSec = 2;
       };
+    };
+
+    # With no crashes to hand off, this unit only watches the journal, and its 30-minute runtime limit
+    # then counts as a failure: the session would report degraded half an hour after login.
+    systemd.user.services.drkonqi-coredump-pickup = {
+      overrideStrategy = "asDropin";
+      serviceConfig.RuntimeMaxSec = "infinity";
     };
 
     # Lingering, so the user manager (and selkies) outlives a restart of the session. By uid:
