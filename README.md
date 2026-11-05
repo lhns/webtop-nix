@@ -105,6 +105,10 @@ Before each start of `webtop-session.service`, as root, `webtop-locale` takes th
 A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then. The module sets `i18n.imperativeLocale` (as a default), so `/etc/locale.conf` is a plain file that `localectl` reads and NixOS no longer exports `LANG` itself, and a `time.timeZone` of the system is not combined with these options (`timedatectl` would keep reporting the declared zone).
 `services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale`.
 
+## Sign out at the login provider
+
+Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a [kube-webtop-workspaces](https://github.com/lhns/kube-webtop-workspaces) gateway reads at event time. It only has an effect behind a gateway with a logout URL configured; standalone, the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
+
 ## KWin without a GPU
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
