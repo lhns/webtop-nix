@@ -359,9 +359,13 @@ in
         ExecStartPre = "${pkgs.runtimeShell} -c 'rm -f ${runtimeDir}/${selkiesSocket} ${runtimeDir}/${selkiesSocket}.lock'";
         ExecStart = lib.getExe selkiesStart;
         EnvironmentFile = cfg.environmentFiles;
-        Restart = "on-failure";
+        # "always": Log Out exits 0 and there is no greeter, so it must come back.
+        Restart = "always";
         RestartSec = 2;
       };
+      # Many logouts are fine; a crash loop (>= 2 s per cycle) hits the burst within a minute and stops.
+      startLimitIntervalSec = 300;
+      startLimitBurst = 20;
     };
 
     # Lingering, so the user manager (and selkies) outlives a restart of the session. By uid:
