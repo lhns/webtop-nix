@@ -640,15 +640,18 @@ scenario_hm_atomic() {
     pass "the applied marker is written after the generation is linked and reloaded"
   else fail "the applied marker is written before reloadSystemd"; fi
 
-  # A generation with the new entries under an older image's Nix: the remove-and-add fallback. The shim
-  # records how activation called Nix.
+  # A generation with the new entries under an older image's Nix: the remove-and-add fallback. The shims
+  # record how activation calls Nix; its PATH starts with the directory nix-env resolves to, so both must
+  # be real files here.
   reset hmstock
   pn add "$F#fast0" > /dev/null 2>&1
   g=$(readlink -f "$D/home-manager")
   if "$stock_nix_dir/nix" config show profile-backend > /dev/null 2>&1; then fail "$stock_nix_dir/nix has profile-backend: not stock"; fi
   mkdir "$t/stock"
-  printf '#!/usr/bin/env bash\necho "$*" >> "%s"\nexec "%s" "$@"\n' "$t/log/stock-calls" "$stock_nix_dir/nix" > "$t/stock/nix"
-  chmod +x "$t/stock/nix"
+  for p in nix nix-env; do
+    printf '#!/usr/bin/env bash\necho "$*" >> "%s"\nexec "%s" "$@"\n' "$t/log/stock-calls" "$stock_nix_dir/$p" > "$t/stock/$p"
+    chmod +x "$t/stock/$p"
+  done
   if ( export PATH=$t/stock:$stock_nix_dir:$PATH; "$g/activate" --driver-version 1 ) > "$t/log/stock" 2>&1; then pass "a new generation activates under stock Nix"
   else fail "activation under stock Nix"; tail -n 8 "$t/log/stock"; fi
   if grep -q '^profile install ' "$t/log/stock-calls" && ! grep -q -- --replace "$t/log/stock-calls"; then pass "under stock Nix it removes and adds"
