@@ -25,6 +25,10 @@ pkgs.testers.runNixOSTest {
     pid = lambda unit: machine.succeed(f"systemctl show -p MainPID --value {unit}").strip()
     selkies_pid = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value selkies.service").strip()
     logout = lambda: machine.succeed(f"{ubus} busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout")
+    # The session is only logout-able once plasma-workspace.target is up (ksmserver, plasmashell).
+    ready = lambda: machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service", timeout=180)
+    def diag():
+        print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; ps -eo pid,ppid,etime,cmd | grep -E 'plasma|kwin|ksm' | head -30")[1])
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("selkies.service", "user")
@@ -34,9 +38,14 @@ pkgs.testers.runNixOSTest {
 
     # Log Out exits the session unit with 0; it must come back with a compositor, Selkies untouched.
     for i in range(3):
+        ready()
         old = pid("webtop-session.service")
         logout()
-        machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=180)
+        try:
+            machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
+        except Exception:
+            diag()
+            raise
         machine.wait_for_unit("webtop-session.service")
         ${import ./wait-compositing.nix}
         assert selkies_pid() == selkies, "Selkies was restarted by the logout"
