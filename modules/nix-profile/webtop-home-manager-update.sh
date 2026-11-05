@@ -19,6 +19,12 @@ esac
 [ "$(id -u)" != 0 ] || { echo "run as the desktop user: root would own the files it writes" >&2; exit 1; }
 [ -d "$dir" ] || { echo "no starter flake in ~/.config/home-manager" >&2; exit 1; }
 
+if [ -n "$apply" ] && [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
+  # The apply lock (ADR 0009) for the whole run, as the switch and the restore of flake.lock belong together.
+  WEBTOP_HM_LOCK_HELD=1 exec flock -o "${XDG_STATE_HOME:-$HOME/.local/state}/webtop/home-manager.lock" "$0" "$@"
+fi
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 webtop-template render "$tmp/new" "$user"
