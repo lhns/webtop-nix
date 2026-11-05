@@ -20,17 +20,31 @@ if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
   mkdir -p "$state"
   rc=0
   WEBTOP_HM_LOCK_HELD=1 flock -o "$state/home-manager.lock" "$0" || rc=$?
+  # A signal took the holder or the switch, not a failed activation: once more, and the marker decides.
+  if [ "$rc" -gt 128 ]; then
+    rc=0
+    WEBTOP_HM_LOCK_HELD=1 flock -o "$state/home-manager.lock" "$0" || rc=$?
+  fi
   exit "$rc"
 fi
 
 gen="${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager"
-# What the active generation was built from (webtop-flake/packages.nix): nothing to do if it is this file.
+prev=$(readlink -f "$gen" || true)
+# What the active generation was built from, and which it was (webtop-flake/packages.nix): nothing to do
+# if that is this file and this generation.
 hash=$(sha256sum < "$NIX_PROFILE_DECLARATION" | cut -d' ' -f1)
-if [ "$(cat "$state/applied" 2>/dev/null || true)" = "$hash" ] && [ -e "$gen/activate" ]; then
+applied_hash=
+applied_gen=
+if [ -f "$state/applied" ]; then read -r applied_hash applied_gen < "$state/applied" || true; fi
+if [ "$applied_hash" = "$hash" ] && [ "$applied_gen" = "$prev" ] && [ -e "$prev/activate" ]; then
   exit 0
 fi
 
 dir=$(dirname "$NIX_PROFILE_DECLARATION")
+if [ ! -f "$dir/flake.nix" ]; then
+  echo "webtop-profile-hook: no flake.nix in $dir: nix profile declares into that directory and switches its flake; keep your flake there" >&2
+  exit 1
+fi
 # A flake in a git repo (its own, or a dotfiles repo around it) sees only files git knows.
 if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
   if git -C "$dir" check-ignore -q -- "$NIX_PROFILE_DECLARATION"; then
@@ -40,7 +54,6 @@ if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$dir" add --intent-to-add -- "$NIX_PROFILE_DECLARATION"
 fi
 
-prev=$(readlink -f "$gen" || true)
 rc=0
 home-manager switch --flake "$dir" || rc=$?
 [ "$rc" = 0 ] && exit 0

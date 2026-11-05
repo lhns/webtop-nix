@@ -24,10 +24,24 @@ notify() { webtop-notify "$1" "$2" "${3:-system-software-install}" & }
 
 if [ -e "$switch_marker" ]; then switch=1; fi
 
-# A package change that was declared but not applied (a command killed after writing the file, a
-# power cut): the generation records the packages.json it was built from. Without a record there
-# is nothing to compare; the hook's first switch writes one.
-if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ] && [ "$(cat "$state/webtop/applied")" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ]; then
+# A package change that was declared but not applied (a command killed after writing the file, an OOM
+# of the container, a full disk), or a generation that was not finished or never wrote this: the record
+# has the packages.json a generation was built from and that generation. Without a record there is
+# nothing to compare; the hook's first switch writes one.
+if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ]; then
+  applied_hash=
+  applied_gen=
+  read -r applied_hash applied_gen < "$state/webtop/applied" || true
+  if [ "$applied_hash" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ] || [ "$applied_gen" != "$(readlink -f "$gen" || true)" ]; then
+    switch=1
+  fi
+fi
+
+# Nix writes flake.lock in place: a full disk or a crash during that leaves it invalid, and every
+# switch would fail on it. Set aside, the inputs relock from the registry.
+if [ -f "$hm/flake.lock" ] && ! jq -e . "$hm/flake.lock" > /dev/null 2>&1; then
+  echo "flake.lock is not valid: moved to flake.lock.bad, relocking"
+  mv "$hm/flake.lock" "$hm/flake.lock.bad"
   switch=1
 fi
 

@@ -18,7 +18,7 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export HOME=$t/home USER=$(id -un) PATH=$nix_out/bin:$PATH
 unset XDG_STATE_HOME XDG_CONFIG_HOME
 H=$HOME/.config/home-manager L=$t/flake D=$HOME/.local/state/nix/profiles
-CTL=$HOME/ctl LOCK=$HOME/.local/state/webtop/home-manager.lock APPLIED=$HOME/.local/state/webtop/applied
+CTL=$HOME/ctl LOCK=$HOME/.local/state/webtop/home-manager.lock ALOCK=$HOME/.local/state/webtop/activation.lock APPLIED=$HOME/.local/state/webtop/applied
 # A git flake: every version stays fetchable, as a declared element's locked URL needs.
 F=git+file://$L
 mkdir -p "$H" "$L" "$t/pr" "$t/log" "$CTL" "$t/stubs" "$HOME/.local/state/nix/profiles"
@@ -36,6 +36,7 @@ EOF
   cat <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "\${NIX_PROFILE_BACKEND:-}" = declaration ] && [ -e "$CTL/hook-oom" ]; then tail /dev/zero; fi
 if [ "\${NIX_PROFILE_BACKEND:-}" = declaration ] && [ -e "$t/fail-hook" ]; then
   other=\$(cat "$t/fail-hook"); rm "$t/fail-hook"
   [ -z "\$other" ] || nix profile add "\$other"
@@ -74,6 +75,7 @@ cat >> "$H/home.nix" <<'EOF'
     if [ -e $webtop_ctl/act-on ]; then
       echo "start $(date +%s.%N)" >> $webtop_ctl/act-log
       touch $webtop_ctl/act-started
+      if [ -e $webtop_ctl/act-oom ]; then tail /dev/zero; fi
       while [ -e $webtop_ctl/hold-act ]; do sleep 0.2; done
       if [ -e $webtop_ctl/act-sleep ]; then sleep 1.5; fi
       if [ -e $webtop_ctl/act-bg ]; then ( sleep 25 ) & fi
@@ -133,7 +135,7 @@ sorted() { printf '%s\n' "$@" | sort -u | xargs; }
 # Nothing holds the apply lock any more: orphaned hooks and switches have finished.
 quiesce() {
   local i
-  for i in $(seq 360); do pgrep -f "$LOCK" > /dev/null || return 0; sleep 0.5; done
+  for i in $(seq 360); do pgrep -f "$HOME/.local/state/webtop/(home-manager|activation).lock" > /dev/null || return 0; sleep 0.5; done
   fail "something still holds the apply lock"
 }
 wait_for() { # <seconds> <command...>
@@ -179,7 +181,7 @@ check() {
     got=$(declared); [ "$got" = "$want_a" ] || bad="$bad file=[$got] want=[$want_a]"
     got=$(manifest "$D/profile"); [ "$got" = "$want_b" ] || bad="$bad manifest=[$got] want=[$want_b]"
     got=$(bins "$D/home-manager/home-path"); [ "$got" = "$want_a" ] || bad="$bad generation=[$got] want=[$want_a]"
-    got=$(cat "$APPLIED" 2>/dev/null); [ "$got" = "$(sha256sum < "$H/packages.json" | cut -d' ' -f1)" ] || bad="$bad applied marker is not the declaration's hash"
+    got=$(cat "$APPLIED" 2>/dev/null); [ "$got" = "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) $(readlink -f "$D/home-manager")" ] || bad="$bad applied marker is not the declaration's hash and the live generation"
   fi
   got=$(bins "$(bindir)"); [ "$got" = "$want_all" ] || bad="$bad PATH=[$got] want=[$want_all]"
   if [ -z "$bad" ]; then pass "$label"; else fail "$label:$bad"; fi
@@ -433,8 +435,9 @@ scenario_kill9_stages() {
 
 # SIGINT at a stage of the commit: the change is applied, never left half-way.
 scenario_cancel() {
-  local stage rc
-  for stage in file activation; do
+  local stage rc sig
+  for sig in INT TERM; do
+    for stage in file activation; do
     reset "cancel$stage"
     if [ "$stage" = activation ]; then touch "$CTL/act-on" "$CTL/hold-act"; fi
     bg_add "$F#fast0"
@@ -443,16 +446,17 @@ scenario_cancel() {
     else
       wait_for 120 has_file act-started || fail "cancel at $stage: no activation started"
     fi
-    kill -INT "$c"
+    kill -"$sig" "$c"
     if [ "$stage" = activation ]; then
       sleep 3
-      if running "$c"; then pass "cancel at $stage: nix waits for the apply instead of leaving"
-      else fail "cancel at $stage: nix left while the activation ran"; fi
+      if running "$c"; then pass "SIG$sig at $stage: nix waits for the apply instead of leaving"
+      else fail "SIG$sig at $stage: nix left while the activation ran"; fi
       rm -f "$CTL/hold-act"
     fi
     rc=0; wait "$c" || rc=$?
     quiesce
-    agree "cancel at $stage (nix rc=$rc)"
+    agree "SIG$sig at $stage (nix rc=$rc)"
+    done
   done
 }
 
@@ -473,6 +477,364 @@ scenario_signal_sweep() {
       check "retry after SIG$sig at $d s" fast0
     done
   done
+}
+
+# The image's boot script, $t/setup.sh, with its neighbours stubbed.
+boot_script() {
+  printf '#!/usr/bin/env bash\n[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"\n' > "$t/stubs/webtop-restore-progress"; cp "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify"
+  { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_FLAKE=%s\n' "$repo/modules/nix-profile/webtop-flake"
+    cat "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
+  chmod +x "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify" "$t/setup.sh"
+}
+# Runs it as a boot would and expects it to end with everything applied; sets rc.
+boot_repairs() { # <label>
+  boot_script
+  rc=0; PATH=$t/stubs:$PATH timeout 300 "$t/setup.sh" > "$t/log/setup" 2>&1 || rc=$?
+  if [ "$rc" = 0 ]; then pass "$1: the boot script exits 0"; else fail "$1: the boot script exited $rc"; tail -n 8 "$t/log/setup"; fi
+  quiesce
+  agree "$1: repaired by the boot"
+}
+marker_matches() {
+  [ "$(cat "$APPLIED" 2> /dev/null)" = "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) $(readlink -f "$D/home-manager")" ]
+}
+
+# Killing a process that holds a lock. flock -o: only that process holds it (ADR 0008).
+scenario_lock_holders() {
+  local rc k s
+  # The apply lock's holder, terminal switch: the lock goes, the activation's own lock still keeps others out.
+  reset holderouter
+  touch "$CTL/act-on" "$CTL/hold-act"
+  setsid home-manager switch --flake "$H" > "$t/log/k" 2>&1 & k=$!
+  wait_for 120 has_file act-started || fail "no activation started"
+  pkill -9 -f "flock -o $LOCK"
+  flock -n "$LOCK" true || fail "killing the apply lock's holder did not release it"
+  timeout 300 home-manager switch --flake "$H" > "$t/log/k2" 2>&1 & s=$!
+  two_on_activation_lock() { [ "$(pgrep -fc "flock -o $ALOCK")" -ge 2 ]; }
+  wait_for 120 two_on_activation_lock || fail "the second switch never reached its activation"
+  sleep 2
+  if [ "$(grep -c start "$CTL/act-log")" = 1 ]; then pass "apply lock's holder killed: a second activation waits for the running one"
+  else fail "apply lock's holder killed: activations overlapped: $(tr '\n' ' ' < "$CTL/act-log")"; fi
+  rm -f "$CTL/hold-act"
+  wait "$k" 2> /dev/null
+  rc=0; wait "$s" || rc=$?
+  [ "$rc" = 0 ] || { fail "the second switch: rc=$rc"; tail -n 5 "$t/log/k2"; }
+  quiesce
+  if serial_log; then pass "apply lock's holder killed: activations did not overlap"; else fail "overlap: $(tr '\n' ' ' < "$CTL/act-log")"; fi
+  agree "apply lock's holder killed, terminal switch"
+
+  # The activation's holder: the activation stops with it.
+  reset holderinner
+  touch "$CTL/act-on" "$CTL/hold-act"
+  setsid home-manager switch --flake "$H" > "$t/log/k" 2>&1 & k=$!
+  wait_for 120 has_file act-started || fail "no activation started"
+  pkill -9 -f "flock -o $ALOCK"
+  sleep 1
+  if pgrep -f 'generation/activate' > /dev/null; then fail "the activation outlived its lock's holder"
+  else pass "the activation's holder killed: the activation stops with it"; fi
+  rm -f "$CTL/hold-act" "$CTL/act-on"
+  wait "$k" 2> /dev/null
+  quiesce
+  pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add after a killed activation: rc=$?"; why "$t/log/add"; }
+  check "the activation's holder killed, the next command applies" fast0
+
+  # The same two during a command's hook: the command still ends applied.
+  for k in "$LOCK" "$ALOCK"; do
+    reset holderhook
+    touch "$CTL/act-on" "$CTL/hold-act"
+    bg_add "$F#fast0"
+    wait_for 120 has_file act-started || fail "no activation started"
+    pkill -9 -f "flock -o $k"
+    rm -f "$CTL/hold-act"
+    rc=0; wait "$c" || rc=$?
+    quiesce
+    if [ "$rc" = 0 ]; then pass "holder of $(basename "$k") killed during a hook: the command succeeds"
+    else fail "holder of $(basename "$k") killed during a hook: rc=$rc"; cat "$t/log/bg" | tail -n 5; fi
+    check "holder of $(basename "$k") killed during a hook" fast0
+  done
+}
+
+# The hook or the activation killed by itself: a command reports what happened; the next one converges.
+scenario_process_kills() {
+  local sig rc target pid
+  for sig in TERM KILL; do
+    # The hook's own script: nix reverts while what it started finishes; the marker then differs from the file.
+    reset "killhook$sig"
+    touch "$CTL/act-on" "$CTL/hold-act"
+    bg_add "$F#fast0"
+    wait_for 120 has_file act-started || fail "no activation started"
+    pid=$(pgrep -of "$t/hook")
+    kill -"$sig" "$pid"
+    rm -f "$CTL/hold-act"
+    rc=0; wait "$c" || rc=$?
+    quiesce
+    if [ "$rc" != 0 ] && ! file_has fast0; then pass "SIG$sig of the hook: the command fails, the file is reverted"
+    elif [ "$rc" = 0 ] && file_has fast0; then pass "SIG$sig of the hook: the command succeeds"
+    else fail "SIG$sig of the hook: rc=$rc and the file $(file_has fast0 && echo has || echo has not) it"; fi
+    pn add "$F#fast1" > "$t/log/add" 2>&1 || { fail "add after SIG$sig of the hook"; why "$t/log/add"; }
+    agree "SIG$sig of the hook, the next command converges"
+
+    # The activation: the hook runs the switch once more.
+    reset "killact$sig"
+    touch "$CTL/act-on" "$CTL/hold-act"
+    bg_add "$F#fast0"
+    wait_for 120 has_file act-started || fail "no activation started"
+    pkill -"$sig" -f 'generation/activate'
+    rm -f "$CTL/hold-act"
+    rc=0; wait "$c" || rc=$?
+    quiesce
+    agree "SIG$sig of the activation (nix rc=$rc)"
+  done
+
+  # Ctrl-C of a terminal switch in activation: half-activated, and the marker knows.
+  reset killterminal
+  cat > "$H/local.nix" <<EOF
+{ ... }: { home.sessionVariables.WEBTOP_TEST = "$RANDOM"; }
+EOF
+  touch "$CTL/act-on" "$CTL/hold-act"
+  setsid home-manager switch --flake "$H" > "$t/log/k" 2>&1 & c=$!
+  wait_for 120 has_file act-started || fail "no activation started"
+  kill -INT -- "-$c"
+  rm -f "$CTL/hold-act" "$CTL/act-on"
+  wait "$c" 2> /dev/null
+  quiesce
+  if marker_matches; then fail "a cancelled activation left a matching marker"; else pass "a cancelled activation: the marker does not match"; fi
+  boot_repairs "Ctrl-C of a terminal switch"
+  rm -f "$H/local.nix"
+}
+
+# What the marker, flake.lock and the declaration can be left as, and a hand edit.
+scenario_repairs() {
+  local rc before
+  # A generation that did not write the marker (older, or a pointer moved): both paths switch.
+  reset repairgen
+  pn add "$F#fast0" > /dev/null 2>&1
+  echo "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) /nix/store/other-generation" > "$APPLIED"
+  pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add with another generation's marker"; why "$t/log/add"; }
+  check "another generation's marker: a command with nothing to change switches" fast0
+  echo "$(sha256sum < "$H/packages.json" | cut -d' ' -f1) /nix/store/other-generation" > "$APPLIED"
+  boot_repairs "another generation's marker"
+
+  # A marker cut short, an empty one and a leftover temporary file.
+  for before in 'abc' ''; do
+    printf '%s' "$before" > "$APPLIED"; : > "$APPLIED.tmp"
+    pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add with a marker of '$before'"; why "$t/log/add"; }
+    check "a marker of '$before'" fast0
+  done
+
+  # flake.lock left invalid (a full disk, a crash): the boot sets it aside.
+  reset repairlock
+  : > "$H/flake.lock"
+  boot_repairs "an empty flake.lock"
+  jq -e .nodes "$H/flake.lock" > /dev/null || fail "flake.lock was not written again"
+  rm -f "$H/flake.lock.bad"
+
+  # A hand edit, valid: applied by the next command or the boot; invalid: refused, nothing changes.
+  reset repairedit
+  pn add "$F#fast0" "$F#fast1" > /dev/null 2>&1
+  jq 'del(.elements.fast0)' "$H/packages.json" > "$t/e" && cat "$t/e" > "$H/packages.json"
+  pn add "$F#fast1" > "$t/log/add" 2>&1 || { fail "add after a hand edit"; why "$t/log/add"; }
+  check "a hand edit: the next command applies it" fast1
+  jq 'del(.elements.fast1)' "$H/packages.json" > "$t/e" && cat "$t/e" > "$H/packages.json"
+  boot_repairs "a hand edit"
+  cp "$H/packages.json" "$t/e"
+  echo '{ not json' > "$H/packages.json"; before=$(sha256sum < "$H/packages.json")
+  rc=0; pn add "$F#fast2" > "$t/log/add" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && [ "$before" = "$(sha256sum < "$H/packages.json")" ]; then pass "an invalid declaration: the command fails and leaves it"
+  else fail "an invalid declaration: rc=$rc"; fi
+  cat "$t/e" > "$H/packages.json"
+  pn add "$F#fast2" > "$t/log/add" 2>&1 || { fail "add after fixing the declaration"; why "$t/log/add"; }
+  check "after fixing the declaration" fast2
+}
+
+# A flake kept outside ~/.config/home-manager: what each way of doing that says.
+scenario_flake_elsewhere() {
+  local rc other=$t/other
+  reset elsewhere
+  rm -rf "$other"; cp -r "$H" "$other"
+  jq -S . "$H/packages.json" > "$other/packages.json"; printf '\n' >> "$other/packages.json"
+  rc=0; timeout 300 home-manager switch --flake "$other" > "$t/log/o" 2>&1 || rc=$?
+  if [ "$rc" = 75 ] && grep -q 'keeps its own packages.json' "$t/log/o"; then pass "a flake elsewhere with a different packages.json: refused, and told what to do"
+  else fail "a flake elsewhere, different file: rc=$rc"; tail -n 5 "$t/log/o"; fi
+
+  mv "$H/packages.json" "$t/kept"
+  rc=0; timeout 300 home-manager switch --flake "$other" > "$t/log/o" 2>&1 || rc=$?
+  if [ "$rc" = 0 ] && grep -q 'does not exist' "$t/log/o"; then pass "a flake elsewhere and no declaration: switches, and says nix profile cannot change it"
+  else fail "a flake elsewhere, no file: rc=$rc"; tail -n 5 "$t/log/o"; fi
+  rc=0; pn add "$F#fast0" > "$t/log/add" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && grep -q 'does not exist' "$t/log/add"; then pass "no declaration: nix profile add says so"
+  else fail "no declaration: rc=$rc"; why "$t/log/add"; fi
+  mv "$t/kept" "$H/packages.json"
+
+  mv "$H/flake.nix" "$t/kept"
+  rc=0; pn add "$F#fast0" > "$t/log/add" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && grep -q 'no flake.nix' "$t/log/add" && ! file_has fast0; then pass "no flake beside the declaration: the command fails, says so and reverts"
+  else fail "no flake beside the declaration: rc=$rc"; tail -n 5 "$t/log/add"; fi
+  mv "$t/kept" "$H/flake.nix"
+  pn add "$F#fast0" > "$t/log/add" 2>&1 || { fail "add with the flake back"; why "$t/log/add"; }
+  check "with the flake back" fast0
+}
+
+# Commands not covered above, with each other and with garbage collection.
+scenario_commands() {
+  local rc g
+  reset cmdinstall
+  parallel "install $F#fast0" "add $F#fast1" "add $F#fast2"
+  expect_ok "install and add"
+  check "install and add, none lost" fast0 fast1 fast2
+
+  reset cmdrollback
+  pn add "$F#fast0" > /dev/null 2>&1
+  parallel "rollback" "add $F#fast1"
+  quiesce
+  agree "rollback and add at once (exit codes $rcs)"
+  pn add "$F#fast2" > "$t/log/add" 2>&1 || { fail "add after the rollback"; why "$t/log/add"; }
+  agree "add after that"
+
+  reset cmdwipe
+  parallel "add $F#fast0" "wipe-history" "add $F#fast1" "wipe-history"
+  expect_ok "wipe-history and adds"
+  check "wipe-history and adds, none lost" fast0 fast1
+  timeout 60 nix profile history > /dev/null 2>&1 || fail "nix profile history after wipe-history"
+
+  # Collecting while commands run, old generations included. Only a little: it must not cost the whole store.
+  reset cmdgc
+  touch "$t/gc-run"
+  ( while [ -e "$t/gc-run" ]; do nix-collect-garbage -d --max-freed 20M > /dev/null 2>&1 || echo "GC exit $?" >> "$t/log/gc"; sleep 1; done ) & g=$!
+  parallel "add $F#fast0" "add $F#fast1" "add $F#fast2" "add $F#fast3"
+  expect_ok "4 adds during garbage collection"
+  parallel "remove fast0" "remove fast1"
+  expect_ok "2 removes during garbage collection"
+  rm -f "$t/gc-run"; wait "$g"
+  [ ! -s "$t/log/gc" ] || fail "nix-collect-garbage failed: $(sort -u "$t/log/gc" | tr '\n' ' ')"
+  check "during garbage collection, none lost" fast2 fast3
+  home-manager generations > /dev/null 2>&1 || fail "home-manager generations after garbage collection"
+  [ -e "$D/home-manager/activate" ] || fail "garbage collection took the live generation"
+}
+
+# Everything at once, the rounds that catch rare interleavings.
+scenario_mixed() {
+  local round r1 r2 rc
+  for round in $(seq "${mixed_rounds:-2}"); do
+    reset "mixed$round"
+    pn add "$F#fast0" "$F#fast1" > /dev/null 2>&1
+    stamp
+    timeout 300 home-manager switch --flake "$H" > "$t/log/m1" 2>&1 & r1=$!
+    timeout 300 "$hm/bin/home-manager" switch --flake "$H" > "$t/log/m2" 2>&1 & r2=$!
+    parallel "add $F#fast2" "remove fast0" "upgrade fast1" "add $F#fast3"
+    expect_ok "mixed, round $round"
+    # A switch that raced one of them is refused (75), and nothing else may happen to it.
+    for rc in "$r1" "$r2"; do
+      wait "$rc"; case $? in 0|75) ;; *) fail "mixed, round $round: a switch failed"; tail -n 5 "$t/log/m1" "$t/log/m2" ;; esac
+    done
+    quiesce
+    check "mixed, round $round" fast1 fast2 fast3
+    grep -q . "$APPLIED" || fail "mixed, round $round: no marker"
+  done
+}
+
+# The whole of a cgroup going at once, as an OOM with memory.oom.group or a pod deletion does, then a
+# boot. Each run is a real unit with a real memory limit; a hog started at a stage sets off the kernel's
+# OOM killer, which takes all of it.
+scenario_cgroup() {
+  if ! sudo -n true 2> /dev/null || ! command -v systemd-run > /dev/null; then echo "SKIP  cgroup: needs sudo and systemd"; return; fi
+  local u=webtop-test-cgroup stage how delay rc grp
+  export -p > "$t/in-unit"; echo 'exec "$@"' >> "$t/in-unit"; chmod +x "$t/in-unit"
+  start_unit() {
+    sudo -n systemctl reset-failed "$u.service" 2> /dev/null
+    sudo -n systemd-run --quiet --unit="$u" --uid="$(id -u)" --gid="$(id -g)" -p MemoryMax=4G -p MemorySwapMax=0 -p OOMPolicy=kill \
+      -p KillMode=control-group -p TimeoutStopSec=3 bash "$t/in-unit" nix profile add "$F#fast0"
+  }
+  unit_ended() { ! sudo -n systemctl is-active -q "$u.service"; }
+  for stage in hook activation; do
+    reset "oom$stage"
+    if [ "$stage" = hook ]; then touch "$CTL/hook-oom"; else touch "$CTL/act-on" "$CTL/act-oom"; fi
+    start_unit
+    wait_for 60 sudo -n test -e "/sys/fs/cgroup$(sudo -n systemctl show -P ControlGroup "$u.service")/memory.oom.group" || true
+    grp=$(sudo -n cat "/sys/fs/cgroup$(sudo -n systemctl show -P ControlGroup "$u.service")/memory.oom.group" 2> /dev/null)
+    wait_for 240 unit_ended || fail "OOM at $stage: the unit is still running"
+    how=$(sudo -n systemctl show -P Result "$u.service")
+    if [ "$how" = oom-kill ] && [ "$grp" = 1 ]; then pass "OOM at $stage: the kernel killed the group (memory.oom.group=$grp)"
+    else fail "OOM at $stage: Result=$how memory.oom.group=$grp"; fi
+    rm -f "$CTL/hook-oom" "$CTL/act-oom" "$CTL/act-on"
+    if pgrep -f "$LOCK" > /dev/null; then fail "OOM at $stage: something survived"; fi
+    jq -e .elements "$H/packages.json" > /dev/null || fail "OOM at $stage: invalid file"
+    file_has fast0 || fail "OOM at $stage: not committed yet, the stage was missed"
+    if marker_matches; then fail "OOM at $stage: the marker matches a half-applied state"; fi
+    flock -n "$LOCK" true && flock -n "$ALOCK" true && flock -n "$D/declaration.lock" true || fail "OOM at $stage: a lock is still held"
+    boot_repairs "OOM at $stage"
+    file_has fast0 && check "OOM at $stage, the package is there" fast0
+  done
+
+  # Pod deletion: SIGTERM to all of it, SIGKILL after the grace period.
+  for stage in file activation; do
+    reset "stop$stage"
+    if [ "$stage" = activation ]; then touch "$CTL/act-on" "$CTL/hold-act"; fi
+    start_unit
+    if [ "$stage" = activation ]; then wait_for 120 has_file act-started || fail "no activation started"
+    else wait_for 120 file_has fast0 || fail "the file never changed"; fi
+    sudo -n systemctl stop "$u.service"
+    rm -f "$CTL/hold-act" "$CTL/act-on"
+    if pgrep -f "$LOCK" > /dev/null; then fail "stop at $stage: something survived"; fi
+    jq -e .elements "$H/packages.json" > /dev/null || fail "stop at $stage: invalid file"
+    boot_repairs "pod deletion at $stage"
+  done
+
+  # SIGKILL of everything after a range of delays, so every stage of a commit gets hit.
+  for delay in 2 4 6 8 10 12 15 18 22 26; do
+    reset "killall$delay"
+    start_unit
+    sleep "$delay"
+    sudo -n systemctl kill -s KILL "$u.service" 2> /dev/null
+    wait_for 30 unit_ended || fail "SIGKILL of all: still running"
+    jq -e .elements "$H/packages.json" > /dev/null || fail "SIGKILL of all after $delay s: invalid file"
+    boot_repairs "SIGKILL of everything after $delay s"
+  done
+  sudo -n systemctl reset-failed "$u.service" 2> /dev/null
+  return 0
+}
+
+# A full disk at the declaration and at the state: nothing is left half-way, and it repairs afterwards.
+scenario_disk_full() {
+  if ! sudo -n true 2> /dev/null; then echo "SKIP  disk full: needs sudo"; return; fi
+  local dir rc kept=$t/disk-kept
+  on_small_disk() { # <dir>
+    rm -rf "$kept"; mkdir "$kept"; cp -a "$1/." "$kept/"
+    sudo -n mount -t tmpfs -o "size=8m,uid=$(id -u),gid=$(id -g)" tmpfs "$1" || return 1
+    cp -a "$kept/." "$1/"
+    dd if=/dev/zero of="$1/filler" bs=64k > /dev/null 2>&1 || true
+  }
+  off_small_disk() { # <dir>
+    rm -rf "$kept"; mkdir "$kept"; cp -a "$1/." "$kept/"
+    sudo -n umount "$1"; rm -rf "${1:?}"/* ; cp -a "$kept/." "$1/"
+  }
+
+  reset fullconfig
+  pn add "$F#fast0" > /dev/null 2>&1
+  on_small_disk "$H" || { fail "mounting a small disk"; return; }
+  rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
+  if [ "$rc" != 0 ] && jq -e . "$H/packages.json" > /dev/null && ! file_has fast1; then pass "full disk at the declaration: the command fails, the file is as it was"
+  else fail "full disk at the declaration: rc=$rc"; tail -n 3 "$t/log/add"; fi
+  check "full disk at the declaration, unchanged" fast0
+  rm -f "$H/filler" "$H/packages.json.nix-profile-tmp"
+  pn add "$F#fast1" > "$t/log/add" 2>&1 || { fail "add after freeing the disk"; why "$t/log/add"; }
+  check "after freeing the disk" fast0 fast1
+  off_small_disk "$H"
+
+  # At the state: the marker cannot be written, so the activation fails and the previous one comes back.
+  dir=$HOME/.local/state
+  reset fullstate
+  pn add "$F#fast0" > /dev/null 2>&1
+  on_small_disk "$dir" || { fail "mounting a small disk"; return; }
+  rc=0; pn add "$F#fast1" > "$t/log/add" 2>&1 || rc=$?
+  if [ "$rc" != 0 ]; then pass "full disk at the state: the command fails"; else fail "full disk at the state: the command succeeded"; fi
+  quiesce
+  jq -e . "$H/packages.json" > /dev/null || fail "full disk at the state: invalid file"
+  rm -f "$dir/filler"
+  boot_repairs "full disk at the state"
+  pn add "$F#fast1" > "$t/log/add" 2>&1 || { fail "add after freeing the disk"; why "$t/log/add"; }
+  agree "full disk at the state, after the next command"
+  file_has fast1 || fail "full disk at the state: the next add is not declared"
+  off_small_disk "$dir"
 }
 
 # home-manager from the CLI, the real binary and the wrapper, with package commands around it.
@@ -510,10 +872,7 @@ EOF
 
   # The boot script has nobody to run it again: it does so itself.
   reset activationsboot
-  printf '#!/usr/bin/env bash\n[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"\n' > "$t/stubs/webtop-restore-progress"; cp "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify"
-  { printf '#!/usr/bin/env bash\nset -euo pipefail\nWEBTOP_FLAKE=%s\n' "$repo/modules/nix-profile/webtop-flake"
-    cat "$repo/modules/nix-profile/webtop-home-manager.sh"; } > "$t/setup.sh"
-  chmod +x "$t/stubs/webtop-restore-progress" "$t/stubs/webtop-notify" "$t/setup.sh"
+  boot_script
   touch "$HOME/.local/state/webtop/home-manager-switch"
   cat > "$H/local.nix" <<EOF
 { pkgs, ... }: { home.packages = [ (pkgs.runCommand "slowhm-$RANDOM" { } "sleep 20; mkdir \$out") ]; }
@@ -544,7 +903,7 @@ EOF
   reset activationsbg
   touch "$CTL/act-on" "$CTL/act-bg"
   timeout 120 home-manager switch --flake "$H" > "$t/log/bg2" 2>&1 || fail "switch with a background child failed"
-  if pgrep -f 'sleep 25' > /dev/null && flock -n "$LOCK" true; then pass "a background child of an activation does not hold the lock"
+  if pgrep -f 'sleep 25' > /dev/null && flock -n "$LOCK" true && flock -n "$ALOCK" true; then pass "a background child of an activation does not hold the lock"
   else fail "the lock is held by a child of the activation, or the child is gone"; fi
   pkill -f 'sleep 25'; rm -f "$CTL/act-bg"
 
@@ -711,27 +1070,50 @@ nix profile add --profile-backend profile "$hello" || exit 1
 nix profile remove --profile-backend profile hello || exit 1
 home-manager switch --flake "$H" > "$t/log/first" 2>&1 || { tail -n 40 "$t/log/first"; exit 1; }
 
-# Many rounds where they are cheap: a declaration round runs home-manager for every command.
-for M in plain declaration; do
-  if [ "$M" = plain ]; then rounds=15; else rounds=5; fi
-  scenario_parallel_adds
-  scenario_parallel_removes
-  scenario_upgrades
-  scenario_add_remove_same
-  scenario_slow_during_fast
-  scenario_interrupted
-done
-M=plain
-scenario_plain_revert
-M=declaration
-scenario_two_backends
-scenario_kill9_stages
-scenario_cancel
-scenario_signal_sweep
-scenario_activations
-scenario_store_path_lock
-scenario_hm_atomic
-scenario_reinstall
+# Garbage collection must not take what this script runs from.
+mkdir -p "$t/roots"
+for r in "$nix_out" "$hm" "$hm_locked"; do nix-store --add-root "$t/roots/$(basename "$r")" -r "$r" > /dev/null || exit 1; done
+
+# WEBTOP_TEST_SCENARIOS: only these, as `scenario_x` or `plain:scenario_x`. WEBTOP_TEST_ROUNDS: for the
+# repeated ones. Both for .github/workflows/nix-concurrency-stress.yaml.
+mixed_rounds=${WEBTOP_TEST_ROUNDS:-2}
+if [ -n "${WEBTOP_TEST_SCENARIOS:-}" ]; then
+  rounds=${WEBTOP_TEST_ROUNDS:-5}
+  for s in $WEBTOP_TEST_SCENARIOS; do
+    case $s in plain:*) M=plain; s=${s#plain:} ;; *) M=declaration ;; esac
+    "$s"
+  done
+else
+  # Many rounds where they are cheap: a declaration round runs home-manager for every command.
+  for M in plain declaration; do
+    if [ "$M" = plain ]; then rounds=15; else rounds=5; fi
+    scenario_parallel_adds
+    scenario_parallel_removes
+    scenario_upgrades
+    scenario_add_remove_same
+    scenario_slow_during_fast
+    scenario_interrupted
+  done
+  M=plain
+  scenario_plain_revert
+  M=declaration
+  scenario_two_backends
+  scenario_kill9_stages
+  scenario_cancel
+  scenario_signal_sweep
+  scenario_activations
+  scenario_lock_holders
+  scenario_process_kills
+  scenario_repairs
+  scenario_flake_elsewhere
+  scenario_commands
+  scenario_mixed
+  scenario_store_path_lock
+  scenario_hm_atomic
+  scenario_reinstall
+  scenario_cgroup
+  scenario_disk_full
+fi
 
 echo "$fails failed"
 [ "$fails" = 0 ]

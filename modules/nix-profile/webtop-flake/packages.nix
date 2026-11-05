@@ -64,21 +64,29 @@ in
     profile-hook = /run/current-system/sw/bin/webtop-profile-hook
   '';
 
-  # Every activation holds the apply lock, however it was started. The lock is taken by running the
-  # script again under flock (-o: nothing the activation leaves running holds it).
+  # Every activation holds the apply lock, however it was started, and its own lock, which a killed
+  # holder of the apply lock does not release. The script runs again under flock (-o: nothing the
+  # activation leaves running holds them); the pdeathsig stops it the moment its own holder is killed.
   home.activation.webtopLock = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
     state="${stateDir}"
-    if [ -z "''${WEBTOP_HM_LOCK_HELD:-}" ]; then
+    if [ -z "''${WEBTOP_ACTIVATION_LOCKED:-}" ]; then
       mkdir -p "$state"
-      WEBTOP_HM_LOCK_HELD=1 exec ${pkgs.util-linux}/bin/flock -o "$state/home-manager.lock" "$0" --driver-version "$hmDriverVersion"
+      holder=(${pkgs.util-linux}/bin/flock -o "$state/activation.lock" ${pkgs.util-linux}/bin/setpriv --pdeathsig KILL)
+      if [ -z "''${WEBTOP_HM_LOCK_HELD:-}" ]; then
+        holder=(${pkgs.util-linux}/bin/flock -o "$state/home-manager.lock" "''${holder[@]}")
+      fi
+      WEBTOP_HM_LOCK_HELD=1 WEBTOP_ACTIVATION_LOCKED=1 exec "''${holder[@]}" "$0" --driver-version "$hmDriverVersion"
     fi
-    # Built from an older packages.json than the file now: refuse, the next switch has the new one.
+    if [ ! -e "${declared}" ]; then
+      echo "webtop: ${declared} does not exist: nix profile cannot change what this flake installs" >&2
+    # Built from another packages.json than the file now: refuse, the next switch has the new one.
     # (The driver has already pointed the profile at this generation: put it back.)
-    # No such file: a flake kept elsewhere, and no `nix profile` that could have changed it.
-    if [ -z "''${WEBTOP_ACTIVATE_ANY:-}" ] && [ -e "${declared}" ] \
+    elif [ -z "''${WEBTOP_ACTIVATE_ANY:-}" ] \
       && [ "$(${pkgs.coreutils}/bin/sha256sum < "${declared}" | ${pkgs.coreutils}/bin/cut -d' ' -f1)" != "${hash}" ]; then
-      echo "webtop: this generation was built from an older packages.json; run home-manager switch again" >&2
-      echo "webtop: to go back to it anyway: home-manager switch --rollback, or WEBTOP_ACTIVATE_ANY=1 $0" >&2
+      echo "webtop: this generation was built from another packages.json than ${declared}" >&2
+      echo "webtop: if a package change raced it: run home-manager switch again" >&2
+      echo "webtop: if this flake keeps its own packages.json: nix profile only works with the flake in ${dirOf declared}; move it there, or drop the packages module" >&2
+      echo "webtop: to activate it anyway: home-manager switch --rollback, or WEBTOP_ACTIVATE_ANY=1 $0" >&2
       if (( hmDriverVersion >= 1 )) && [ -n "''${oldGenPath:-}" ] \
         && [ "$(readlink -f "$genProfilePath")" = "$(readlink -f "$newGenPath")" ]; then
         nix-env --profile "$genProfilePath" --set "$oldGenPath" > /dev/null 2>&1 || true
@@ -130,13 +138,14 @@ in
       unset INSTALL_CMD INSTALL_CMD_ACTUAL LIST_CMD REMOVE_CMD_SYNTAX
     ''));
 
-  # What the active generation was built from: the hook and the boot unit compare it with the file.
+  # What the active generation was built from, and which it is: the hook and the boot unit compare them
+  # with the file and the profile, so a generation that never wrote this (an older one) does not match.
   # After every step that applies it: a kill before this must leave the retry something to do.
   home.activation.webtopApplied = lib.hm.dag.entryAfter [ "installPackages" "linkGeneration" "onFilesChange" "reloadSystemd" ] ''
     if [[ ! -v DRY_RUN ]]; then
       state="${stateDir}"
       mkdir -p "$state"
-      echo "${hash}" > "$state/applied.tmp"
+      echo "${hash} $newGenPath" > "$state/applied.tmp"
       mv "$state/applied.tmp" "$state/applied"
     fi
   '';
