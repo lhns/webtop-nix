@@ -165,6 +165,20 @@ jobs:
           path: second-display
           if-no-files-found: ignore
 
+      # The same, for several app screens at once; summary.txt has the measured cost.
+      - name: app screens test
+        if: matrix.vm
+        run: |
+          nix build .#checks.${{ matrix.system }}.app-screens.driver -L -o app-screens-driver
+          mkdir -p app-screens
+          ./app-screens-driver/bin/nixos-test-driver -o app-screens
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.vm
+        with:
+          name: app-screens
+          path: app-screens
+          if-no-files-found: ignore
+
       # The same, for which page owns the primary display.
       - name: latest owner test
         if: matrix.vm

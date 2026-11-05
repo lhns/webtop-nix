@@ -1,0 +1,92 @@
+Selkies: several second displays at once (Wayland), each in its own place
+
+Against Selkies 2.1.0 with this repo's other patches; applied after them by pkgs/selkies.nix.
+Each page of a display number keeps its own screen; X11 keeps one secondary. README, "One app per screen".
+-----
+
+--- a/src/selkies/websockets_mode.py
++++ b/src/selkies/websockets_mode.py
+@@ -96,11 +96,38 @@
+     set_dpi,
+     set_cursor_size,
+     clamp_primary_feedback,
++    layout_extent,
+     compute_dual_layout,
+     parse_resize_dims,
+     cursor_size_for_dpi,
+     align_dims_16,
+ )
++# Where app screens start, right of any primary a browser page auto-sizes (the web client caps it
++# at 4080) so a primary resize moves none of them. Moving an output recreates it.
++SECONDARY_ROW_START = 4096
++
++
++def place_secondaries(primary_w, sizes, previous):
++    """The x of each secondary (id -> (w, h)) in a row right of the primary. A display stays where
++    it is in `previous` unless the one before it now reaches past that, so closing or resizing one
++    leaves the others alone; a new one takes the first gap it fits."""
++    start = max(primary_w, SECONDARY_ROW_START)
++    placed = {}
++    edge = start
++    kept = [d for d in sizes if d in previous]
++    for did in sorted(kept, key=lambda d: previous[d]['x']):
++        placed[did] = max(previous[did]['x'], edge)
++        edge = placed[did] + sizes[did][0]
++    for did in sorted(set(sizes) - set(kept), key=wayland_output_id):
++        x = start
++        for other in sorted(placed, key=placed.get):
++            if x + sizes[did][0] <= placed[other]:
++                break
++            x = max(x, placed[other] + sizes[other][0])
++        placed[did] = x
++    return placed
++
++
+ from .display_utils_xrandr import (
+     MultiMonitorWindowManager,
+     follow_display_moves,
+@@ -5273,7 +5300,7 @@
+                             if websocket not in self._page_settings:
+                                 # A demoted page taking the display back starts it anew.
+                                 initial_settings_processed = False
+-                            if display_id in ['primary', 'display2']:
++                            if display_id == 'primary' or display_id.startswith('display'):
+                                 existing_client_info = self.display_clients.get(display_id)
+                                 if existing_client_info:
+                                     old_ws = existing_client_info.get('ws')
+@@ -5305,7 +5332,7 @@
+                                             data_logger.debug(f"Old client for '{display_id}' was already disconnected.")
+                                         except Exception as e:
+                                             data_logger.error(f"Error while killing old client for '{display_id}': {e}")
+-                            if display_id != 'primary':
++                            if display_id != 'primary' and not IS_WAYLAND:
+                                 old_secondary_id = None
+                                 for existing_id, client_data in self.display_clients.items():
+                                     if existing_id != 'primary' and client_data.get('ws') is not websocket:
+@@ -6654,7 +6681,25 @@
+                 secondary_client = client
+                 secondary_id = display_id
+                 break
+-        if primary_client and not secondary_client:
++        secondaries = {did: (c.get('width', 0), c.get('height', 0))
++                       for did, c in self.display_clients.items() if did != 'primary'}
++        if IS_WAYLAND and secondaries and (
++                len(secondaries) > 1 or secondary_client.get('position', 'right') == 'right'):
++            # Several screens side by side; a lone left/up/down one stays with the dual layout below.
++            if primary_client:
++                p_w, p_h = clamp_primary_feedback(
++                    (primary_client.get('width', 0), primary_client.get('height', 0)),
++                    getattr(self, 'display_layouts', None), 'right')
++            else:
++                p_w, p_h = await self._wayland_primary_screen_size()
++            sized = {did: wh for did, wh in secondaries.items() if wh[0] > 0 and wh[1] > 0}
++            if p_w > 0 and p_h > 0 and sized:
++                layouts['primary'] = {'x': 0, 'y': 0, 'w': p_w, 'h': p_h}
++                xs = place_secondaries(p_w, sized, getattr(self, 'display_layouts', None) or {})
++                for did, (w, h) in sized.items():
++                    layouts[did] = {'x': xs[did], 'y': 0, 'w': w, 'h': h}
++                total_width, total_height = layout_extent(layouts)
++        elif primary_client and not secondary_client:
+             p_w, p_h = primary_client.get('width', 0), primary_client.get('height', 0)
+             if p_w > 0 and p_h > 0:
+                 layouts['primary'] = {'x': 0, 'y': 0, 'w': p_w, 'h': p_h}

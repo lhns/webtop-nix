@@ -35,6 +35,8 @@ buildPythonPackage rec {
     patch -p2 -d $out/${python.sitePackages} < ${./selkies/upload-path.patch}
     # The page opened last owns the primary display, the ones before stay beside it; for upstream.
     patch -p2 -d $out/${python.sitePackages} < ${./selkies/latest-owner.patch}
+    # Several second displays at once, one per app screen.
+    patch -p2 -d $out/${python.sitePackages} < ${./selkies/several-second-displays.patch}
     rm -f $out/${python.sitePackages}/selkies/__pycache__/{settings,stream_server,webrtc_mode}.*.pyc
     rm -f $out/${python.sitePackages}/selkies/__pycache__/websockets_mode.*.pyc
     css=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.css)
@@ -46,6 +48,10 @@ buildPythonPackage rec {
     # Touchpad mode is far too fast: cap its acceleration at 1.5x instead of 3x and allow slower speeds.
     substituteInPlace "$core" --replace-fail 'return 1+2*t*t*(3-2*t)}' 'return 1+.5*t*t*(3-2*t)}'       --replace-fail 'st=.25,ct=4' 'st=.1,ct=4'
     js=$(echo $out/${python.sitePackages}/selkies/selkies_web/assets/index-*.js)
+    # Pages of any #displayN. The only display2 left is the sidebar's own button; a new wheel fails here.
+    sed -E -i -f ${./selkies/display-n.sed} "$core" "$js"
+    ! grep -q 'display2' "$core" || { echo "selkies: display2 left in the web client core" >&2; exit 1; }
+    [ "$(grep -o 'display2' "$js" | wc -l)" = 1 ] || { echo "selkies: unexpected display2 in the web client" >&2; exit 1; }
     substituteInPlace "$js" --replace-fail '[.5,.75,1,1.5,2,3]' '[.1,.25,.5,.75,1,1.5,2,3]'
     # The bundler's file names no longer match the content, so browsers would keep the old files: rename by content hash.
     web=$out/${python.sitePackages}/selkies/selkies_web

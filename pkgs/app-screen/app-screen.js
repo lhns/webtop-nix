@@ -17,11 +17,13 @@ function place(w) {
     if (!screen || w.popupWindow || w.specialWindow || !belongs(w)) {
         return;
     }
-    if (w.output !== screen) {
+    const moved = w.output !== screen;
+    if (moved) {
         workspace.sendClientToScreen(w, screen);
     }
     if (w.normalWindow && !w.transient) {
-        if (!changed.has(w)) {
+        const first = !changed.has(w);
+        if (first) {
             changed.set(w, { fullScreen: w.fullScreen, maximized: !w.fullScreenable });
         }
         if (w.fullScreenable) {
@@ -29,7 +31,10 @@ function place(w) {
         } else {
             w.setMaximize(true, true);
         }
-        workspace.activeWindow = w;
+        // Not on every screen change: another app's screen coming or going must not take the keyboard.
+        if (moved || first) {
+            workspace.activeWindow = w;
+        }
     }
 }
 
@@ -56,7 +61,8 @@ function restoreAll() {
         if (prior.maximized) {
             w.setMaximize(false, false);
         }
-        if (main && w.output !== main && (!w.output || w.output.name === SCREEN)) {
+        // KWin may have moved it to another app's screen.
+        if (main && w.output !== main && (!w.output || /^SELKIES-/.test(w.output.name))) {
             workspace.sendClientToScreen(w, main);
         }
     });
