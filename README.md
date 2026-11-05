@@ -45,7 +45,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it), `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
-`lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
+`lockScreen` (`false`: Lock hidden and blocked, see "Lock screen"; autolock is always off), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
 `fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
@@ -108,6 +108,10 @@ A change is applied by restarting the desktop session (or at the next boot). A t
 ## Sign out at the login provider
 
 Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a [kube-webtop-workspaces](https://github.com/lhns/kube-webtop-workspaces) gateway reads at event time. It only has an effect behind a gateway with a logout URL configured; standalone, the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
+
+## Lock screen
+
+The greeter of KDE's screen locker cannot be used here (gray, and no password to enter), so a lock never stays: `webtop-lock-guard` (a user service) sees `org.freedesktop.ScreenSaver` `ActiveChanged`, writes the time to `$XDG_RUNTIME_DIR/webtop/lock` and unlocks through logind at once ([ADR 0010](docs/adr/0010-a-lock-is-recorded-and-cleared-at-once.md)). The session and its processes are not touched; only the marker tells that Lock was used, for a gateway to act on (`webtop.ssoLogout.onLock`). Whether Lock is offered in Plasma is chosen at each session start: `services.webtop.lockScreen` (`false`) is the default and `WEBTOP_LOCK_SCREEN=true|false` in a file of `services.webtop.lockEnvironmentFiles` overrides it. Off, the Lock action is hidden and blocked in `/etc/xdg/kdeglobals` (a user's own `~/.config/kdeglobals` can still override that, and the guard still clears the lock). Autolock and lock on resume are off in every case.
 
 ## KWin without a GPU
 

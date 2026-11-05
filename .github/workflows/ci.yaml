@@ -175,6 +175,9 @@ jobs:
       - name: relogin test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.relogin -L
+      - name: lock test
+        if: matrix.vm
+        run: nix build .#checks.${{ matrix.system }}.lock -L
 
       # Run outside the sandbox so its screenshots and logs survive a failure as an artifact.
       - name: second display test

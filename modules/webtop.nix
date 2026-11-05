@@ -87,6 +87,25 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.util-linux pkgs.glibc.bin pkgs.getent pkgs.bash config.systemd.package ];
     text = builtins.readFile ./webtop-locale.sh;
   };
+  # Lock screen on or off for this start (README, "Lock screen"). Root, before the session starts.
+  applyLockConfig = pkgs.writeShellApplication {
+    name = "webtop-lock-config";
+    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep ];
+    text = builtins.readFile ./webtop-lock-config.sh;
+  };
+  applyLockConfigCommand = lib.escapeShellArgs ([
+    (lib.getExe applyLockConfig)
+    (lib.boolToString cfg.lockScreen)
+  ] ++ cfg.lockEnvironmentFiles);
+
+  # Clears a lock at once: its greeter cannot be used here. Leaves a marker for whoever fronts the
+  # desktop; the time is all it holds.
+  lockGuard = pkgs.writeShellApplication {
+    name = "webtop-lock-guard";
+    runtimeInputs = [ pkgs.coreutils pkgs.dbus config.systemd.package ];
+    text = builtins.readFile ./webtop-lock-guard.sh;
+  };
+
   applyLocaleCommand = lib.escapeShellArgs ([
     (lib.getExe applyLocale)
     uid
@@ -196,8 +215,22 @@ in
       type = lib.types.bool;
       default = false;
       description = ''
-        Allow the KDE screen locker. Off by default: access is gated by whatever fronts Selkies,
-        and the locker greeter renders gray here and cannot be unlocked without a user password.
+        Show the KDE screen locker's Lock action. Off by default: access is gated by whatever fronts
+        Selkies. The greeter renders gray here and cannot be unlocked without a user password, so a
+        lock is cleared again right away (`webtop-lock-guard`, ADR 0010) whether this is on or not;
+        on, it also leaves `$XDG_RUNTIME_DIR/webtop/lock` (the time) for the environment to act on.
+        This is the default for each start: `WEBTOP_LOCK_SCREEN=true|false` in a file of
+        `lockEnvironmentFiles` overrides it. Autolock and lock on resume stay off in every case.
+      '';
+    };
+
+    lockEnvironmentFiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "-/run/webtop/env" ];
+      description = ''
+        Files (a `-` prefix makes one optional) with a `WEBTOP_LOCK_SCREEN=true|false` line, later
+        ones winning; read at each session start, so no rebuild is needed to switch `lockScreen`.
       '';
     };
 
@@ -442,6 +475,18 @@ in
       };
     };
 
+    systemd.user.services.webtop-lock-guard = {
+      description = "Clear the screen lock at once (its greeter is unusable)";
+      wantedBy = [ "default.target" ];
+      unitConfig.ConditionUser = uid;
+      environment.DBUS_SESSION_BUS_ADDRESS = "unix:path=%t/bus";
+      serviceConfig = {
+        ExecStart = lib.getExe lockGuard;
+        Restart = "always";
+        RestartSec = 2;
+      };
+    };
+
     # With no crashes to hand off, this unit only watches the journal, and its 30-minute runtime limit
     # then counts as a failure: the session would report degraded half an hour after login.
     systemd.user.services.drkonqi-coredump-pickup = {
@@ -489,7 +534,7 @@ in
       };
       serviceConfig = {
         # "-": a failure never blocks the session; "+": root, whatever User= says.
-        ExecStartPre = "-+${applyLocaleCommand}";
+        ExecStartPre = [ "-+${applyLocaleCommand}" "-+${applyLockConfigCommand}" ];
         User = uid;
         PAMName = "login";
         StandardInput = "null";
@@ -512,7 +557,8 @@ in
           "org.freedesktop.login1.reboot",
           "org.freedesktop.login1.reboot-multiple-sessions",
           "org.freedesktop.login1.suspend",
-          "org.freedesktop.login1.suspend-multiple-sessions"
+          "org.freedesktop.login1.suspend-multiple-sessions",
+          "org.freedesktop.login1.lock-sessions"
         ].indexOf(action.id) >= 0) {
           return polkit.Result.YES;
         }
@@ -523,20 +569,8 @@ in
     environment.etc."xdg/powerdevilrc".text = powerdevilrc;
     environment.etc."xdg/ksmserverrc".text = ksmserverrc;
 
-    # Autolock would start the (unusable) greeter before anyone connects; also block manual locking.
-    environment.etc."xdg/kscreenlockerrc" = lib.mkIf (!cfg.lockScreen) {
-      text = ''
-        [Daemon]
-        Autolock=false
-        LockOnResume=false
-      '';
-    };
-    environment.etc."xdg/kdeglobals" = lib.mkIf (!cfg.lockScreen) {
-      text = ''
-        [KDE Action Restrictions]
-        action/lock_screen=false
-      '';
-    };
+    # /etc/xdg/kdeglobals and kscreenlockerrc are written at each session start (webtop-lock-config).
+    # Autolock would start the (unusable) greeter before anyone connects, so it is off in every case.
 
     fonts.packages = with pkgs; [ noto-fonts noto-fonts-color-emoji noto-fonts-cjk-sans liberation_ttf ];
     programs.firefox.enable = lib.mkDefault true;
