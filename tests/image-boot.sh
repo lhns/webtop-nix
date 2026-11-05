@@ -45,6 +45,9 @@ touser() { x runuser -u user -- env HOME=/home/user PATH=/home/user/.nix-profile
 [ "$(touser nix config show profile-backend)" = "declaration:$decl" ] || fail "profile-backend is not the declaration"
 touser test -e /home/user/.local/state/nix/profiles/home-manager || fail "the setup unit did not switch"
 echo "starter flake: ok"
+x test -s /etc/nsc/system-manifest.json || fail "no system manifest for the software center"
+x systemctl show -P Environment webtop-session | grep -q 'NSC_SYSTEM_MANIFEST=/etc/nsc/system-manifest.json'   || fail "the session does not point the software center at the manifest"
+echo "software center manifest: ok"
 
 db=$(x nix-store --dump-db | awk 'BEGIN{st=0} { if (st==0) {print; st=1} else if (st<4) st++; else if (st==4) { n=$0+0; st = n ? 5 : 0 } else if (--n == 0) st=0 }' | sort)
 store=$(x ls -A /nix/store | grep -vx '\.links' | sed 's|^|/nix/store/|' | sort)

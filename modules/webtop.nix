@@ -12,6 +12,18 @@ let
   # Sink Selkies streams the monitor of; apps play to it as the default sink.
   sinkName = "output";
 
+  # The image's apps for the software center's "Included with desktop". Pointed at by a literal path
+  # in the session environment, so nothing the packages depend on references it.
+  manifestPath = "/etc/nsc/system-manifest.json";
+  systemManifest = builtins.toJSON {
+    version = 1;
+    packages = map (p: {
+      pname = lib.getName p;
+      version = lib.getVersion p;
+      path = builtins.unsafeDiscardStringContext (toString p);
+    }) (lib.filter (p: lib.isDerivation p && (p ? pname || p ? name)) config.environment.systemPackages);
+  };
+
   powerdevilrc = ''
     [AC][SuspendAndShutdown]
     AutoSuspendAction=0
@@ -387,6 +399,8 @@ in
         MOZ_ENABLE_WAYLAND = "1";
       } // lib.optionalAttrs cfg.softwareRendering {
         LIBGL_ALWAYS_SOFTWARE = "1";
+      } // lib.optionalAttrs cfg.softwareCenter.enable {
+        NSC_SYSTEM_MANIFEST = manifestPath;
       };
       serviceConfig = {
         User = uid;
@@ -443,5 +457,7 @@ in
       ++ lib.optional cfg.softwareCenter.enable pkgs.nix-software-center;
     # nix-data's fallback when the user has no config: all fields unset, so no welcome dialog.
     environment.etc."nix-data/config.json" = lib.mkIf cfg.softwareCenter.enable { text = "{}"; };
+    # Read-only; the software center reads it at startup, so an image update changes it.
+    environment.etc."nsc/system-manifest.json" = lib.mkIf cfg.softwareCenter.enable { text = systemManifest; };
   };
 }

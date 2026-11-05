@@ -27,6 +27,22 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f system (import nixpkgs { inherit system; overlays = [ self.overlays.default ]; }));
 
+      # A system using the module with the software center, for the checks; never built whole by them.
+      moduleSystem = system: nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          self.nixosModules.webtop
+          {
+            services.webtop.enable = true;
+            services.webtop.softwareCenter.enable = true;
+            services.webtop.nixProfile.enable = true;
+            boot.loader.grub.enable = false;
+            fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
+            system.stateVersion = "25.11";
+          }
+        ];
+      };
+
       imageLib = system: import ./image { nix2container = nix2container.packages.${system}.nix2container; };
       # The standalone image's system; also the reference other images' layers are classified by.
       standalone = nixpkgs.lib.genAttrs systems (system: nixpkgs.lib.nixosSystem {
@@ -94,24 +110,10 @@
       checks = forAllSystems (system: pkgs: {
         # Evaluates a system using the module, without building it.
         module-eval =
-          let
-            sys = nixpkgs.lib.nixosSystem {
-              inherit system;
-              modules = [
-                self.nixosModules.webtop
-                {
-                  services.webtop.enable = true;
-                  services.webtop.softwareCenter.enable = true;
-                  services.webtop.nixProfile.enable = true;
-                  boot.loader.grub.enable = false;
-                  fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
-                  system.stateVersion = "25.11";
-                }
-              ];
-            };
-          in
+          let sys = moduleSystem system; in
           pkgs.writeText "module-eval" (builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath);
         inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
+        included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };
         vm = import ./tests/vm.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
         latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };

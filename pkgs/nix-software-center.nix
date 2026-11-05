@@ -1,11 +1,11 @@
-{ callPackage, fetchFromGitHub }:
+{ lib, callPackage, fetchFromGitHub }:
 
 let
   src = fetchFromGitHub {
     owner = "lhns";
     repo = "nix-software-center";
-    rev = "00f295d98f0f903d7badc4a729ef4324bf860211";
-    hash = "sha256-m21IEdn8k4T7vAW0UZhRY8afsbl6bPGhShj7JLmj3CI=";
+    rev = "204ed518354aa53277d6786551b1579eebc8910b";
+    hash = lib.fakeHash;
   };
   # Evaluated from the image's nixpkgs, which the flake registry's `nixpkgs` resolves to too.
   pkgdb = callPackage "${src}/nix/pkgdb.nix" { };
