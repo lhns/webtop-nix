@@ -12,12 +12,13 @@ pkgs.testers.runNixOSTest {
     services.journald.storage = "persistent";
     # Stands in for an environment's power hook: it must still see the stop.
     systemd.services.power-hook = {
-      wantedBy = [ "poweroff.target" ];
-      before = [ "poweroff.target" "shutdown.target" ];
-      conflicts = [ "shutdown.target" ];
-      unitConfig.DefaultDependencies = false;
-      serviceConfig.Type = "oneshot";
-      script = "logger -t power-hook stop/user";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.coreutils}/bin/true";
+        ExecStop = pkgs.writeShellScript "power-hook" "echo stop/user >> /var/lib/power-hook";
+      };
     };
   };
   testScript = ''
@@ -62,12 +63,11 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_shutdown()
     machine.start()
     machine.wait_for_unit("multi-user.target")
-    print(machine.execute("journalctl --list-boots --no-pager; ls /var/log/journal")[1])
+    machine.succeed("grep -qx stop/user /var/lib/power-hook")
     j = machine.succeed("journalctl -b -1 -o short-monotonic --no-pager").splitlines()
-    marks = [n for n, l in enumerate(j) if "power-hook" in l and "stop/user" in l]
-    assert marks, "power hook did not report stop/user: " + " | ".join(l for l in j if "poweroff" in l or "power-hook" in l or "Shutdown" in l)
-    mark = marks[0]
-    late = [l for l in j[mark:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
+    marks = [n for n, l in enumerate(j) if "poweroff requested" in l]
+    assert marks, "no poweroff request in the previous boot"
+    late = [l for l in j[marks[0]:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
     assert not late, "session restarted during shutdown: " + repr(late)
   '';
 }
