@@ -97,6 +97,10 @@ A home kept across containers survives a new image: each boot (`nixProfile.fromI
 `services.webtop.softwareCenter.enable` also writes `/etc/nsc/system-manifest.json` (name, version and store path of each `environment.systemPackages` entry) and points the session's `NSC_SYSTEM_MANIFEST` at it, so the software center shows those apps as "Included with desktop" instead of Install. It is matched by package name, read at startup, and a user's own install wins.
 A consumer whose home is reached through other paths sets `nixProfile.homeStoragePath`, and can receive progress with `nixProfile.progress`.
 
+## Sign out at the login provider
+
+Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a [kube-webtop-workspaces](https://github.com/lhns/kube-webtop-workspaces) gateway reads at event time. It only has an effect behind a gateway with a logout URL configured; standalone, the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
+
 ## KWin without a GPU
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no

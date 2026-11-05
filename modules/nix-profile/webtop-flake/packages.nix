@@ -41,6 +41,9 @@ let
     in map (lib.setPrio (e.priority or 5)) selected;
 in
 {
+  # The webtop.* options live here too, so the starter flake needs no further import.
+  imports = [ ./sso-logout.nix ];
+
   home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements);
 
   # Every install switches, and home-manager would notify about all its unread news on the desktop.
