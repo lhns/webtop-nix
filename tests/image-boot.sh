@@ -49,6 +49,16 @@ x test -s /etc/nsc/system-manifest.json || fail "no system manifest for the soft
 x systemctl show -P Environment webtop-session | grep -q 'NSC_SYSTEM_MANIFEST=/etc/nsc/system-manifest.json'   || fail "the session does not point the software center at the manifest"
 echo "software center manifest: ok"
 
+# The container module and the module defaults, as a standalone user gets them.
+x sh -c 'command -v ps && command -v ip && command -v lsof' >/dev/null || fail "admin tools are missing"
+[ "$(asuser systemctl --user show -P RuntimeMaxUSec drkonqi-coredump-pickup.service)" = infinity ] || fail "DrKonqi's pickup keeps a runtime limit"
+pid=$(asuser systemctl --user show -P MainPID selkies.service)
+env=$(x sh -c "xargs -0 -n1 < /proc/$pid/environ")
+grep -qx 'SELKIES_FRAMERATE=30,8-240' <<<"$env" || fail "default framerate missing: $(grep FRAMERATE <<<"$env")"
+grep -qx 'XCURSOR_THEME=breeze_cursors' <<<"$env" || fail "XCURSOR_THEME missing"
+x id -nG user | grep -qw wheel && fail "the desktop user is in wheel without services.webtop.sudo"
+echo "container module: ok"
+
 db=$(x nix-store --dump-db | awk 'BEGIN{st=0} { if (st==0) {print; st=1} else if (st<4) st++; else if (st==4) { n=$0+0; st = n ? 5 : 0 } else if (--n == 0) st=0 }' | sort)
 store=$(x ls -A /nix/store | grep -vx '\.links' | sed 's|^|/nix/store/|' | sort)
 [ "$db" = "$store" ] || fail "DB and store differ: $(diff <(echo "$db") <(echo "$store") | head -n 20)"

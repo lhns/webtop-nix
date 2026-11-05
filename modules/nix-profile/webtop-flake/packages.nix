@@ -46,6 +46,9 @@ let
   hmLocked = import ./home-manager-locked.nix { inherit pkgs; real = config.programs.home-manager.package; };
 in
 {
+  # The webtop.* options live here too, so the starter flake needs no further import.
+  imports = [ ./time-locale.nix ];
+
   # hiPrio: the locked home-manager replaces the real one in the profile.
   home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements)
     ++ [ (lib.hiPrio hmLocked) ];
