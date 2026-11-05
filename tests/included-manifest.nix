@@ -14,7 +14,7 @@ pkgs.runCommand "included-manifest-check" { nativeBuildInputs = [ pkgs.jq pkgs.s
   jq -e '.version == 1 and (.packages | length) > 0' $m >/dev/null || fail "not a manifest"
   jq -e 'all(.packages[]; (.pname | type == "string" and length > 0) and (.version | type == "string") and (.path | type == "string" and startswith("/nix/store/")))' $m >/dev/null \
     || fail "malformed entry"
-  for n in webtop-app-screen nix-software-center; do
+  for n in webtop-app-screen nix-software-center dolphin; do
     jq -e --arg n "$n" 'any(.packages[]; .pname == $n)' $m >/dev/null || fail "$n is not in the manifest"
   done
 
@@ -36,6 +36,8 @@ pkgs.runCommand "included-manifest-check" { nativeBuildInputs = [ pkgs.jq pkgs.s
   echo "unmatched:$unmatched"
   echo "ties:$ties"
   echo "picks:$picks"
+
+  echo "$picks" | grep -q ' dolphin=kdePackages.dolphin ' || fail "dolphin does not match kdePackages.dolphin"
 
   touch $out
 ''
