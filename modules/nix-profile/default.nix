@@ -27,7 +27,9 @@ let
   # The `webtop` flake: a store path in the registry, like nixpkgs. Users' flake.lock files name it:
   # its directory name and bytes decide that path, and a change makes every home relock and switch.
   webtopFlake = ./webtop-flake;
-  pinned = [ "nixpkgs" "home-manager" "webtop" ];
+  # Registry entry `nixpkgs-unfree`: like `webtop`, a store path whose name and bytes decide it.
+  unfreeFlake = import ./nixpkgs-unfree.nix { inherit (nixpkgs.legacyPackages.${system}) runCommand; inherit nixpkgs; };
+  pinned = [ "nixpkgs" "home-manager" "webtop" "nixpkgs-unfree" ];
   template = home-manager.lib.homeManagerConfiguration {
     pkgs = nixpkgs.legacyPackages.${system};
     modules = [
@@ -130,6 +132,7 @@ in
     # CLI and modules from one source; the template's `home-manager` input resolves to it.
     nix.registry.home-manager.flake = home-manager;
     nix.registry.webtop.to = { type = "path"; path = "${webtopFlake}"; };
+    nix.registry.nixpkgs-unfree.to = { type = "path"; path = "${unfreeFlake}"; };
     # Flake inputs resolve indirect refs through the global registry only, not nix.registry, so the
     # image's pins replace the upstream global registry's entries for them (offline, no download).
     nix.settings.flake-registry = pkgs.writeText "flake-registry.json" (builtins.toJSON {

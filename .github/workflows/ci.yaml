@@ -132,7 +132,7 @@ jobs:
           path: ~/nix-cache
           key: ${{ steps.nixpkg.outputs.key }}
       - name: nix profile concurrency test
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
@@ -141,6 +141,8 @@ jobs:
         run: python3 tests/split-layers-test.py
       - name: starter template upgrade test
         run: bash tests/nix-profile-template-test.sh
+      - name: nixpkgs-unfree test
+        run: bash tests/nixpkgs-unfree-test.sh
       - name: reinstall test
         run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval

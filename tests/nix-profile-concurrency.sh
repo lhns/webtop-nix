@@ -27,8 +27,8 @@ cat > "$t/registry.json" <<EOF
   {"from": {"type": "indirect", "id": "webtop"}, "to": {"type": "path", "path": "$repo/modules/nix-profile/webtop-flake"}}
 ]}
 EOF
-# The real hook. With $t/fail-hook, fails as a broken switch would, once another command has committed
-# the store path named in that file (if any).
+# The real hook. With $t/fail-hook (declaration) or $t/fail-plain-hook (profile), fails as a broken
+# switch would, once another command has committed the store path named in that file (if any).
 {
   cat <<EOF
 #!/usr/bin/env bash
@@ -36,6 +36,11 @@ set -euo pipefail
 if [ "\${NIX_PROFILE_BACKEND:-}" = declaration ] && [ -e "$t/fail-hook" ]; then
   other=\$(cat "$t/fail-hook"); rm "$t/fail-hook"
   [ -z "\$other" ] || nix profile add "\$other"
+  exit 1
+fi
+if [ "\${NIX_PROFILE_BACKEND:-}" = profile ] && [ -e "$t/fail-plain-hook" ]; then
+  other=\$(cat "$t/fail-plain-hook"); rm "$t/fail-plain-hook"
+  [ -z "\$other" ] || nix profile add --profile "\$NIX_PROFILE" "\$other"
   exit 1
 fi
 EOF
@@ -167,7 +172,7 @@ reset() {
 
 scenario_parallel_adds() {
   local round
-  for round in 1 2 3; do
+  for round in $(seq "$rounds"); do
     reset "adds$round"
     parallel "add $F#fast0" "add $F#fast1" "add $F#fast2" "add $F#fast3"
     expect_ok "4 parallel adds, round $round"
@@ -176,11 +181,14 @@ scenario_parallel_adds() {
 }
 
 scenario_parallel_removes() {
-  reset removes
-  pn add "$F#fast0" "$F#fast1" "$F#fast2" "$F#fast3" > /dev/null 2>&1
-  parallel "remove fast0" "remove fast1" "remove fast2" "remove fast3"
-  expect_ok "4 parallel removes"
-  check "4 parallel removes, none resurrected"
+  local round
+  for round in $(seq "$rounds"); do
+    reset "removes$round"
+    pn add "$F#fast0" "$F#fast1" "$F#fast2" "$F#fast3" > /dev/null 2>&1
+    parallel "remove fast0" "remove fast1" "remove fast2" "remove fast3"
+    expect_ok "4 parallel removes, round $round"
+    check "4 parallel removes, round $round, none resurrected"
+  done
 }
 
 scenario_upgrades() {
@@ -205,19 +213,23 @@ scenario_upgrades() {
 }
 
 scenario_add_remove_same() {
-  reset same
-  pn add "$F#fast0" > /dev/null 2>&1
-  parallel "remove fast0" "add $F#fast0"
-  expect_ok "remove and add of one name, present"
-  agree "remove and add of one name, present"
-  parallel "add $F#fast1" "remove fast1"
-  expect_ok "add and remove of one name, absent"
-  agree "add and remove of one name, absent"
+  local round
+  for round in $(seq "$rounds"); do
+    reset "same$round"
+    pn add "$F#fast0" > /dev/null 2>&1
+    parallel "remove fast0" "add $F#fast0"
+    expect_ok "remove and add of one name, present, round $round"
+    agree "remove and add of one name, present, round $round"
+    parallel "add $F#fast1" "remove fast1"
+    expect_ok "add and remove of one name, absent, round $round"
+    agree "add and remove of one name, absent, round $round"
+  done
   # Both see the target; for the second it has gone by its commit, which is a no-op, not an error.
+  reset sameremove
   pn add "$F#fast2" > /dev/null 2>&1
   parallel "remove fast2" "remove fast2"
   expect_ok "two removes of one name"
-  agree "two removes of one name"
+  check "two removes of one name"
 }
 
 scenario_slow_during_fast() {
@@ -234,24 +246,43 @@ scenario_slow_during_fast() {
   check "fast add kept, remove not resurrected" fast0 slow
 }
 
-scenario_interrupted_build() {
-  local sig
+# A command interrupted before its commit (0.3 s: evaluating, 6 s: building) changes nothing.
+scenario_interrupted() {
+  local sig delay c
   for sig in INT KILL; do
-    reset "kill$sig"
-    pn add "$F#fast0" > /dev/null 2>&1
-    stamp
-    # Not through pn: timeout would put nix in a process group of its own.
-    if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "$F#slow" > /dev/null 2>&1 &
-    else setsid nix profile add "$F#slow" > /dev/null 2>&1 &
-    fi
-    local c=$!
-    sleep 6
-    kill -"$sig" -- "-$c" 2>/dev/null
-    wait "$c" 2>/dev/null
-    check "SIG$sig during the build leaves the state alone" fast0
-    pn add "$F#fast1" > "$t/log/a" 2>&1 || { fail "add after SIG$sig failed"; why "$t/log/a"; }
-    check "no lock left behind by SIG$sig" fast0 fast1
+    for delay in 0.3 6; do
+      reset "kill$sig$delay"
+      pn add "$F#fast0" > /dev/null 2>&1
+      stamp
+      # Not through pn: timeout would put nix in a process group of its own.
+      if [ "$M" = plain ]; then setsid nix profile add --profile "$P" "$F#slow" > /dev/null 2>&1 &
+      else setsid nix profile add "$F#slow" > /dev/null 2>&1 &
+      fi
+      c=$!
+      sleep "$delay"
+      kill -"$sig" -- "-$c" 2>/dev/null
+      wait "$c" 2>/dev/null
+      check "SIG$sig after $delay s leaves the state alone" fast0
+      pn add "$F#fast1" > "$t/log/a" 2>&1 || { fail "add after SIG$sig failed"; why "$t/log/a"; }
+      check "no lock left behind by SIG$sig after $delay s" fast0 fast1
+    done
   done
+}
+
+# A hook failing after the profile's lock was released: the revert keeps another command's commit.
+scenario_plain_revert() {
+  reset plainrevert
+  pn add "$F#fast0" > /dev/null 2>&1
+  local e rc=0; e=$(path_of extra2)
+  echo "$e" > "$t/fail-plain-hook"
+  pn add "$F#fast1" > "$t/log/r" 2>&1 || rc=$?
+  if [ "$rc" != 0 ]; then pass "add fails with its hook"; else fail "add succeeded although its hook failed"; fi
+  check "revert removes only its own element, another command's commit survives" fast0 extra2
+  : > "$t/fail-plain-hook"
+  rc=0; pn remove fast0 > "$t/log/r" 2>&1 || rc=$?
+  if [ "$rc" != 0 ]; then pass "remove fails with its hook"; else fail "remove succeeded although its hook failed"; fi
+  check "revert restores the removed element" fast0 extra2
+  rm -f "$t/fail-plain-hook"
 }
 
 scenario_two_backends() {
@@ -309,14 +340,18 @@ nix profile add --profile-backend profile "$hello" || exit 1
 nix profile remove --profile-backend profile hello || exit 1
 home-manager switch --flake "$H" > "$t/log/first" 2>&1 || { tail -n 40 "$t/log/first"; exit 1; }
 
+# Many rounds where they are cheap: a declaration round runs home-manager for every command.
 for M in plain declaration; do
+  if [ "$M" = plain ]; then rounds=15; else rounds=5; fi
   scenario_parallel_adds
   scenario_parallel_removes
   scenario_upgrades
   scenario_add_remove_same
   scenario_slow_during_fast
-  scenario_interrupted_build
+  scenario_interrupted
 done
+M=plain
+scenario_plain_revert
 M=declaration
 scenario_two_backends
 

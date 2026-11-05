@@ -7,7 +7,7 @@
 let
   py = pkgs.python3.withPackages (ps: [ ps.aiohttp ps.playwright ps.pillow ]);
   driver = pkgs.writeText "latest-owner-driver.py" ''
-    import asyncio, json, os, subprocess, threading, time
+    import asyncio, json, os, re, subprocess, threading, time
     import aiohttp
     from playwright.sync_api import sync_playwright
     from PIL import Image, ImageStat
@@ -169,6 +169,26 @@ let
             await old.close()
             await b.close()
 
+            # Opened laptop, monitor, phone: closing the phone hands the desktop to the
+            # monitor, the newest page left, not the laptop beside it.
+            lap = Page("tab-lap", (1024, 640))
+            await lap.open(http)
+            check("laptop sizes the desktop", await until(lambda: lap.res == lap.size), f"{lap.res}")
+            mon = Page("tab-mon", (800, 480))
+            await mon.open(http)
+            check("monitor takes the display", await until(lambda: lap.res == mon.size), f"laptop told {lap.res}")
+            phone = Page("tab-phone", (480, 800))
+            await phone.open(http)
+            check("phone takes the display", await until(lambda: mon.res == phone.size), f"monitor told {mon.res}")
+            lap.texts.clear(); mon.texts.clear()
+            await phone.close()
+            check("the monitor is promoted when the phone leaves", await until(lambda: mon.told("DISPLAY_OWNER primary"), GRACE * 2))
+            check("the laptop is not promoted", not lap.told("DISPLAY_OWNER primary"))
+            await mon.send(mon.settings())
+            check("the promoted monitor sizes the desktop", await until(lambda: lap.res == mon.size), f"laptop told {lap.res}")
+            await mon.close()
+            await lap.close()
+
     class Proxy(threading.Thread):
         """A TCP proxy a page connects through, so its socket can be cut with no close frame."""
 
@@ -255,11 +275,16 @@ let
                 ctx = chromium.new_context(viewport={"width": size[0], "height": size[1]})
                 page = ctx.new_page()
                 page.console = []
+                page.assets = {}
+                page.on("response", lambda r: page.assets.update({r.url.rsplit("/", 1)[-1]: r.status}) if "/assets/" in r.url else None)
                 page.on("console", lambda m: page.console.append(m.text))
                 page.goto(url)
                 return page
             a = open_page("http://127.0.0.1:18082/", (1024, 640))
             check("browser: A shows the desktop", wait_aspect(a, (1024, 640)), f"{video_box(a)}")
+            for kind in ("index-", "selkies-core-"):
+                loaded = {n: c for n, c in a.assets.items() if n.startswith(kind) and re.search(r"-[0-9a-f]{10}\.\w+$", n)}
+                check(f"browser: the content-hashed {kind}* asset loaded", loaded and all(c == 200 for c in loaded.values()), f"{a.assets}")
             time.sleep(SPACING)
             b = open_page("http://127.0.0.1:8082/", (640, 640))
             check("browser: A fits the size of B, which owns the display", wait_aspect(a, (640, 640)), f"{video_box(a)}")

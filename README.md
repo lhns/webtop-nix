@@ -15,7 +15,13 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
 | selkies | 2.1.0 | PyPI wheel (bundles the built web client), with [one patch](pkgs/selkies/second-display-without-primary.patch) |
+| Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) and [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
+
+Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
+same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); touchpad mode accelerates by at most 1.5x instead of 3x
+and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at 0.5; a saved speed keeps
+working. The changed assets are renamed by content hash so browsers do not reuse stale copies.
 
 Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
 
@@ -85,7 +91,7 @@ speech-dispatcher need the system options above.
 
 `services.webtop.nixProfile.enable` (`false`; the standalone image sets it, [ADR 0006](docs/adr/0006-software-installation-in-this-flake.md))
 gives the user one declaration, `~/.config/home-manager/packages.json`: `nix profile add|remove|upgrade|rollback` edit it and run `home-manager switch` (a patched Nix, built from source). Commands can run at the same time, in any mix: each builds unlocked, then applies its own change to the current state under a lock ([ADR 0007](docs/adr/0007-nix-profile-commit-locks.md)).
-On first boot a starter flake appears in `~/.config/home-manager`; its `nixpkgs`, `home-manager` and `webtop` inputs resolve from the image's registry. Your own module goes in `local.nix` beside it, which the image never writes (in a git repo, `git add` it).
+On first boot a starter flake appears in `~/.config/home-manager`; its `nixpkgs`, `home-manager` and `webtop` inputs resolve from the image's registry. The registry also has `nixpkgs-unfree` (the image's nixpkgs with unfree allowed): `nix profile add nixpkgs-unfree#pkg` installs an unfree package and records it in `packages.json`, with no `--impure`. Your own module goes in `local.nix` beside it, which the image never writes (in a git repo, `git add` it).
 While unmodified, the starter follows the image's template. An edited one is left alone with a notification: `webtop-home-manager-update` shows the difference and `--apply` takes the template, keeping backups.
 A home kept across containers survives a new image: each boot (`nixProfile.fromImageStore`, on by default) moves dangling generations aside and switches, so what `packages.json` declares comes back (needs network); packages added to the profile directly do not. A consumer with its own restore sets it to `false` and runs `nixProfile.reinstall` after that.
 A consumer whose home is reached through other paths sets `nixProfile.homeStoragePath`, and can receive progress with `nixProfile.progress`.
@@ -137,8 +143,8 @@ The page opened last owns the primary display: the desktop takes that page's win
 pages before it stay connected beside it, streaming and playing audio, with their input working and
 their own resizes ignored ([patch](pkgs/selkies/latest-owner.patch), [for upstream](docs/upstream/selkies-latest-owner.md)).
 A reload counts as opening the page. A page cut off that reconnects by itself claims nothing, and a
-page beside the owner never takes the display by itself; when the owner leaves, the oldest page beside
-it takes over. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.
+page beside the owner never takes the display by itself; when the owner leaves, the page opened last
+beside it (one with full permissions first) takes over, so closing a phone returns the desktop to the monitor, not the laptop. Second displays, viewers and `SELKIES_ENABLE_SHARING=false` work as in stock Selkies.
 
 ## Image
 
@@ -173,7 +179,7 @@ Evaluating the system realises the stock closure first (the graft), so the check
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
 Update nixpkgs here first (`nix flake update nixpkgs`); kube-webtop-workspaces follows this flake's nixpkgs.
-`tests/nix-profile-template-test.sh` and `tests/nix-profile-reinstall-test.sh` run the starter's template upgrade and the reinstall without Nix.
+`tests/nix-profile-template-test.sh` and `tests/nix-profile-reinstall-test.sh` run the starter's template upgrade and the reinstall without Nix; `tests/nixpkgs-unfree-test.sh` checks `nixpkgs-unfree` on real Nix.
 `tests/nix-profile-concurrency.sh` runs concurrent `nix profile` commands with the patched Nix and home-manager, on a temporary home.
 CI also builds the image on both systems, boots it under docker (Selkies page, KWin compositing, Nix DB = store, `nix profile` into the declaration, `local.nix`) and prints its layer table; on `main` it pushes the image and the multi-arch index, signed with cosign.
 

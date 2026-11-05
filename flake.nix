@@ -51,6 +51,7 @@
         kwin = pkgs.kwinSoftwarePresentation;
         # `nix profile` with backends (services.webtop.nixProfile); CI caches it like KWin.
         nix-profile-backends = nixpkgs.legacyPackages.${system}.callPackage ./modules/nix-profile/nix { };
+        nixpkgs-unfree-flake = import ./modules/nix-profile/nixpkgs-unfree.nix { inherit (pkgs) runCommand; inherit nixpkgs; };
         default = pkgs.selkies;
 
         # docker run-able desktop (README, "Image"); its own closure is the layer reference.
