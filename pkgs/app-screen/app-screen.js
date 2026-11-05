@@ -50,15 +50,14 @@ function restoreAll() {
         if (!w.normalWindow) {
             return;
         }
-        if (!prior.fullScreen) {
-            w.fullScreen = false;
-        }
         if (prior.maximized) {
             w.setMaximize(false, false);
         }
         if (main && w.output !== main && (!w.output || w.output.name === SCREEN)) {
             workspace.sendClientToScreen(w, main);
         }
+        // Set after the move: KWin may have dropped fullscreen on its own.
+        w.fullScreen = prior.fullScreen;
     });
 }
 
