@@ -3,6 +3,13 @@
 # stale, and switches when that or the template unit changed something, or the active generation
 # did not survive the update. WEBTOP_FLAKE, the image's `webtop` flake, is set by the module.
 
+# The apply lock (ADR 0008) for the whole script; flock stays its parent, and -o keeps the lock out of
+# anything left running.
+if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/webtop"
+  WEBTOP_HM_LOCK_HELD=1 exec flock -o "${XDG_STATE_HOME:-$HOME/.local/state}/webtop/home-manager.lock" "$0" "$@"
+fi
+
 hm=$HOME/.config/home-manager
 state=${XDG_STATE_HOME:-$HOME/.local/state}
 gen=$state/nix/profiles/home-manager
@@ -16,6 +23,13 @@ progress() { webtop-restore-progress "$@" || true; }
 notify() { webtop-notify "$1" "$2" "${3:-system-software-install}" & }
 
 if [ -e "$switch_marker" ]; then switch=1; fi
+
+# A package change that was declared but not applied (a command killed after writing the file, a
+# power cut): the generation records the packages.json it was built from. Without a record there
+# is nothing to compare; the hook's first switch writes one.
+if [ -f "$state/webtop/applied" ] && [ -f "$hm/packages.json" ]   && [ "$(cat "$state/webtop/applied")" != "$(sha256sum < "$hm/packages.json" | cut -d' ' -f1)" ]; then
+  switch=1
+fi
 
 # Root inputs resolved through the image's registry are locked to the old image's store paths;
 # relock those that are no longer valid with the locked content (a path that merely exists may not be

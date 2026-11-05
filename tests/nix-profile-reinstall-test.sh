@@ -10,10 +10,11 @@ ok() { echo "PASS  $*"; }
 
 mkdir "$t/bin"
 stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$t/bin/$1"; chmod +x "$t/bin/$1"; }
-stub nix 'echo "nix $*" >> "$T/calls"; [ "${NIX_FAIL:-}" != "$5" ] || [ -z "${NIX_FAIL:-}" ] || exit 1'
+stub nix 'echo "nix $*" >> "$T/calls"; [ "${KILL_AT:-}" != "$5" ] || [ -z "${KILL_AT:-}" ] || kill -9 "$PPID"; [ "${NIX_FAIL:-}" != "$5" ] || [ -z "${NIX_FAIL:-}" ] || exit 1'
 stub webtop-restore-progress 'echo "progress $*" >> "$T/calls"; [ "$1" != nixconfig ] || printf %s "${NIX_CONFIG:-}"'
 stub webtop-notify 'echo "notify $1" >> "$T/calls"'
-stub setup 'echo setup >> "$T/calls"; [ -z "${SETUP_FAIL:-}" ] || exit 1'
+# The apply lock (ADR 0008) must be held while the switch runs.
+stub setup 'echo setup >> "$T/calls"; ! flock -n "$HOME/.local/state/webtop/home-manager.lock" true || echo unlocked >> "$T/calls"; [ -z "${SETUP_FAIL:-}" ] || exit 1'
 export T=$t PATH=$t/bin:$PATH WEBTOP_SETUP=$t/bin/setup
 
 # A fresh home: <live> is a store path that exists, dangling links point nowhere.
@@ -25,7 +26,11 @@ home() {
   ln -s /nix/store/gone-decl "$P/declaration"
   ln -s "$t/live" "$P/home-manager-2-link"
 }
-run() { rc=0; (cd "$t" && bash -c "set -euo pipefail; source '$script'" reinstall "$@") > "$t/out" 2>&1 || rc=$?; }
+# The script as the image runs it: a file of its own, which takes the lock by running itself again.
+{ printf '#!/usr/bin/env bash
+set -euo pipefail
+'; cat "$script"; } > "$t/reinstall"; chmod +x "$t/reinstall"
+run() { rc=0; (cd "$t" && ./reinstall "$@") > "$t/out" 2>&1 || rc=$?; }
 cat > "$t/m3.json" <<'EOF'
 {"version":3,"elements":{
   "hello":{"url":"github:x/y/abc","attrPath":"packages.x.hello","storePaths":["/nix/store/h"]},
@@ -101,3 +106,34 @@ unset SETUP_FAIL
 [ "$rc" = 1 ] || fail "a failed switch exited $rc"
 grep -q '^progress finish Some of your software' "$t/calls" || fail "the failure is not in the progress"
 ok "a failed switch: exit 1"
+
+# The apply lock: the switch runs under it, a held lock delays the whole run, and a kill -9 half-way is
+# finished by the next run.
+home
+run "$t/m3.json"
+! grep -qx unlocked "$t/calls" || fail "the switch ran without the apply lock"
+ok "the switch runs under the apply lock"
+
+home
+mkdir -p "$HOME/.local/state/webtop"
+flock "$HOME/.local/state/webtop/home-manager.lock" sleep 3 &
+sleep 0.5
+start=$SECONDS
+run "$t/none.json"
+wait
+[ "$rc" = 0 ] || fail "exit $rc while the lock was held"
+[ $((SECONDS - start)) -ge 2 ] || fail "the run did not wait for the lock"
+ok "a held lock delays the run"
+
+home
+ln -s /nix/store/gone-p "$HOME/.local/state/nix/profiles/profile"
+export KILL_AT=github:x/y/abc#packages.x.hello
+run "$t/m3.json"
+unset KILL_AT
+[ "$rc" != 0 ] || fail "the killed run exited 0"
+! grep -qx setup "$t/calls" || fail "the switch ran after the kill"
+run "$t/m3.json"
+[ "$rc" = 0 ] || { cat "$t/out"; fail "the run after a kill exited $rc"; }
+grep -qx setup "$t/calls" || fail "no switch after the kill"
+grep -q 'packages.x.tree' "$t/calls" || fail "the packages were not reinstalled after the kill"
+ok "kill -9 half-way: the next run finishes it"

@@ -39,9 +39,16 @@ let
       selected = if outputs == null then [ drv ]
         else map (o: drv.${o}) (if lib.elem "*" outputs then drv.outputs else outputs);
     in map (lib.setPrio (e.priority or 5)) selected;
+  # The apply lock, the marker and the check below: ADR 0008.
+  hash = builtins.hashFile "sha256" file;
+  declared = "${config.xdg.configHome}/home-manager/packages.json";
+  stateDir = ''${XDG_STATE_HOME:-$HOME/.local/state}/webtop'';
+  hmLocked = import ./home-manager-locked.nix { inherit pkgs; real = config.programs.home-manager.package; };
 in
 {
-  home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements);
+  # hiPrio: the locked home-manager replaces the real one in the profile.
+  home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements)
+    ++ [ (lib.hiPrio hmLocked) ];
 
   # Every install switches, and home-manager would notify about all its unread news on the desktop.
   news.display = lib.mkDefault "silent";
@@ -55,5 +62,79 @@ in
   xdg.configFile."nix/nix.conf".text = ''
     profile-backend = declaration:${config.xdg.configHome}/home-manager/packages.json
     profile-hook = /run/current-system/sw/bin/webtop-profile-hook
+  '';
+
+  # Every activation holds the apply lock, however it was started. The lock is taken by running the
+  # script again under flock (-o: nothing the activation leaves running holds it).
+  home.activation.webtopLock = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+    state="${stateDir}"
+    if [ -z "''${WEBTOP_HM_LOCK_HELD:-}" ]; then
+      mkdir -p "$state"
+      WEBTOP_HM_LOCK_HELD=1 exec ${pkgs.util-linux}/bin/flock -o "$state/home-manager.lock" "$0" --driver-version "$hmDriverVersion"
+    fi
+    # Built from an older packages.json than the file now: refuse, the next switch has the new one.
+    # (The driver has already pointed the profile at this generation: put it back.)
+    if [ -z "''${WEBTOP_ACTIVATE_ANY:-}" ] \
+      && [ "$(${pkgs.coreutils}/bin/sha256sum < "${declared}" | ${pkgs.coreutils}/bin/cut -d' ' -f1)" != "${hash}" ]; then
+      echo "webtop: this generation was built from an older packages.json; run home-manager switch again" >&2
+      if (( hmDriverVersion >= 1 )) && [ -n "''${oldGenPath:-}" ] \
+        && [ "$(readlink -f "$genProfilePath")" = "$(readlink -f "$newGenPath")" ]; then
+        nix-env --profile "$genProfilePath" --set "$oldGenPath" > /dev/null 2>&1 || true
+      fi
+      exit 75
+    fi
+  '';
+
+  # home-manager removes home-manager-path and then adds it again: for a moment the profile has no
+  # home-manager and none of the declared packages. The patched Nix drops and adds it in one generation.
+  # The rest is home-manager's own text; tests/nix-profile-concurrency.sh fails if that changes.
+  home.activation.installPackages = lib.mkIf (!config.submoduleSupport.externalPackageInstall) (lib.mkForce (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      function nixReplaceProfile() {
+        local oldNix="$(command -v nix)"
+
+        if $oldNix config show profile-backend > /dev/null 2>&1; then
+          # Under whatever name the profile has it (NIX_PROFILE_BACKEND: no declaration lock, ADR 0008).
+          local name
+          name=$(${pkgs.jq}/bin/jq -r '(.elements | if type == "array" then [] else to_entries end)[]
+            | select(.value.storePaths // [] | any(test("-home-manager-path$"))) | .key' \
+            ${config.home.profileDirectory}/manifest.json | head -n 1) || true
+          run env NIX_PROFILE_BACKEND=activation $oldNix profile add --replace "''${name:-home-manager-path}" $1
+        else
+          nixProfileRemove 'home-manager-path'
+
+          run $oldNix profile install $1
+        fi
+      }
+
+      if [[ -e ${config.home.profileDirectory}/manifest.json ]] ; then
+        INSTALL_CMD="nix profile install"
+        INSTALL_CMD_ACTUAL="nixReplaceProfile"
+        LIST_CMD="nix profile list"
+        REMOVE_CMD_SYNTAX='nix profile remove {number | store path}'
+      else
+        INSTALL_CMD="nix-env -i"
+        INSTALL_CMD_ACTUAL="run nix-env -i"
+        LIST_CMD="nix-env -q"
+        REMOVE_CMD_SYNTAX='nix-env -e {package name}'
+      fi
+
+      if ! $INSTALL_CMD_ACTUAL ${config.home.path} ; then
+        echo
+        _iError $'Oops, Nix failed to install your new Home Manager profile!\n\nPerhaps there is a conflict with a package that was installed using\n"%s"? Try running\n\n    %s\n\nand if there is a conflicting package you can remove it with\n\n    %s\n\nThen try activating your Home Manager configuration again.' "$INSTALL_CMD" "$LIST_CMD" "$REMOVE_CMD_SYNTAX"
+        exit 1
+      fi
+      unset -f nixReplaceProfile
+      unset INSTALL_CMD INSTALL_CMD_ACTUAL LIST_CMD REMOVE_CMD_SYNTAX
+    ''));
+
+  # What the active generation was built from: the hook and the boot unit compare it with the file.
+  home.activation.webtopApplied = lib.hm.dag.entryAfter [ "installPackages" ] ''
+    if [[ ! -v DRY_RUN ]]; then
+      state="${stateDir}"
+      mkdir -p "$state"
+      echo "${hash}" > "$state/applied.tmp"
+      mv "$state/applied.tmp" "$state/applied"
+    fi
   '';
 }

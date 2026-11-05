@@ -37,7 +37,8 @@ let
       (import ./webtop-flake/packages.nix ./starter/packages.json)
     ];
   };
-  hmPackage = home-manager.packages.${system}.home-manager;
+  # home-manager under the apply lock (ADR 0008), here and in the user's profile (the packages module).
+  hmPackage = import ./webtop-flake/home-manager-locked.nix { inherit pkgs; real = home-manager.packages.${system}.home-manager; };
   notify = pkgs.writeShellApplication {
     name = "webtop-notify";
     runtimeInputs = with pkgs; [ coreutils util-linux libnotify ];
@@ -46,23 +47,23 @@ let
   # profile-hook (the packages module): applies a changed packages.json.
   profileHook = pkgs.writeShellApplication {
     name = "webtop-profile-hook";
-    runtimeInputs = [ pkgs.coreutils pkgs.git config.nix.package hmPackage ];
+    runtimeInputs = [ pkgs.coreutils pkgs.git pkgs.util-linux config.nix.package hmPackage ];
     text = builtins.readFile ./webtop-profile-hook.sh;
   };
   setup = pkgs.writeShellApplication {
     name = "webtop-home-manager";
-    runtimeInputs = with pkgs; [ coreutils jq git config.nix.package hmPackage notify cfg.progress ];
+    runtimeInputs = with pkgs; [ coreutils jq git util-linux config.nix.package hmPackage notify cfg.progress ];
     # In the text, not the unit: a consumer's unit may run this script too.
     text = "WEBTOP_FLAKE=${webtopFlake}\n" + builtins.readFile ./webtop-home-manager.sh;
   };
   reinstall = pkgs.writeShellApplication {
     name = "webtop-nix-reinstall";
-    runtimeInputs = with pkgs; [ coreutils gnused jq config.nix.package notify cfg.progress ];
+    runtimeInputs = with pkgs; [ coreutils gnused jq util-linux config.nix.package notify cfg.progress ];
     text = "WEBTOP_SETUP=${lib.getExe setup}\n" + builtins.readFile ./webtop-nix-reinstall.sh;
   };
   updateTool = pkgs.writeShellApplication {
     name = "webtop-home-manager-update";
-    runtimeInputs = with pkgs; [ coreutils diffutils git config.nix.package templateTool hmPackage ];
+    runtimeInputs = with pkgs; [ coreutils diffutils git util-linux config.nix.package templateTool hmPackage ];
     text = withHome ./webtop-home-manager-update.sh;
   };
   upstream = lib.importJSON "${flake-registry}/flake-registry.json";

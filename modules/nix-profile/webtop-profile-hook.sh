@@ -1,9 +1,34 @@
 # profile-hook of the patched `nix profile` (ADR 0006): applies a changed packages.json with
 # home-manager. Exits 0 only once it is applied; on failure the previous generation is active again.
+# Idempotent and cheap when there is nothing to apply: nix runs it again after a cancel, and for a
+# command that changed nothing (ADR 0008).
 
 # Profile changes, home-manager's own install of its generation included: nothing to apply. Must
 # stay cheap, it runs for every one of them.
 [ "${NIX_PROFILE_BACKEND:-}" = declaration ] || exit 0
+
+# Own session: a cancel's SIGINT to nix's group must not reach an activation. On a cancel nix kills
+# only this process, so what it started has to survive without it.
+if [ -z "${WEBTOP_HOOK_SESSION:-}" ]; then
+  WEBTOP_HOOK_SESSION=1 exec setsid --wait "$0"
+fi
+
+state=${XDG_STATE_HOME:-$HOME/.local/state}/webtop
+# The apply lock is held by a flock that stays a child of this script, so it outlives a killed
+# script and the switch it started; -o keeps the lock out of the switch's own children.
+if [ -z "${WEBTOP_HM_LOCK_HELD:-}" ]; then
+  mkdir -p "$state"
+  rc=0
+  WEBTOP_HM_LOCK_HELD=1 flock -o "$state/home-manager.lock" "$0" || rc=$?
+  exit "$rc"
+fi
+
+gen="${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager"
+# What the active generation was built from (webtop-flake/packages.nix): nothing to do if it is this file.
+hash=$(sha256sum < "$NIX_PROFILE_DECLARATION" | cut -d' ' -f1)
+if [ "$(cat "$state/applied" 2>/dev/null || true)" = "$hash" ] && [ -e "$gen/activate" ]; then
+  exit 0
+fi
 
 dir=$(dirname "$NIX_PROFILE_DECLARATION")
 # A flake in a git repo (its own, or a dotfiles repo around it) sees only files git knows.
@@ -15,7 +40,6 @@ if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$dir" add --intent-to-add -- "$NIX_PROFILE_DECLARATION"
 fi
 
-gen="${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager"
 prev=$(readlink -f "$gen" || true)
 rc=0
 home-manager switch --flake "$dir" || rc=$?
@@ -23,6 +47,6 @@ home-manager switch --flake "$dir" || rc=$?
 cur=$(readlink -f "$gen" || true)
 if [ -n "$prev" ] && [ "$cur" != "$prev" ]; then
   echo "webtop-profile-hook: re-activating the previous home-manager generation" >&2
-  "$prev/activate" || echo "webtop-profile-hook: re-activating $prev failed" >&2
+  WEBTOP_ACTIVATE_ANY=1 "$prev/activate" || echo "webtop-profile-hook: re-activating $prev failed" >&2
 fi
 exit "$rc"

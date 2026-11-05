@@ -42,3 +42,8 @@ the commit is the only one every path goes through.
   and a remove clears both. This is accepted: closing it needs `L_D` around store-path adds from outside a
   hook, which makes them wait for a running switch, and they cannot be told apart from the add of a terminal
   `home-manager switch`, which will hold `L_A`, without marking that activation.
+
+## Amendment 2026-11-05
+
+`L_A` is defined by [ADR 0008](0008-one-apply-lock-and-an-applied-marker.md). Store-path adds now take `L_D`
+unless a hook or an activation runs them, which closes the window above.
