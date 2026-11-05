@@ -82,21 +82,20 @@ in
     # Needs /dev/fuse; a failed unit would degrade the user manager.
     systemd.user.units."xdg-document-portal.service".enable = false;
 
-    # The build sandbox needs namespaces a container may not grant.
-    nix.settings.sandbox = lib.mkDefault false;
-
     environment.systemPackages = lib.mkIf cfg.adminTools.enable (with pkgs; [
       util-linux procps iproute2 findutils gnugrep file lsof
       git jq curl wget htop libnotify
     ]);
 
-    nix = lib.mkIf overlay.enable {
-      settings = {
+    nix.settings = lib.mkMerge [
+      # The build sandbox needs namespaces a container may not grant.
+      { sandbox = lib.mkDefault false; }
+      (lib.mkIf overlay.enable {
         experimental-features = [ "local-overlay-store" "read-only-local-store" ];
         store = "daemon";
-      };
-      checkConfig = false; # would try to open the store at build time
-    };
+      })
+    ];
+    nix.checkConfig = lib.mkIf overlay.enable false; # would try to open the store at build time
     # %% : systemd would read the URL's %-escapes as unit specifiers.
     systemd.services.nix-daemon.environment.NIX_CONFIG =
       lib.mkIf overlay.enable "store = ${lib.replaceStrings [ "%" ] [ "%%" ] overlayStore}";
