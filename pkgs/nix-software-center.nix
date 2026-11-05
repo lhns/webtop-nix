@@ -5,7 +5,7 @@ let
     owner = "lhns";
     repo = "nix-software-center";
     rev = "36128b11c151cad3d76468ea9eea4320a48e7fe1";
-    hash = lib.fakeHash;
+    hash = "sha256-UyBapnCOBZh/l3C22oxv3xkkOaiRzlC25f1tVTupsqM=";
   };
   # Evaluated from the image's nixpkgs, which the flake registry's `nixpkgs` resolves to too.
   pkgdb = callPackage "${src}/nix/pkgdb.nix" { };
