@@ -1,6 +1,6 @@
 # `webtop-app-screen place <app-id> <screen>` / `release <app-id>`: loads (or unloads) a KWin script
-# that keeps an app's windows on a screen, fullscreen; `release` also sends them back. Run as the desktop user inside the session
-# (needs DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR). See README, "One app per screen".
+# that keeps an app's windows on a screen, fullscreen; `release` also sends them back.
+# Run as the desktop user inside the session (needs DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR). See README, "One app per screen".
 { writeShellApplication, systemd, coreutils }:
 
 writeShellApplication {
