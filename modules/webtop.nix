@@ -557,8 +557,7 @@ in
           "org.freedesktop.login1.reboot",
           "org.freedesktop.login1.reboot-multiple-sessions",
           "org.freedesktop.login1.suspend",
-          "org.freedesktop.login1.suspend-multiple-sessions",
-          "org.freedesktop.login1.lock-sessions"
+          "org.freedesktop.login1.suspend-multiple-sessions"
         ].indexOf(action.id) >= 0) {
           return polkit.Result.YES;
         }
