@@ -11,6 +11,8 @@ pkgs.testers.runNixOSTest {
     imports = [ self.nixosModules.webtop ];
     services.webtop.enable = true;
     services.webtop.lockEnvironmentFiles = [ "-/run/webtop-lock.env" ];
+    # As in the container: on the VM's seat0 (which has VTs) logind refuses a session without a VT number.
+    services.webtop.seat = "";
     virtualisation.memorySize = 4096;
     virtualisation.cores = 2;
     services.journald.storage = "persistent";
