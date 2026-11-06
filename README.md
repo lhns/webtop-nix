@@ -180,7 +180,7 @@ browser has no H.264; each screen 1024x640; session processes without the apps t
 So about 110 MiB and 2% of a core per screen at rest. Under full repaint the Selkies process grows by
 10-15% of a core per screen (17%, 27%, 46%), while the total is limited by the shared VM rather than
 growing with the count, so it is no per-screen figure; expect a busy screen to cost more than one core
-on software rendering. x264 was not measured. A hidden tab stops its capture.
+on software rendering. x264 was not measured.
 
 ## Several pages on one desktop
 
