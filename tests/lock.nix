@@ -29,7 +29,7 @@ pkgs.testers.runNixOSTest {
         return found[0]
     # By argv[0], since the comm of a wrapped program is ".name-wrapped", cut to 15 characters.
     def pids():
-        rows = [r.split(None, 1) for r in machine.succeed("ps -u user -o pid=,args=").splitlines() if r.strip()]
+        rows = [r.split(None, 1) for r in machine.succeed("ps -u user -o pid=,args=").splitlines() if len(r.split(None, 1)) == 2]
         name = lambda a: a.split()[0].rsplit("/", 1)[-1].lstrip(".").removesuffix("-wrapped")
         return {c: sorted(p for p, a in rows if name(a) == c) for c in core.split()}
     def diag():
@@ -77,7 +77,8 @@ pkgs.testers.runNixOSTest {
 
     for name, lock in lockers.items():
         before = pids()
-        assert all(before.values()), f"missing session processes: {before}"
+        assert all(before.values()), f"missing session processes: {before}
+" + machine.succeed("ps -u user -o pid=,comm=,args=")
         session = machine.succeed("systemctl show -p MainPID --value webtop-session.service").strip()
         machine.succeed(f"rm -f {marker}")
         lock()
