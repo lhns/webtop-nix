@@ -244,6 +244,13 @@ let
             for k in "abc":
                 check(f"app {k} is fullscreen on its own screen", wait_for(lambda: placed(APPS[k], SCREEN[k]), 30),
                       json.dumps(windows()))
+            # KWin can reset a window after it was placed; the script must place it again.
+            note("reset: " + str(kwin_js(
+                "const w = workspace.windowList().find(w => w.desktopFileName === 'test.app.c' && !w.transient);"
+                "w.fullScreen = false; workspace.sendClientToScreen(w, workspace.screens.find(s => !/^SELKIES-/.test(s.name)));"
+                "print('TAG done');")))
+            check("a window reset by KWin is placed again", wait_for(lambda: placed(APPS["c"], SCREEN["c"]), 15),
+                  json.dumps(windows()))
             for k in "abc":
                 check(f"page {k} streams only app {k}", wait_for(lambda: shows(page[k], k, f"stream-{k}"), 30))
 
