@@ -33,7 +33,7 @@ pkgs.testers.runNixOSTest {
         name = lambda a: a.split()[0].rsplit("/", 1)[-1].lstrip(".").removesuffix("-wrapped")
         return {c: sorted(p for p, a in rows if name(a) == c) for c in core.split()}
     def diag():
-        print(machine.execute(f"journalctl --no-pager -o cat -b | grep -E 'webtop-lock|kscreenlocker|ksld' | tail -40; ps -eo pid,cmd | grep -E 'greet|dbus-monitor'; {ubus} systemctl --user status webtop-lock-guard --no-pager -l; loginctl show-session {sid()} -p LockedHint -p Id; loginctl list-sessions; for s in $(loginctl show-user user -p Sessions --value); do loginctl show-session $s -p Id -p Class -p State -p Seat; done")[1])
+        print(machine.execute(f"journalctl --no-pager -o cat -b | grep -E 'webtop-lock|kscreenlocker|ksld' | tail -40; ps -u user -o pid,ppid,stat,wchan:20,args | grep -E 'greet|dbus-monitor|lock-guard'; for p in $(pgrep -u user -f '[w]ebtop-lock-guard'); do ls -l /proc/$p/fd; done; {ubus} systemctl --user status webtop-lock-guard --no-pager -l; loginctl show-session {sid()} -p LockedHint -p Id; loginctl list-sessions; for s in $(loginctl show-user user -p Sessions --value); do loginctl show-session $s -p Id -p Class -p State -p Seat; done")[1])
     def ready():
         machine.wait_for_unit("webtop-session.service")
         ${import ./wait-compositing.nix}

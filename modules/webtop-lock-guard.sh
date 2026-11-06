@@ -22,13 +22,16 @@ clear_lock() {
   echo "webtop-lock-guard: the lock is still active after 30 tries"
 }
 
-dbus-monitor --session "type='signal',interface='org.freedesktop.ScreenSaver',member='ActiveChanged'" |
-  while read -r line; do
-    case $line in
-      *"boolean true"*)
-        date -u +%Y-%m-%dT%H:%M:%SZ >"$dir/lock.new" && mv -T "$dir/lock.new" "$dir/lock"
-        echo "webtop-lock-guard: locked, clearing"
-        clear_lock
-        ;;
-    esac
-  done
+# The loop runs in this shell, not a pipeline subshell: when dbus-monitor ends, so does the script,
+# and systemd restarts it.
+while read -r line; do
+  case $line in
+    *"boolean true"*)
+      date -u +%Y-%m-%dT%H:%M:%SZ >"$dir/lock.new" && mv -T "$dir/lock.new" "$dir/lock"
+      echo "webtop-lock-guard: locked, clearing"
+      clear_lock
+      ;;
+  esac
+done < <(dbus-monitor --session "type='signal',interface='org.freedesktop.ScreenSaver',member='ActiveChanged'")
+echo "webtop-lock-guard: dbus-monitor ended"
+exit 1
