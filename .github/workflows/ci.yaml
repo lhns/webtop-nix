@@ -145,6 +145,9 @@ jobs:
         with:
           path: ~/nix-cache
           key: ${{ steps.nixpkg.outputs.key }}
+      - name: nix daemon EOF test
+        timeout-minutes: 10
+        run: bash tests/nix-daemon-eof-test.sh "${{ steps.nixpkg.outputs.out }}"
       - name: nix profile concurrency test
         timeout-minutes: 90
         run: bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
