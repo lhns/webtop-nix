@@ -7,6 +7,7 @@
 // Windows this script made fullscreen/maximized -> state before, so a window the user had
 // fullscreened stays fullscreen.
 const changed = new Map();
+const returning = new Set();
 
 function target() {
     return workspace.screens.find(s => s.name === SCREEN) || null;
@@ -52,6 +53,7 @@ function restoreAll() {
     const main = mainScreen();
     changed.forEach((prior, w) => {
         changed.delete(w);
+        returning.add(w);
         if (!w.normalWindow) {
             return;
         }
@@ -74,6 +76,10 @@ function restoreAll() {
 let placing = false;
 function settle(w, fullScreenLost) {
     const screen = target();
+    const main = mainScreen();
+    if (returning.has(w) && !screen && main && w.output && w.output !== main && /^SELKIES-/.test(w.output.name)) {
+        workspace.sendClientToScreen(w, main);
+    }
     if (placing || !screen || !belongs(w)) {
         return;
     }
@@ -91,7 +97,7 @@ workspace.windowAdded.connect(w => {
     place(w);
     w.outputChanged.connect(() => settle(w));
     w.fullScreenChanged.connect(() => settle(w, true));
-    w.closed.connect(() => changed.delete(w));
+    w.closed.connect(() => { changed.delete(w); returning.delete(w); });
     // Some clients set the app id after mapping.
     w.desktopFileNameChanged.connect(() => place(w));
     w.windowClassChanged.connect(() => place(w));
