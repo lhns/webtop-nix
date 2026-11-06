@@ -182,6 +182,20 @@ jobs:
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.lock -L
 
+      # Several app screens at once, run outside the sandbox so its artifacts survive a failure; summary.txt has the measured cost.
+      - name: app screens test
+        if: matrix.vm
+        run: |
+          nix build .#checks.${{ matrix.system }}.app-screens.driver -L -o app-screens-driver
+          mkdir -p app-screens
+          ./app-screens-driver/bin/nixos-test-driver -o app-screens
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.vm
+        with:
+          name: app-screens
+          path: app-screens
+          if-no-files-found: ignore
+
       # Run outside the sandbox so its screenshots and logs survive a failure as an artifact.
       - name: second display test
         if: matrix.vm
