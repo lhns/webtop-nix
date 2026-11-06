@@ -77,8 +77,7 @@ pkgs.testers.runNixOSTest {
 
     for name, lock in lockers.items():
         before = pids()
-        assert all(before.values()), f"missing session processes: {before}
-" + machine.succeed("ps -u user -o pid=,comm=,args=")
+        assert all(before.values()), f"missing session processes: {before} " + machine.succeed("ps -u user -o pid=,comm=,args=")
         session = machine.succeed("systemctl show -p MainPID --value webtop-session.service").strip()
         machine.succeed(f"rm -f {marker}")
         lock()
