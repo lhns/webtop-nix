@@ -3,8 +3,9 @@
 # path-input-fingerprint.patch: a locked `path:` input (the image's registry entries, so the users'
 # nixpkgs) has no fetcher cache entry, so every evaluation of the home flake dumps all of nixpkgs to
 # the store again. Drop it once upstream's PathInputScheme has a getFingerprint.
-# daemon-eof-wait.patch (nix-store, so the daemon too): a builder whose last process closes its output
-# before exiting (coreutils does at exit) is SIGKILLed on the log EOF and fails with signal 9.
+# daemon-eof-wait.patch (nix-store, so the daemon too; NixOS/nix#2176): a builder whose last process
+# closes its output before exiting (coreutils does at exit) is SIGKILLed on the log EOF and fails with
+# signal 9. The worker now waits for its exit (pidfd) up to `builder-exit-timeout`, other builds running.
 { nixVersions }:
 
 (nixVersions.nixComponents_2_34.overrideScope (final: prev: {

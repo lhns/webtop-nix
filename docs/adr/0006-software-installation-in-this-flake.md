@@ -44,4 +44,4 @@ The patch takes its locks at commit and re-applies each command's change on curr
 
 ## Amendment 2026-11-06
 
-Nix also carries `daemon-eof-wait.patch` on `nix-store`, so the desktops run a patched daemon: a builder that closes its output before exiting is waited for (up to 10 s) instead of killed on the log EOF. It needs rebasing with a Nix bump too.
+Nix also carries `daemon-eof-wait.patch` on `nix-store`, so the desktops run a patched daemon: a builder that closes its output before exiting is waited for, without blocking other builds, up to the new `builder-exit-timeout` setting (default 10 s), instead of killed on the log EOF. It needs rebasing with a Nix bump too.

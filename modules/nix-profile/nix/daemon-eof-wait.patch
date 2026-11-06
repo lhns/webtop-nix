@@ -1,16 +1,215 @@
+Wait for a builder to exit after it closes its output (NixOS/nix#2176).
+
+On EOF on the builder's output the build goal killed the builder, so one that
+closes its output before its last process exits (coreutils does at exit) failed
+with signal 9. The worker now holds that EOF back until the builder has exited,
+a pidfd in its poll set, or until builder-exit-timeout (default 10 s; 0 = old
+behavior) has passed, so other goals keep running meanwhile. The builder stays
+unreaped until then: its own exit status is reported and leftover processes are
+still killed. Without pidfd_open (Linux < 5.3, other Unixes) unprepareBuild()
+waits instead, bounded by the same setting.
+
+diff --git a/build/derivation-building-goal.cc b/build/derivation-building-goal.cc
+index 60ca549..92af1e6 100644
+--- a/build/derivation-building-goal.cc
++++ b/build/derivation-building-goal.cc
+@@ -934,7 +934,10 @@ Goal::Co DerivationBuildingGoal::buildLocally(
+ 
+     actLock.reset();
+ 
+-    worker.childStarted(shared_from_this(), {builderOut}, true, true);
++    std::optional<Descriptor> exitEvent;
++    if (builder->pidFd)
++        exitEvent = builder->pidFd.get();
++    worker.childStarted(shared_from_this(), {builderOut}, true, true, exitEvent);
+ 
+     started();
+ 
+diff --git a/build/worker.cc b/build/worker.cc
+index ffb1027..0eb501a 100644
+--- a/build/worker.cc
++++ b/build/worker.cc
+@@ -225,7 +225,11 @@ size_t Worker::getNrSubstitutions()
+ }
+ 
+ void Worker::childStarted(
+-    GoalPtr goal, const std::set<MuxablePipePollState::CommChannel> & channels, bool inBuildSlot, bool respectTimeouts)
++    GoalPtr goal,
++    const std::set<MuxablePipePollState::CommChannel> & channels,
++    bool inBuildSlot,
++    bool respectTimeouts,
++    std::optional<Descriptor> exitEvent)
+ {
+     Child child;
+     child.goal = goal;
+@@ -234,6 +238,7 @@ void Worker::childStarted(
+     child.timeStarted = child.lastOutput = steady_time_point::clock::now();
+     child.inBuildSlot = inBuildSlot;
+     child.respectTimeouts = respectTimeouts;
++    child.exitEvent = exitEvent;
+     children.emplace_back(child);
+     if (inBuildSlot) {
+         switch (goal->jobCategory()) {
+@@ -422,6 +427,8 @@ void Worker::waitForInput()
+         // this file, also gated on having a local store. when we wake up, we intended to reach that call site.)
+         nearest = before + std::chrono::seconds(10);
+     for (auto & i : children) {
++        if (i.heldEOF)
++            nearest = std::min(nearest, i.timeEOF + std::chrono::seconds(settings.builderExitTimeout));
+         if (!i.respectTimeouts)
+             continue;
+         if (0 != settings.maxSilentTime)
+@@ -462,6 +469,12 @@ void Worker::waitForInput()
+             state.pollStatus.push_back((struct pollfd) {.fd = j, .events = POLLIN});
+             state.fdToPollStatus[j] = state.pollStatus.size() - 1;
+         }
++        /* Only while an EOF is held: a builder whose children keep
++           its output open would wake poll() at once otherwise. */
++        if (i.heldEOF) {
++            state.pollStatus.push_back((struct pollfd) {.fd = *i.exitEvent, .events = POLLIN});
++            state.fdToPollStatus[*i.exitEvent] = state.pollStatus.size() - 1;
++        }
+     }
+ #endif
+ 
+@@ -493,9 +506,27 @@ void Worker::waitForInput()
+             },
+             [&](Descriptor k) {
+                 debug("%1%: got EOF", goal->getName());
+-                goal->handleEOF(k);
++                /* Closing its output is not exiting (NixOS/nix#2176):
++                   wait for the child, without blocking other goals. */
++                if (j->exitEvent && settings.builderExitTimeout != 0) {
++                    j->heldEOF = k;
++                    j->timeEOF = after;
++                } else
++                    goal->handleEOF(k);
+             });
+ 
++#ifndef _WIN32
++        if (j->heldEOF) {
++            auto exitPoll = get(state.fdToPollStatus, *j->exitEvent);
++            bool exited = exitPoll && state.pollStatus.at(*exitPoll).revents;
++            if (exited || after - j->timeEOF >= std::chrono::seconds(settings.builderExitTimeout)) {
++                if (!exited)
++                    debug("%1%: still running after closing its output", goal->getName());
++                goal->handleEOF(*std::exchange(j->heldEOF, std::nullopt));
++            }
++        }
++#endif
++
+         if (goal->exitCode == Goal::ecBusy && 0 != settings.maxSilentTime && j->respectTimeouts
+             && after - j->lastOutput >= std::chrono::seconds(settings.maxSilentTime)) {
+             goal->timedOut(TimedOut(settings.maxSilentTime));
+diff --git a/daemon.cc b/daemon.cc
+index 211f640..379af2e 100644
+--- a/daemon.cc
++++ b/daemon.cc
+@@ -296,6 +296,7 @@ struct ClientSettings
+                 } else if (
+                     trusted || name == settings.getWorkerSettings().buildTimeout.name
+                     || name == settings.getWorkerSettings().maxSilentTime.name
++                    || name == settings.getWorkerSettings().builderExitTimeout.name
+                     || name == settings.getWorkerSettings().pollInterval.name || name == "connect-timeout"
+                     || (name == "builders" && value == "")) {
+                     settings.set(name, value);
+diff --git a/include/nix/store/build/derivation-builder.hh b/include/nix/store/build/derivation-builder.hh
+index f521c04..fef1154 100644
+--- a/include/nix/store/build/derivation-builder.hh
++++ b/include/nix/store/build/derivation-builder.hh
+@@ -146,6 +146,12 @@ struct DerivationBuilder : RestrictionContext
+      */
+     AutoCloseFD builderOut;
+ 
++    /**
++     * pidfd of the builder process, if the platform has them, so the
++     * worker can wait for it to exit after it closed `builderOut`.
++     */
++    AutoCloseFD pidFd;
++
+     /**
+      * Set up build environment / sandbox, acquiring resources (e.g.
+      * locks as needed). After this is run, the builder should be
+diff --git a/include/nix/store/build/worker.hh b/include/nix/store/build/worker.hh
+index baf5c5a..b1fb4e6 100644
+--- a/include/nix/store/build/worker.hh
++++ b/include/nix/store/build/worker.hh
+@@ -59,6 +59,14 @@ struct Child
+      */
+     steady_time_point lastOutput;
+     steady_time_point timeStarted;
++    /**
++     * Becomes readable when the child process exits (a pidfd). If
++     * set, EOF on the channels is held back until then, or until
++     * `builder-exit-timeout` has passed.
++     */
++    std::optional<Descriptor> exitEvent;
++    std::optional<Descriptor> heldEOF;
++    steady_time_point timeEOF;
+ };
+ 
+ #ifndef _WIN32 // TODO Enable building on Windows
+@@ -269,13 +277,14 @@ public:
+ 
+     /**
+      * Registers a running child process.  `inBuildSlot` means that
+-     * the process counts towards the jobs limit.
++     * the process counts towards the jobs limit. See `Child::exitEvent`.
+      */
+     void childStarted(
+         GoalPtr goal,
+         const std::set<MuxablePipePollState::CommChannel> & channels,
+         bool inBuildSlot,
+-        bool respectTimeouts);
++        bool respectTimeouts,
++        std::optional<Descriptor> exitEvent = std::nullopt);
+ 
+     /**
+      * Unregisters a running child process.  `wakeSleepers` should be
+diff --git a/include/nix/store/worker-settings.hh b/include/nix/store/worker-settings.hh
+index 13fa026..7e89389 100644
+--- a/include/nix/store/worker-settings.hh
++++ b/include/nix/store/worker-settings.hh
+@@ -114,6 +114,23 @@ public:
+         )",
+         {"build-timeout"}};
+ 
++    Setting<time_t> builderExitTimeout{
++        this,
++        10,
++        "builder-exit-timeout",
++        R"(
++          The maximum number of seconds that Nix waits for a builder to
++          exit after it has closed its standard output and standard
++          error, which it may do before its last process exits. Nix
++          keeps running other builds meanwhile, reports the builder's
++          own exit status, and kills it once this time has passed.
++          [`max-silent-time`](#conf-max-silent-time) and
++          [`timeout`](#conf-timeout) still apply while it waits.
++
++          The value `0` means that the builder is killed as soon as it
++          closes its output.
++        )"};
++
+     Setting<Strings> buildHook{
+         this,
+         {"nix", "__build-remote"},
 diff --git a/unix/build/derivation-builder.cc b/unix/build/derivation-builder.cc
-index fe17d2a5c..4976ed6f4 100644
+index fe17d2a..e95ae8b 100644
 --- a/unix/build/derivation-builder.cc
 +++ b/unix/build/derivation-builder.cc
-@@ -28,6 +28,7 @@
+@@ -28,8 +28,10 @@
  #include <sys/mman.h>
  #include <sys/resource.h>
  #include <sys/socket.h>
 +#include <sys/wait.h>
  #ifdef __linux__
  #  include <sys/prctl.h>
++#  include <sys/syscall.h>
  #endif
-@@ -544,10 +545,21 @@ bool DerivationBuilderImpl::killChild()
+ 
+ #include "store-config-private.hh"
+@@ -544,10 +546,22 @@ bool DerivationBuilderImpl::killChild()
  
  SingleDrvOutputs DerivationBuilderImpl::unprepareBuild()
  {
@@ -18,21 +217,42 @@ index fe17d2a5c..4976ed6f4 100644
 -       to have terminated.  In fact, the builder could also have
 -       simply have closed its end of the pipe, so just to be sure,
 -       kill it. */
-+    /* EOF on the logger pipe does not mean the builder has exited:
-+       its last process may still be running after closing its output
-+       (coreutils does in an atexit handler). Give it up to 10s to exit,
-+       without reaping it, so the kill below only hits leftover
++    /* EOF on the logger pipe does not mean the builder has exited: it
++       may close its output first (NixOS/nix#2176). With a pidfd, the
++       worker has waited for it to exit; without, wait here, bounded
++       too. It is not reaped yet, so the kill below only hits leftover
 +       processes and the status is the builder's own. */
-+    for (int i = 0; i < 1000; i++) {
-+        siginfo_t info{};
-+        int res = waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT);
-+        if (res == 0 && info.si_pid != 0)
-+            break;
-+        if (res == -1 && errno != EINTR)
-+            break;
-+        checkInterrupt();
-+        usleep(10000);
++    if (!pidFd) {
++        auto deadline = std::chrono::steady_clock::now()
++                        + std::chrono::seconds(settings.getWorkerSettings().builderExitTimeout);
++        while (std::chrono::steady_clock::now() < deadline) {
++            siginfo_t info{};
++            if (waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT) == 0 ? info.si_pid != 0 : errno != EINTR)
++                break;
++            checkInterrupt();
++            usleep(10000);
++        }
 +    }
      int status = pid.kill();
  
      debug("builder process for '%s' finished", store.printStorePath(drvPath));
+@@ -557,6 +571,7 @@ SingleDrvOutputs DerivationBuilderImpl::unprepareBuild()
+ 
+     /* So the child is gone now. */
+     miscMethods->childTerminated();
++    pidFd.close();
+ 
+     /* Close the read side of the logger pipe. */
+     builderOut.close();
+@@ -876,6 +891,11 @@ std::optional<Descriptor> DerivationBuilderImpl::startBuild()
+     /* Start a child process to build the derivation. */
+     startChild();
+ 
++#if defined(__linux__) && defined(SYS_pidfd_open)
++    /* Fails before Linux 5.3; unprepareBuild() then waits itself. */
++    pidFd = AutoCloseFD{(int) syscall(SYS_pidfd_open, (pid_t) pid, 0)};
++#endif
++
+     pid.setSeparatePG(true);
+ 
+     processSandboxSetupMessages();
