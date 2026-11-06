@@ -27,7 +27,9 @@ pkgs.testers.runNixOSTest {
     selkies_pid = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value selkies.service").strip()
     logout = lambda: machine.succeed(f"{ubus} busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout")
     # The session is only logout-able once plasma-workspace.target is up (ksmserver, plasmashell).
-    ready = lambda: machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service", timeout=180)
+    # ksmserver's unit is active before it owns its bus name, and start jobs can still be queued after the
+    # target is up; a logout then is refused by systemd ("contradicts existing jobs") and ksmserver never comes back.
+    ready = lambda: machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
     def diag():
         print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; ps -eo pid,ppid,etime,cmd | grep -E 'plasma|kwin|ksm' | head -30")[1])
 

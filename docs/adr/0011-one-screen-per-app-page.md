@@ -1,4 +1,4 @@
-# 0010 — One screen per app page
+# 0011 — One screen per app page
 
 - Status: Accepted
 - Date: 2026-11-05

@@ -15,7 +15,7 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
 | selkies | 2.1.0 | PyPI wheel (bundles the built web client), with four patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch), [several second displays](pkgs/selkies/several-second-displays.patch) |
-| Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) and [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) |
+| Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch), [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) and [no kill of a builder that closes its output early](modules/nix-profile/nix/daemon-eof-wait.patch) (`builder-exit-timeout`) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
 Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
@@ -45,7 +45,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it), `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""` in containers, else `seat0`),
-`lockScreen` (`false`: autolock off and locking disabled via `/etc/xdg`), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
+`lockScreen` (`false`: Lock hidden and blocked, see "Lock screen"; autolock is always off), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
 `fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
@@ -109,6 +109,10 @@ A change is applied by restarting the desktop session (or at the next boot). A t
 
 Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a [kube-webtop-workspaces](https://github.com/lhns/kube-webtop-workspaces) gateway reads at event time. It only has an effect behind a gateway with a logout URL configured; standalone, the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
 
+## Lock screen
+
+The greeter of KDE's screen locker cannot be used here (gray, and no password to enter), so a lock never stays: `webtop-lock-guard` (a user service) sees `org.freedesktop.ScreenSaver` `ActiveChanged`, writes the time to `$XDG_RUNTIME_DIR/webtop/lock` and unlocks through logind at once ([ADR 0010](docs/adr/0010-a-lock-is-recorded-and-cleared-at-once.md)). The session and its processes are not touched; only the marker tells that Lock was used, for a gateway to act on (`webtop.ssoLogout.onLock`). Whether Lock is offered in Plasma is chosen at each session start: `services.webtop.lockScreen` (`false`) is the default and `WEBTOP_LOCK_SCREEN=true|false` in a file of `services.webtop.lockEnvironmentFiles` overrides it. Off, the Lock action is hidden and blocked in `/etc/xdg/kdeglobals` (a user's own `~/.config/kdeglobals` can still override that, and the guard still clears the lock). Autolock and lock on resume are off in every case. Clearing needs KWin to have started in the current logind session, as after a Log Out or boot: a bare `systemctl restart webtop-session` leaves Plasma on the old session, and a lock then stays until the next Log Out.
+
 ## KWin without a GPU
 
 KWin 6.8 removed QPainter compositing, and nested under Selkies' CPU-only compositor it finds no
@@ -126,7 +130,7 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 A Selkies second-display page (`/#display<n>-<left|right|up|down>`, n >= 2) grows a KWin screen sized
 to the page, named `SELKIES-<n>`, and streams it; closing the page removes it. Several can be open at
 once, each with its own screen, stream and input
-([ADR 0010](docs/adr/0010-one-screen-per-app-page.md)).
+([ADR 0011](docs/adr/0011-one-screen-per-app-page.md)).
 Two patches make that work here: KWin announces per-output `kde_output_device_v2` globals again,
 which pixelflux needs to confirm the screen (in the patched KWin, so it needs `kwinSoftwarePresentation`;
 [ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)),
