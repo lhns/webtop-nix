@@ -151,6 +151,7 @@
         inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
         included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };
         vm = import ./tests/vm.nix { inherit pkgs self; };
+        relogin = import ./tests/relogin.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
         app-screens = import ./tests/app-screens.nix { inherit pkgs self; };
         latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };

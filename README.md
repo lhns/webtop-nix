@@ -19,7 +19,8 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
 Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
-same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); touchpad mode accelerates by at most 1.5x instead of 3x
+same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard
+([key-bar.js](pkgs/selkies/key-bar.js), [key-bar.css](pkgs/selkies/key-bar.css)); touchpad mode accelerates by at most 1.5x instead of 3x
 and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at 0.5; a saved speed keeps
 working. The changed assets are renamed by content hash so browsers do not reuse stale copies.
 
@@ -90,7 +91,7 @@ speech-dispatcher need the system options above.
 ## Software
 
 `services.webtop.nixProfile.enable` (`false`; the standalone image sets it, [ADR 0006](docs/adr/0006-software-installation-in-this-flake.md))
-gives the user one declaration, `~/.config/home-manager/packages.json`: `nix profile add|remove|upgrade|rollback` edit it and run `home-manager switch` (a patched Nix, built from source). Commands can run at the same time, in any mix: each builds unlocked, then applies its own change to the current state under a lock ([ADR 0007](docs/adr/0007-nix-profile-commit-locks.md)).
+gives the user one declaration, `~/.config/home-manager/packages.json`: `nix profile add|remove|upgrade|rollback` edit it and run `home-manager switch` (a patched Nix, built from source). Commands can run at the same time, in any mix: each builds unlocked, then applies its own change to the current state under a lock ([ADR 0007](docs/adr/0007-nix-profile-commit-locks.md)). Applying it takes one more lock shared with every `home-manager` run, so a cancelled or killed command is finished by the next one ([ADR 0009](docs/adr/0009-one-apply-lock-and-an-applied-marker.md)).
 On first boot a starter flake appears in `~/.config/home-manager`; its `nixpkgs`, `home-manager` and `webtop` inputs resolve from the image's registry. The registry also has `nixpkgs-unfree` (the image's nixpkgs with unfree allowed): `nix profile add nixpkgs-unfree#pkg` installs an unfree package and records it in `packages.json`, with no `--impure`. Your own module goes in `local.nix` beside it, which the image never writes (in a git repo, `git add` it).
 While unmodified, the starter follows the image's template. An edited one is left alone with a notification: `webtop-home-manager-update` shows the difference and `--apply` takes the template, keeping backups.
 A home kept across containers survives a new image: each boot (`nixProfile.fromImageStore`, on by default) moves dangling generations aside and switches, so what `packages.json` declares comes back (needs network); packages added to the profile directly do not. A consumer with its own restore sets it to `false` and runs `nixProfile.reinstall` after that.
@@ -103,6 +104,10 @@ The session's time zone and locale come from, in order: the user's `webtop.timeZ
 Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image. It then relinks `/etc/localtime` and rewrites `/etc/locale.conf` (`LANG` only), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user (a link is followed: home-manager's is one into the store; what the user cannot open is not read), a file over 64 KiB is ignored, and other keys are skipped with one journal line per start. The format is the gateway's: `key=value`, blanks around either ignored, `#` comment lines.
 A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then. The module sets `i18n.imperativeLocale` (as a default), so `/etc/locale.conf` is a plain file that `localectl` reads and NixOS no longer exports `LANG` itself, and a `time.timeZone` of the system is not combined with these options (`timedatectl` would keep reporting the declared zone).
 `services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale`.
+
+## Sign out at the login provider
+
+Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a [kube-webtop-workspaces](https://github.com/lhns/kube-webtop-workspaces) gateway reads at event time. It only has an effect behind a gateway with a logout URL configured; standalone, the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
 
 ## KWin without a GPU
 
@@ -121,7 +126,7 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 A Selkies second-display page (`/#display<n>-<left|right|up|down>`, n >= 2) grows a KWin screen sized
 to the page, named `SELKIES-<n>`, and streams it; closing the page removes it. Several can be open at
 once, each with its own screen, stream and input
-([ADR 0009](docs/adr/0009-one-screen-per-app-page.md)).
+([ADR 0010](docs/adr/0010-one-screen-per-app-page.md)).
 Two patches make that work here: KWin announces per-output `kde_output_device_v2` globals again,
 which pixelflux needs to confirm the screen (in the patched KWin, so it needs `kwinSoftwarePresentation`;
 [ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)),
@@ -228,7 +233,7 @@ Every change to a third-party program, and why:
 | Selkies | [upload path](pkgs/selkies/upload-path.patch) | downloads serve the whole home while uploads land in one inbox |
 | Selkies | [several second displays](pkgs/selkies/several-second-displays.patch), plus a [web client edit](pkgs/selkies/display-n.sed) for `#display<n>` | Selkies drives one secondary at a time; each app page needs its own |
 | Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), plus a web client edit that tells a reconnect from a new page | with several pages open, the one opened last drives the primary display |
-| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; stale browser copies would hide the change |
+| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard on touch screens ([js](pkgs/selkies/key-bar.js), [css](pkgs/selkies/key-bar.css), [test](tests/key-bar-test.py)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; the on-screen keyboard has no Esc, Tab, Ctrl, arrows or F-keys; stale browser copies would hide the change |
 | Nix 2.34 | [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) | `nix profile` edits `packages.json` and runs home-manager |
 | Nix 2.34 | [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) | a locked `path:` input (the registry's nixpkgs) otherwise copies all of nixpkgs into the store on each evaluation; drop it once upstream has a fingerprint |
 | Nix Software Center | [fork `lhns/nix-software-center`](pkgs/nix-software-center.nix), pinned | no network probe (`onlineCheckUrl = ""`), no system package set (`systemPackages = false`), unfree apps through the `nixpkgs-unfree` registry flake, apps of the image shown as "Included with desktop" |
@@ -259,7 +264,6 @@ The software restore's progress (`nixProfile.progress`, default `webtop-restore-
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
 `checks.<system>.app-screens` runs three apps on three pages and asserts each page's stream and input reach only its app, focus, dialogs, no overlap with the main screen, the main page beside them, closing the middle one, reopening, reload, takeover and stopping Selkies with pages open; it also measures the cost at 1, 2 and 4 screens into `summary.txt` (artifact `app-screens`).
-
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
