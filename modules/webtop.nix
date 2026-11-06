@@ -87,6 +87,14 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.util-linux pkgs.glibc.bin pkgs.getent pkgs.bash config.systemd.package ];
     text = builtins.readFile ./webtop-locale.sh;
   };
+  applyLocaleCommand = lib.escapeShellArgs ([
+    (lib.getExe applyLocale)
+    uid
+    "${config.i18n.glibcLocales}/lib/locale/locale-archive"
+    (toString cfg.timeZone)
+    (toString cfg.locale)
+  ] ++ cfg.localeEnvironmentFiles);
+
   # Lock screen on or off for this start (README, "Lock screen"). Root, before the session starts.
   applyLockConfig = pkgs.writeShellApplication {
     name = "webtop-lock-config";
@@ -105,14 +113,6 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.dbus config.systemd.package ];
     text = builtins.readFile ./webtop-lock-guard.sh;
   };
-
-  applyLocaleCommand = lib.escapeShellArgs ([
-    (lib.getExe applyLocale)
-    uid
-    "${config.i18n.glibcLocales}/lib/locale/locale-archive"
-    (toString cfg.timeZone)
-    (toString cfg.locale)
-  ] ++ cfg.localeEnvironmentFiles);
 
   startSession = pkgs.writeShellApplication {
     name = "webtop-start-session";
