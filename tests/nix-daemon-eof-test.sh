@@ -8,8 +8,7 @@ set -uo pipefail
 nix_out=$1
 t=$(mktemp -d)
 sock=$t/socket
-sudo env NIX_DAEMON_SOCKET_PATH="$sock" NIX_CONFIG=$'sandbox = false\nmax-jobs = 4' \
-  "$nix_out/bin/nix-daemon" > "$t/daemon.log" 2>&1 &
+sudo env NIX_DAEMON_SOCKET_PATH="$sock" NIX_CONFIG="sandbox = false" "$nix_out/bin/nix-daemon" > "$t/daemon.log" 2>&1 &
 daemon=$!
 trap 'sudo kill $daemon; wait $daemon; sudo rm -rf "$t"' EXIT
 for _ in $(seq 100); do [ -S "$sock" ] && break; sleep 0.1; done
@@ -61,7 +60,7 @@ if build "$(drv outlives-output 'exec >&- 2>&-; /bin/sleep 120; echo ok > $out')
   fail "$name"
 else
   elapsed=$((SECONDS - start))
-  if [ "$elapsed" -ge 3 ] && [ "$elapsed" -lt 20 ] && grep -q 'signal 9' "$t/log"; then
+  if [ "$elapsed" -ge 3 ] && [ "$elapsed" -lt 9 ] && grep -q 'signal 9' "$t/log"; then
     pass "$name (${elapsed}s)"
   else
     fail "$name (${elapsed}s)"
@@ -86,7 +85,7 @@ lingers=$(drv lingers 'exec >&- 2>&-; /bin/sleep 8; /bin/date +%s > $out')
 quick=$(drv quick '/bin/sleep 1; echo > $out')
 after=$(drv after-quick '/bin/date +%s > $out' "quick = $quick;")
 if out=$(build "$(drv concurrent 'echo $(/bin/cat $lingers) $(/bin/cat $after) > $out' \
-  "lingers = $lingers; after = $after;")" --option builder-exit-timeout 30) \
+  "lingers = $lingers; after = $after;")" --option builder-exit-timeout 30 --max-jobs 4) \
   && read -r lingers_done after_ran < "$out" && [ "$after_ran" -lt "$lingers_done" ]; then
   pass "$name (after-quick at $after_ran, lingers done at $lingers_done)"
 else
