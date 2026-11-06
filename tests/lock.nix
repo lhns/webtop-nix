@@ -38,8 +38,8 @@ pkgs.testers.runNixOSTest {
     def ready():
         machine.wait_for_unit("webtop-session.service")
         ${import ./wait-compositing.nix}
-        # ksmserver's unit is active before it owns its bus name; a Log Out in that gap hangs the session.
-        machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service && {ubus} busctl --user status org.kde.ksmserver >/dev/null", timeout=180)
+        # As in relogin.nix: a Log Out before ksmserver owns its bus name, or while start jobs are queued, hangs the session.
+        machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
         machine.wait_until_succeeds(f"{ubus} systemctl --user is-active webtop-lock-guard.service", timeout=60)
         # dbus-monitor must be attached before the first lock.
         machine.wait_until_succeeds("pgrep -u user -x dbus-monitor", timeout=60)
