@@ -39,7 +39,7 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds("pgrep -u user -x dbus-monitor", timeout=60)
         machine.sleep(3)
     def settled():
-        machine.wait_until_succeeds("! pgrep -f kscreenlocker_greet", timeout=60)
+        machine.wait_until_succeeds("! pgrep -f [k]screenlocker_greet", timeout=60)
         machine.wait_until_succeeds(f"{ubus} busctl --user call org.freedesktop.ScreenSaver /org/freedesktop/ScreenSaver org.freedesktop.ScreenSaver GetActive | grep -qx 'b false'", timeout=60)
         assert machine.succeed(f"loginctl show-session {sid()} -p LockedHint --value").strip() == "no"
     lockers = {
