@@ -1,0 +1,38 @@
+diff --git a/unix/build/derivation-builder.cc b/unix/build/derivation-builder.cc
+index fe17d2a5c..4976ed6f4 100644
+--- a/unix/build/derivation-builder.cc
++++ b/unix/build/derivation-builder.cc
+@@ -28,6 +28,7 @@
+ #include <sys/mman.h>
+ #include <sys/resource.h>
+ #include <sys/socket.h>
++#include <sys/wait.h>
+ #ifdef __linux__
+ #  include <sys/prctl.h>
+ #endif
+@@ -544,10 +545,21 @@ bool DerivationBuilderImpl::killChild()
+ 
+ SingleDrvOutputs DerivationBuilderImpl::unprepareBuild()
+ {
+-    /* Since we got an EOF on the logger pipe, the builder is presumed
+-       to have terminated.  In fact, the builder could also have
+-       simply have closed its end of the pipe, so just to be sure,
+-       kill it. */
++    /* EOF on the logger pipe does not mean the builder has exited:
++       its last process may still be running after closing its output
++       (coreutils does in an atexit handler). Give it up to 10s to exit,
++       without reaping it, so the kill below only hits leftover
++       processes and the status is the builder's own. */
++    for (int i = 0; i < 1000; i++) {
++        siginfo_t info{};
++        int res = waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT);
++        if (res == 0 && info.si_pid != 0)
++            break;
++        if (res == -1 && errno != EINTR)
++            break;
++        checkInterrupt();
++        usleep(10000);
++    }
+     int status = pid.kill();
+ 
+     debug("builder process for '%s' finished", store.printStorePath(drvPath));
