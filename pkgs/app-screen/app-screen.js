@@ -50,7 +50,6 @@ function placeAll() {
 // screen with their old state. A window not on the main screen yet is moved explicitly.
 function restoreAll() {
     const main = mainScreen();
-    print('DBG restoreAll ' + SCREEN + ' main=' + (main && main.name) + ' n=' + changed.size);
     changed.forEach((prior, w) => {
         changed.delete(w);
         if (!w.normalWindow) {
@@ -59,8 +58,11 @@ function restoreAll() {
         if (prior.maximized) {
             w.setMaximize(false, false);
         }
-        print('DBG restore ' + w.desktopFileName + ' out=' + (w.output && w.output.name));
-        // KWin may have moved it to another app's screen.
+        // KWin may have moved it to another app's screen. A fullscreen window stays put, so leave
+        // fullscreen first.
+        if (w.fullScreen) {
+            w.fullScreen = false;
+        }
         if (main && w.output !== main && (!w.output || /^SELKIES-/.test(w.output.name))) {
             workspace.sendClientToScreen(w, main);
         }
@@ -75,11 +77,10 @@ function restoreAll() {
 let placing = false;
 function settle(w) {
     const screen = target();
-    if (placing || !screen) {
+    if (placing || !screen || !belongs(w)) {
         return;
     }
     if (w.output !== screen || (w.fullScreenable && !w.fullScreen)) {
-        print('DBG settle ' + SCREEN + ' ' + w.desktopFileName + ' out=' + (w.output && w.output.name) + ' fs=' + w.fullScreen);
         placing = true;
         try {
             place(w);
