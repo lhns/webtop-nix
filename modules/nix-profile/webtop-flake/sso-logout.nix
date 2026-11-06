@@ -22,9 +22,10 @@ in
       type = lib.types.nullOr lib.types.bool;
       default = null;
       description = ''
-        Also sign the browser out at the login provider when the desktop's session is locked.
-        `null` leaves the default to the deployment. Only has an effect behind a
-        kube-webtop-workspaces gateway with a logout URL configured; otherwise it is a no-op.
+        Also sign the browser out at the login provider when Lock is used. The session itself is
+        not locked or ended (the lock is cleared at once, ADR 0010). `null` leaves the default to
+        the deployment. Only has an effect behind a kube-webtop-workspaces gateway with a logout
+        URL and lock sign-out enabled; otherwise it is a no-op, and `false` makes Lock do nothing.
       '';
     };
   };
