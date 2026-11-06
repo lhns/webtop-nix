@@ -58,11 +58,7 @@ function restoreAll() {
         if (prior.maximized) {
             w.setMaximize(false, false);
         }
-        // KWin may have moved it to another app's screen. A fullscreen window stays put, so leave
-        // fullscreen first.
-        if (w.fullScreen) {
-            w.fullScreen = false;
-        }
+        // KWin may have moved it to another app's screen.
         if (main && w.output !== main && (!w.output || /^SELKIES-/.test(w.output.name))) {
             workspace.sendClientToScreen(w, main);
         }
@@ -71,30 +67,8 @@ function restoreAll() {
     });
 }
 
-// KWin can reset a window's output or fullscreen state after place() ran (e.g. a screen is re-added
-// while others are still laid out), and no screensChanged follows. Place again, but only on a
-// mismatch and never from inside place() itself, so our own changes cannot loop.
-let placing = false;
-function settle(w) {
-    const screen = target();
-    if (placing || !screen || !belongs(w)) {
-        return;
-    }
-    if (w.output !== screen || (w.fullScreenable && !w.fullScreen)) {
-        placing = true;
-        try {
-            place(w);
-        } finally {
-            placing = false;
-        }
-    }
-}
-
 workspace.windowAdded.connect(w => {
     place(w);
-    w.outputChanged.connect(() => settle(w));
-    w.fullScreenChanged.connect(() => settle(w));
-    w.frameGeometryChanged.connect(() => settle(w));
     w.closed.connect(() => changed.delete(w));
     // Some clients set the app id after mapping.
     w.desktopFileNameChanged.connect(() => place(w));
