@@ -33,6 +33,8 @@ pkgs.testers.runNixOSTest {
         name = lambda a: a.split()[0].rsplit("/", 1)[-1].lstrip(".").removesuffix("-wrapped")
         return {c: sorted(p for p, a in rows if name(a) == c) for c in core.split()}
     def diag():
+        kwin = pids()["kwin_wayland"]
+        print("session ids:", machine.execute(f"{ubus} systemctl --user show-environment | grep XDG_SESSION_ID; for p in {' '.join(kwin)}; do grep -az XDG_SESSION_ID /proc/$p/environ; echo; done")[1])
         print(machine.execute(f"journalctl --no-pager -o cat -b | grep -E 'webtop-lock|kscreenlocker|ksld' | tail -40; ps -u user -o pid,ppid,stat,wchan:20,args | grep -E 'greet|dbus-monitor|lock-guard'; for p in $(pgrep -u user -f '[w]ebtop-lock-guard'); do ls -l /proc/$p/fd; done; {ubus} systemctl --user status webtop-lock-guard --no-pager -l; loginctl show-session {sid()} -p LockedHint -p Id; loginctl list-sessions; for s in $(loginctl show-user user -p Sessions --value); do loginctl show-session $s -p Id -p Class -p State -p Seat; done")[1])
     def ready():
         machine.wait_for_unit("webtop-session.service")
@@ -75,7 +77,8 @@ pkgs.testers.runNixOSTest {
     machine.succeed("grep -qx 'Autolock=false' /etc/xdg/kscreenlockerrc")
     machine.succeed("grep -qx 'LockOnResume=false' /etc/xdg/kscreenlockerrc")
 
-    for name, lock in lockers.items():
+    # The D-Bus call (KDE's Lock) first: it is the one users reach.
+    for name, lock in reversed(list(lockers.items())):
         before = pids()
         assert all(before.values()), f"missing session processes: {before} " + machine.succeed("ps -u user -o pid=,comm=,args=")
         session = machine.succeed("systemctl show -p MainPID --value webtop-session.service").strip()
