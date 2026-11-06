@@ -93,8 +93,6 @@ function settle(w) {
 workspace.windowAdded.connect(w => {
     place(w);
     w.outputChanged.connect(() => settle(w));
-    w.fullScreenChanged.connect(() => settle(w));
-    w.frameGeometryChanged.connect(() => settle(w));
     w.closed.connect(() => changed.delete(w));
     // Some clients set the app id after mapping.
     w.desktopFileNameChanged.connect(() => place(w));
