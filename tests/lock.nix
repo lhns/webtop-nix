@@ -27,7 +27,11 @@ pkgs.testers.runNixOSTest {
         found = [r.split()[0] for r in rows.splitlines() if r.split()[1:2] == ["user"]]
         assert found, f"no graphical session for user: {rows!r}"
         return found[0]
-    pids = lambda: {c: machine.succeed(f"pgrep -u user -x {c} | sort | tr '\n' ' '").strip() for c in core.split()}
+    # By argv[0], since the comm of a wrapped program is ".name-wrapped", cut to 15 characters.
+    def pids():
+        rows = [r.split(None, 1) for r in machine.succeed("ps -u user -o pid=,args=").splitlines() if r.strip()]
+        name = lambda a: a.split()[0].rsplit("/", 1)[-1].lstrip(".").removesuffix("-wrapped")
+        return {c: sorted(p for p, a in rows if name(a) == c) for c in core.split()}
     def diag():
         print(machine.execute(f"journalctl --no-pager -o cat -b | grep -E 'webtop-lock|kscreenlocker|ksld' | tail -40; ps -eo pid,cmd | grep -E 'greet|dbus-monitor'; {ubus} systemctl --user status webtop-lock-guard --no-pager -l; loginctl show-session {sid()} -p LockedHint -p Id; loginctl list-sessions; for s in $(loginctl show-user user -p Sessions --value); do loginctl show-session $s -p Id -p Class -p State -p Seat; done")[1])
     def ready():
