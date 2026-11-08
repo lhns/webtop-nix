@@ -27,3 +27,8 @@ as "sign out at the identity provider".
   session, and a lock then stays until the next Log Out.
 - The guard unlocks the user's own sessions, which logind allows without a polkit grant.
 - Detection relies on kscreenlocker's D-Bus signal; a different locker would need its own watcher.
+
+## Amendment 2026-11-09
+
+Any stop of `webtop-session` stops the graphical session (ADR 0003, amendment 2026-11-09), so KWin's screen
+locker is always on the current logind session and a bare restart no longer leaves a lock that cannot be cleared.

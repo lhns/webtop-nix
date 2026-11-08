@@ -539,6 +539,10 @@ in
         PAMName = "login";
         StandardInput = "null";
         ExecStart = lib.getExe startSession;
+        # On SIGTERM startplasma stops only plasma-workspace.target; KWin, ksmserver and plasmashell are
+        # PartOf graphical-session.target and would stay bound to the old logind session. Log Out stops this.
+        # Post: ExecStop is skipped when startplasma dies of a signal.
+        ExecStopPost = "-${config.systemd.package}/bin/systemctl --user stop graphical-session.target";
         # "always": Log Out exits 0 and there is no greeter, so it must come back.
         Restart = "always";
         RestartSec = 2;
