@@ -205,9 +205,9 @@ in
       type = lib.types.str;
       default = "";
       description = ''
-        logind seat of the session (XDG_SEAT). Empty for none, which the desktop needs
-        (KWin is nested, no physical devices). A seat needs a VT: on a machine with VTs
-        logind rejects a session on seat0 without a VT number, and the session is lost.
+        logind seat of the session (XDG_SEAT). Empty for none: the nested KWin uses no
+        physical devices, and a seat needs a VT (on seat0 without a VT number logind
+        rejects the session).
       '';
     };
 
