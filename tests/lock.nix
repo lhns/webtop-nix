@@ -36,8 +36,8 @@ pkgs.testers.runNixOSTest {
     def ready():
         machine.wait_for_unit("webtop-session.service")
         ${import ./wait-compositing.nix}
-        # As in relogin.nix: a Log Out before ksmserver owns its bus name, or while start jobs are queued, hangs the session.
-        machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
+        # Settled as in relogin.nix: processes are compared across a lock, and a Log Out before KWin and ksmserver are up is cancelled.
+        machine.wait_until_succeeds(f"for u in plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service; do {ubus} systemctl --user is-active -q $u; done && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
         machine.wait_until_succeeds(f"{ubus} systemctl --user is-active webtop-lock-guard.service", timeout=60)
         # dbus-monitor must be attached before the first lock.
         machine.wait_until_succeeds("pgrep -u user -x dbus-monitor", timeout=60)
@@ -69,8 +69,7 @@ pkgs.testers.runNixOSTest {
             diag()
             raise
 
-    # On: written at the session start, so Log Out, as a user would. KWin (with the screen locker)
-    # restarts into the new logind session; a bare restart of webtop-session would leave it on the old one.
+    # On: written at the session start, so Log Out, as a user would.
     machine.succeed("echo WEBTOP_LOCK_SCREEN=true > /run/webtop-lock.env")
     old_session, old_kwin = session_pid(), set(pids()["kwin_wayland"])
     machine.succeed(f"{ubus} busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout")
@@ -81,21 +80,34 @@ pkgs.testers.runNixOSTest {
     machine.succeed("grep -qx 'Autolock=false' /etc/xdg/kscreenlockerrc")
     machine.succeed("grep -qx 'LockOnResume=false' /etc/xdg/kscreenlockerrc")
 
-    for name, lock in lockers.items():
-        before = pids()
-        assert all(before.values()), f"missing session processes: {before} " + machine.succeed("ps -u user -o pid=,args=")
-        session = session_pid()
-        machine.succeed(f"rm -f {marker}")
-        lock()
-        try:
-            machine.wait_until_succeeds(f"grep -Eq '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9:]+Z$' {marker}", timeout=60)
-            settled()
-        except Exception:
-            print(name)
-            diag()
-            raise
-        assert pids() == before, f"{name}: processes changed: {before} -> {pids()}"
-        assert session_pid() == session
-        machine.succeed(f"{ubus} systemctl --user is-active plasma-workspace.target")
+    def locks_cleared():
+        for name, lock in lockers.items():
+            before = pids()
+            assert all(before.values()), f"missing session processes: {before} " + machine.succeed("ps -u user -o pid=,args=")
+            session = session_pid()
+            machine.succeed(f"rm -f {marker}")
+            lock()
+            try:
+                machine.wait_until_succeeds(f"grep -Eq '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9:]+Z$' {marker}", timeout=60)
+                settled()
+            except Exception:
+                print(name)
+                diag()
+                raise
+            assert pids() == before, f"{name}: processes changed: {before} -> {pids()}"
+            assert session_pid() == session
+            machine.succeed(f"{ubus} systemctl --user is-active plasma-workspace.target")
+    locks_cleared()
+
+    # A bare restart of the session unit (as after a crash) takes Plasma down like Log Out, so KWin's
+    # screen locker binds to the new logind session. Selkies and the guard keep running.
+    keep = lambda: [machine.succeed(f"{ubus} systemctl --user show -p MainPID --value {u}").strip() for u in ("selkies.service", "webtop-lock-guard.service")]
+    kept, old_session, old_kwin = keep(), session_pid(), set(pids()["kwin_wayland"])
+    machine.succeed("systemctl restart webtop-session.service")
+    machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old_session}", timeout=120)
+    ready()
+    locks_cleared()
+    assert not set(pids()["kwin_wayland"]) & old_kwin, "KWin was not restarted"
+    assert keep() == kept, f"Selkies or the lock guard restarted: {kept} -> {keep()}"
   '';
 }
