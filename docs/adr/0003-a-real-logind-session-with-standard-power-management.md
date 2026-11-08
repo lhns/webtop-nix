@@ -36,3 +36,8 @@ VTs there, so logind rejects the session).
 
 Units, lingering and the polkit power rule refer to the desktop user by uid and the `webtop` group,
 not by name, so a deployment may rename the account at runtime.
+
+## Amendment 2026-11-06
+
+No seat by default, in containers and on machines alike: a seat requires a VT, and the nested
+desktop needs none. This supersedes the 2026-10-29 default.
