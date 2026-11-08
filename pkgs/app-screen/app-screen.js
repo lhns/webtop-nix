@@ -69,8 +69,9 @@ function restoreAll() {
 
 // KWin can reset a window's output or fullscreen state after place() ran (e.g. a screen is re-added
 // while others are still laid out), and no screensChanged follows. Place again, but only on a
-// mismatch and never from inside place() itself, so our own changes cannot loop. Only output and
-// fullscreen changes count: a fullscreen request is not acked yet while the frame still changes.
+// mismatch and never from inside place() itself, so our own changes cannot loop. Not
+// frameGeometryChanged: it fires before KWin acks a fullscreen request, so re-placing from it
+// breaks the window's return to the main screen when its screen closes.
 let placing = false;
 function settle(w, fullScreenLost) {
     const screen = target();
