@@ -154,6 +154,7 @@
         relogin = import ./tests/relogin.nix { inherit pkgs self; };
         lock = import ./tests/lock.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
+        app-screens = import ./tests/app-screens.nix { inherit pkgs self; };
         latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };
       });
     };

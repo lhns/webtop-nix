@@ -14,7 +14,7 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | --- | --- | --- |
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
-| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with three patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch) |
+| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with four patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch), [several second displays](pkgs/selkies/several-second-displays.patch) |
 | Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch), [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) and [no kill of a builder that closes its output early](modules/nix-profile/nix/daemon-eof-wait.patch) (`builder-exit-timeout`) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
@@ -127,8 +127,10 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 
 ## One app per screen
 
-A Selkies second-display page (`/#display2-<left|right|up|down>`) grows a KWin screen sized to the
-page, named `SELKIES-<n>` (`SELKIES-2` for display2), and streams it; closing the page removes it.
+A Selkies second-display page (`/#display<n>-<left|right|up|down>`, n >= 2) grows a KWin screen sized
+to the page, named `SELKIES-<n>`, and streams it; closing the page removes it. Several can be open at
+once, each with its own screen, stream and input
+([ADR 0011](docs/adr/0011-one-screen-per-app-page.md)).
 Two patches make that work here: KWin announces per-output `kde_output_device_v2` globals again,
 which pixelflux needs to confirm the screen (in the patched KWin, so it needs `kwinSoftwarePresentation`;
 [ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)),
@@ -140,6 +142,8 @@ To show one app on such a page, run as the desktop user inside the session:
 ```sh
 webtop-app-screen place <app-id> <screen>   # e.g. place org.kde.dolphin SELKIES-2
 webtop-app-screen release <app-id>
+webtop-app-screen focus <screen>|main       # the keyboard goes to the top window there
+webtop-app-screen screens                   # lists the SELKIES-<n> screens
 ```
 
 `place` loads a KWin script (`pkgs/app-screen/app-screen.js`) that moves every window of the app
@@ -153,11 +157,34 @@ screen that is not a `SELKIES-<n>`) and restores their state, so the panel is re
 user had fullscreened before stays fullscreen. `release` unloads the script, then runs a one-shot
 script that sends the app's windows on a `SELKIES-<n>` screen to the main screen and un-fullscreens
 and un-maximizes them (prior state is gone with the unloaded script); with no main screen it moves
-nothing. Only one app at a time is supported: release the previous app before placing the next. Both need `DBUS_SESSION_BUS_ADDRESS`
+nothing. `place` is a no-op while the same script already runs, so the windows keep their prior state. All need `DBUS_SESSION_BUS_ADDRESS`
 and `XDG_RUNTIME_DIR`; exit status 2 is a usage error, 1 means KWin refused the script.
 
-Starting the app is the caller's job. Only `display2` exists in Selkies' web client, so one app at a
-time; audio plays on the primary page only.
+Starting the app is the caller's job, and so is telling `focus` which tab was activated: there is one
+keyboard seat, so a key goes to KWin's active window whichever page sent it. A second page of the same
+`<n>` takes the screen over and the first shows "Connection Terminated". Hidden tabs stop their capture.
+Audio plays on the primary page only.
+
+Screens sit in a row from x=4096, right of any auto-sized primary (the web client caps a page at 4080),
+and stay put when the primary resizes or a neighbour closes (moving an output recreates it). Each one is
+a KWin output plus a capture and encoder: see "Cost of app screens".
+
+### Cost of app screens
+
+From `checks.app-screens` (CI VM, 4 vCPUs shared with the test's browser, llvmpipe, JPEG since the headless
+browser has no H.264; each screen 1024x640; session processes without the apps themselves):
+
+| app screens | memory | CPU, apps idle | CPU, every app repainting all pixels at 30 fps |
+| --- | --- | --- | --- |
+| 0 | 1980 MiB | 1% of a core | |
+| 1 | 2076 MiB | 2% | 136% |
+| 2 | 2185 MiB | 5% | 160% |
+| 4 | 2418 MiB | 7% | 127% |
+
+So about 110 MiB and 2% of a core per screen at rest. Under full repaint the Selkies process grows by
+10-15% of a core per screen (17%, 27%, 46%), while the total is limited by the shared VM rather than
+growing with the count, so it is no per-screen figure; expect a busy screen to cost more than one core
+on software rendering. x264 was not measured.
 
 ## Several pages on one desktop
 
@@ -208,6 +235,7 @@ Every change to a third-party program, and why:
 | KWin 6.7 | [output device globals](pkgs/kwin/kwin-6.7-output-device-globals.patch) (LinuxServer's, vendored) | pixelflux confirms a second display by a `kde_output_device_v2` global |
 | Selkies | [second display without primary](pkgs/selkies/second-display-without-primary.patch) | a page for one app's screen connects on its own |
 | Selkies | [upload path](pkgs/selkies/upload-path.patch) | downloads serve the whole home while uploads land in one inbox |
+| Selkies | [several second displays](pkgs/selkies/several-second-displays.patch), plus a [web client edit](pkgs/selkies/display-n.sed) for `#display<n>` | Selkies drives one secondary at a time; each app page needs its own |
 | Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), plus a web client edit that tells a reconnect from a new page | with several pages open, the one opened last drives the primary display |
 | Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard on touch screens ([js](pkgs/selkies/key-bar.js), [css](pkgs/selkies/key-bar.css), [test](tests/key-bar-test.py)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; the on-screen keyboard has no Esc, Tab, Ctrl, arrows or F-keys; stale browser copies would hide the change |
 | Nix 2.34 | [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) | `nix profile` edits `packages.json` and runs home-manager |
@@ -239,6 +267,7 @@ The software restore's progress (`nixProfile.progress`, default `webtop-restore-
 `nix flake check` needs a builder for every supported system: it evaluates each system's `module-eval`.
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
+`checks.<system>.app-screens` runs three apps on three pages and asserts each page's stream and input reach only its app, focus, dialogs, no overlap with the main screen, the main page beside them, closing the middle one, reopening, reload, takeover and stopping Selkies with pages open; it also measures the cost at 1, 2 and 4 screens into `summary.txt` (artifact `app-screens`).
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
