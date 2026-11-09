@@ -261,6 +261,41 @@ Plasma session when a pod is deleted. A standalone container stopped from outsid
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
 (`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
 
+## Extension points
+
+A consumer (a deployment that builds its own system from these modules) extends the desktop only
+through what this section lists. The module's units are not an interface: their commands, files and
+ordering may change between commits, so set an option instead of overriding a unit.
+
+| option | default | what |
+| --- | --- | --- |
+| `services.webtop.environmentFiles` | `[ ]` | `EnvironmentFile=` of the Selkies user service: `SELKIES_*` settings (above, "Runtime settings") |
+| `services.webtop.sessionEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-session.service`: environment for Plasma and the apps it starts |
+| `services.webtop.sessionStopCommands` | `[ ]` | `ExecStopPost=` lines of `webtop-session.service`, run after each end of the session (Log Out, crash, restart, shutdown) once Plasma is stopped; `+` runs one as root, `-` ignores its failure, `$SERVICE_RESULT` and `$EXIT_CODE` tell how the session ended |
+| `services.webtop.localeEnvironmentFiles` | `[ ]` | `WEBTOP_TIME_ZONE=`, `WEBTOP_LOCALE=` ("Time zone and locale") |
+| `services.webtop.lockEnvironmentFiles` | `[ ]` | `WEBTOP_LOCK_SCREEN=true\|false` ("Lock screen") |
+| `services.webtop.sessionConfKeys` | `[ ]` | keys of the user's `~/.config/webtop/session.conf` that the consumer reads; the desktop skips them instead of logging them as unknown |
+| `services.webtop.nixProfile.templateEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-home-manager-template.service`: `WEBTOP_HOME_PATHS`, the space-separated `/home/<name>` paths this home has been mounted at, so a starter rendered for an earlier login name still counts as unmodified |
+| `services.webtop.nixProfile.homeStoragePath`, `.fromImageStore`, `.progress` | | "Software" |
+
+All env files are read at each start of their unit, so a consumer can write them at boot without a
+rebuild; a `-` prefix makes one optional, later files win.
+
+Files and commands a consumer can use:
+
+| what | contract |
+| --- | --- |
+| `~/.config/webtop/session.conf` | the user's `key=value` file (blanks around either ignored, `#` comment lines, at most 64 KiB); the desktop reads `timeZone` and `locale`, a consumer its `sessionConfKeys` |
+| `~/.config/webtop/selkies.env` | the user's Selkies settings, limited to `userSettings` |
+| `$XDG_RUNTIME_DIR/webtop/lock` | written (the time) each time the session is locked ("Lock screen") |
+| `/run/webtop/restore/progress.json` | the software restore's progress ("Container module") |
+| `nixProfile.notify` | `webtop-notify TITLE BODY [ICON]`: a notification in the session |
+| `nixProfile.reinstall` | `webtop-nix-reinstall MANIFEST`: bring the user's packages back after the store lost them |
+| `webtop-template` | on the system path with `nixProfile`: update a file the image wrote into the home only while unmodified |
+
+Units a consumer may order its own against: `webtop-session.service`, `webtop-home-manager-template.service`,
+`webtop-home-manager.service` and the user service `selkies.service`.
+
 ## Tests
 
 `nix build .#checks.<system>.module-eval` evaluates a system with the module (not with `--no-build`: the graft is import from derivation, so evaluating builds).

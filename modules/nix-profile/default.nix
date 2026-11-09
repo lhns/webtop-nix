@@ -85,6 +85,17 @@ in
       '';
     };
 
+    templateEnvironmentFiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "-/run/webtop/env" ];
+      description = ''
+        `EnvironmentFile=` entries of `webtop-home-manager-template.service`. It reads
+        `WEBTOP_HOME_PATHS`: the space-separated `/home/<name>` paths this home has been mounted at, so a
+        starter rendered for an earlier login name still counts as unmodified.
+      '';
+    };
+
     progress = lib.mkOption {
       type = lib.types.package;
       default = pkgs.writeShellScriptBin "webtop-restore-progress" ''
@@ -164,6 +175,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         User = uid;
+        EnvironmentFile = cfg.templateEnvironmentFiles;
         # USER and HOME come from passwd: the login name and /home/<name>.
         ExecStart = lib.getExe (pkgs.writeShellApplication {
           name = "webtop-home-manager-template";
