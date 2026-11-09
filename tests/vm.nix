@@ -26,6 +26,7 @@ pkgs.testers.runNixOSTest {
     services.webtop.timeZone = "Europe/Berlin";
     services.webtop.locale = "en_GB.UTF-8";
     services.webtop.localeEnvironmentFiles = [ "-/etc/webtop-locale.env" ];
+    services.webtop.sessionConfKeys = [ "consumerKey" ];
     environment.etc."webtop-locale.env".text = "WEBTOP_TIME_ZONE=Asia/Tokyo
 WEBTOP_LOCALE=de_DE.UTF-8
 ";
@@ -114,8 +115,10 @@ WEBTOP_LOCALE=de_DE.UTF-8
     assert machine.succeed("env -u TZ date +%Z").strip() == "JST"
     machine.wait_until_succeeds("runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user show-environment | grep -qx LANG=de_DE.UTF-8", timeout=120)
 
-    # The user's file beats the env file; unknown and gateway keys are ignored.
-    expect("America/New_York", "fr_FR.UTF-8", restart_session("# c\nonLogout=true\nbogus=1\ntimeZone=America/New_York\nlocale=fr_FR.UTF-8\n"))
+    # The user's file beats the env file; unknown and consumer keys are ignored, only unknown ones logged.
+    expect("America/New_York", "fr_FR.UTF-8", restart_session("# c\nonLogout=true\nconsumerKey=1\nbogus=1\ntimeZone=America/New_York\nlocale=fr_FR.UTF-8\n"))
+    ignored = machine.succeed("journalctl -u webtop-session.service -o cat | grep 'session.conf: ignored' | tail -n1")
+    assert "ignored 1 lines" in ignored and "e.g. bogus" in ignored, ignored
 
     # Invalid values fall back to the next source (here the env file), and the session still starts.
     for bad in ["timeZone=../../etc/passwd", "timeZone=/etc/passwd", "timeZone=Asia/../../../etc/shadow",
