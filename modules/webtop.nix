@@ -114,6 +114,25 @@ let
     text = builtins.readFile ./webtop-lock-guard.sh;
   };
 
+  # Plasma down as Log Out takes it down, after every end of the session unit. startplasma's own stop
+  # on SIGTERM covers only plasma-workspace.target, and Plasma's stops (mode "fail") are refused while
+  # start jobs are queued; `systemctl stop` replaces them.
+  stopSession = pkgs.writeShellApplication {
+    name = "webtop-stop-session";
+    runtimeInputs = [ pkgs.coreutils config.systemd.package ];
+    text = ''
+      systemctl --user stop graphical-session.target
+      # It returns once the target is down, before its PartOf units are; the next startplasma's start
+      # (mode "fail") is refused while their stop jobs are queued. A shutdown keeps jobs queued: no wait.
+      for _ in $(seq 1 300); do
+        [ -z "$(systemctl --user list-jobs --no-legend)" ] && exit 0
+        [ "$(systemctl is-system-running || true)" = stopping ] && exit 0
+        sleep 0.1
+      done
+      echo "webtop-stop-session: user jobs still queued after 30 s" >&2
+    '';
+  };
+
   startSession = pkgs.writeShellApplication {
     name = "webtop-start-session";
     runtimeInputs = [ pkgs.coreutils pkgs.util-linux ];
@@ -539,6 +558,9 @@ in
         PAMName = "login";
         StandardInput = "null";
         ExecStart = lib.getExe startSession;
+        # Else KWin, ksmserver and plasmashell outlive the unit, bound to its removed logind session.
+        # Post, not ExecStop: that is skipped when startplasma dies of a signal.
+        ExecStopPost = "-${lib.getExe stopSession}";
         # "always": Log Out exits 0 and there is no greeter, so it must come back.
         Restart = "always";
         RestartSec = 2;

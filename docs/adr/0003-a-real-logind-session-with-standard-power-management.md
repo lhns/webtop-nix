@@ -41,3 +41,9 @@ not by name, so a deployment may rename the account at runtime.
 
 No seat by default, in containers and on machines alike: a seat requires a VT, and the nested
 desktop needs none. This supersedes the 2026-10-29 default.
+
+## Amendment 2026-11-09
+
+The session unit owns Plasma's lifetime: every stop of it (restart, crash, Log Out) runs
+`systemctl --user stop graphical-session.target`, as Log Out does but in replace mode, so queued start jobs
+cannot refuse it. Plasma's own stop on SIGTERM covers only `plasma-workspace.target`.
