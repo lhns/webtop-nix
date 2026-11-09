@@ -107,7 +107,7 @@ pkgs.testers.runNixOSTest {
     for unit in ["plasma-plasmashell.service", "plasma-kwin_wayland.service"]:
         p = machine.succeed(f"{ubus} systemctl --user show -p MainPID --value {unit}").strip()
         libs = set(machine.succeed(f"grep -o '/nix/store/[^/]*-kguiaddons-[^/]*' /proc/{p}/maps || true").split())
-        assert libs <= {"${pkgs.kguiaddonsClipboardFix}"}, f"{unit} loads {libs}"
+        assert libs == {"${pkgs.kguiaddonsClipboardFix}"}, f"{unit} loads {libs}"
 
     # A crash of the session process takes Plasma down too; the next start brings a new KWin.
     kwin = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-kwin_wayland.service").strip()
