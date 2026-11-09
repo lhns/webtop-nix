@@ -36,3 +36,9 @@ this flake holds what a single desktop needs; kww adds only multi-user orchestra
   evaluates it with every option on, and the standalone image test boots the module's other parts.
 - Staying in kww: the entrypoint that mounts the overlay, the agent (power actions, boot progress,
   session save on an external stop), the restore scripts around an image update, the tray job.
+
+## Amendment 2026-11-09
+
+A consumer extends the desktop only through the options, env vars, files and commands listed in the
+README's "Extension points"; the module's units are not an interface. Where a consumer needs a new
+hook, it becomes an option here instead of a unit override there.

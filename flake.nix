@@ -58,7 +58,18 @@
               storeOverlay.enable = true;
               journalRelay.enable = true;
               adminTools.enable = true;
+              # The extension points (README, "Extension points").
+              sessionEnvironmentFiles = [ "-/run/test/session.env" ];
+              sessionStopCommands = [ "+/run/test/session-stop" ];
+              sessionConfKeys = [ "testKey" "otherKey" ];
+              nixProfile.templateEnvironmentFiles = [ "-/run/test/template.env" ];
             };
+            # Direct unit overrides of an older consumer, in the shapes it used; they must still merge.
+            systemd.services.webtop-session.serviceConfig = {
+              EnvironmentFile = [ "-/run/test/legacy.env" ];
+              ExecStopPost = [ "+/run/test/legacy-stop" ];
+            };
+            systemd.services.webtop-home-manager-template.serviceConfig.EnvironmentFile = "-/run/test/legacy-template.env";
             system.stateVersion = "26.05";
           }
         ];
@@ -148,6 +159,18 @@
           assert (builtins.elem "wheel" c.users.users.user.extraGroups && !c.security.sudo.wheelNeedsPassword) || throw "sudo";
           assert (c.systemd.services.webtop-journal-relay.serviceConfig.ExecStart != "") || throw "journalRelay";
           assert (c.systemd.user.services.drkonqi-coredump-pickup.serviceConfig.RuntimeMaxSec == "infinity") || throw "drkonqi";
+          # Extension points: the module's own stop first, then the consumer's; lists merge with older overrides.
+          assert (let
+            s = c.systemd.services.webtop-session.serviceConfig;
+            own = nixpkgs.lib.remove "+/run/test/legacy-stop" s.ExecStopPost;
+          in
+            nixpkgs.lib.hasSuffix "/bin/webtop-stop-session" (builtins.head own)
+            && builtins.tail own == [ "+/run/test/session-stop" ]
+            && builtins.elem "+/run/test/legacy-stop" s.ExecStopPost
+            && nixpkgs.lib.sort (a: b: a < b) s.EnvironmentFile == [ "-/run/test/legacy.env" "-/run/test/session.env" ]
+            && nixpkgs.lib.hasInfix "'testKey otherKey'" (builtins.head s.ExecStartPre)) || throw "session extension points";
+          assert (nixpkgs.lib.sort (a: b: a < b) c.systemd.services.webtop-home-manager-template.serviceConfig.EnvironmentFile
+            == [ "-/run/test/legacy-template.env" "-/run/test/template.env" ]) || throw "templateEnvironmentFiles";
           pkgs.writeText "container-eval" (builtins.unsafeDiscardStringContext c.system.build.toplevel.drvPath);
         inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
         included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };

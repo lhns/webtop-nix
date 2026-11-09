@@ -1,11 +1,11 @@
 # Applies the desktop's time zone and locale before the session starts. Never fails the unit:
 # a bad value is logged and skipped.
-#   webtop-locale <uid> <locale-archive> <default-tz> <default-locale> [env-file...]
+#   webtop-locale <uid> <locale-archive> <default-tz> <default-locale> <consumer-keys> [env-file...]
 # Per setting, the first valid of: the user's ~/.config/webtop/session.conf (timeZone=, locale=),
 # WEBTOP_TIME_ZONE / WEBTOP_LOCALE from the env files (later wins), the module's default.
 # Nothing valid leaves /etc/localtime and /etc/locale.conf as the image has them.
-uid=$1 archive=$2 default_tz=$3 default_locale=$4
-shift 4
+uid=$1 archive=$2 default_tz=$3 default_locale=$4 consumer_keys=" $5 "
+shift 5
 
 zonedir=/etc/zoneinfo
 
@@ -55,13 +55,13 @@ if pw=$(getent passwd "$uid") && home=$(cut -d: -f6 <<<"$pw") && name=$(cut -d: 
     ignored=0 unknown=''
     while IFS= read -r line || [ -n "$line" ]; do
       line=${line%$'\r'}
-      # Same grammar as the gateway's reader: key=value, blanks around either ignored, # starts a comment line.
+      # Same grammar as a consumer's reader: key=value, blanks around either ignored, # starts a comment line.
       if [[ $line =~ ^[[:space:]]*([A-Za-z]+)[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]]; then
         case ${BASH_REMATCH[1]} in
           timeZone) user_tz=${BASH_REMATCH[2]} ;;
           locale) user_locale=${BASH_REMATCH[2]} ;;
-          onLogout | onLock) ;; # the gateway's
-          *) unknown=${BASH_REMATCH[1]} ignored=$((ignored + 1)) ;;
+          onLogout | onLock) ;; # webtop.ssoLogout's
+          *) [[ $consumer_keys == *" ${BASH_REMATCH[1]} "* ]] || { unknown=${BASH_REMATCH[1]} ignored=$((ignored + 1)); } ;;
         esac
       elif [[ $line =~ ^[[:space:]]*(#|$) ]]; then
         :
