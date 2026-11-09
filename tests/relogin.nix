@@ -108,5 +108,6 @@ pkgs.testers.runNixOSTest {
     assert marks, "no poweroff request in the previous boot"
     late = [l for l in j[marks[0]:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
     assert not late, "session restarted during shutdown: " + repr(late)
+    assert not [l for l in j if "user jobs still queued" in l], "the session's teardown held up the shutdown"
   '';
 }

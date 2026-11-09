@@ -123,9 +123,10 @@ let
     text = ''
       systemctl --user stop graphical-session.target
       # It returns once the target is down, before its PartOf units are; the next startplasma's start
-      # (mode "fail") is refused while their stop jobs are queued.
+      # (mode "fail") is refused while their stop jobs are queued. A shutdown keeps jobs queued: no wait.
       for _ in $(seq 1 300); do
         [ -z "$(systemctl --user list-jobs --no-legend)" ] && exit 0
+        [ "$(systemctl is-system-running || true)" = stopping ] && exit 0
         sleep 0.1
       done
       echo "webtop-stop-session: user jobs still queued after 30 s" >&2
