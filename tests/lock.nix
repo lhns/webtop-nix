@@ -60,6 +60,10 @@ pkgs.testers.runNixOSTest {
     # Off: hidden and blocked; a lock that gets through is cleared all the same.
     machine.succeed("grep -qx 'action/lock_screen=false' /etc/xdg/kdeglobals")
     machine.succeed("grep -qx 'Autolock=false' /etc/xdg/kscreenlockerrc")
+    # No splash screen, and the session still became ready above.
+    machine.succeed("grep -qxF 'Engine[$i]=none' /etc/xdg/ksplashrc")
+    machine.fail("pgrep -u user -f ksplashqml")
+    machine.fail("journalctl --no-pager -o cat -b | grep -i ksplashqml")
     for name, lock in lockers.items():
         lock()
         machine.sleep(5)
@@ -99,6 +103,8 @@ pkgs.testers.runNixOSTest {
             assert session_pid() == session
             machine.succeed(f"{ubus} systemctl --user is-active plasma-workspace.target")
     locks_cleared()
+    # Only the graphical session is unlocked; the manager and stop-script sessions used to log a failure.
+    machine.fail("journalctl --no-pager -o cat -b | grep -E 'unlock-session .* failed'")
 
     # A bare restart of the session unit (as after a crash) takes Plasma down like Log Out, so KWin's
     # screen locker binds to the new logind session. Selkies and the guard keep running.
@@ -110,5 +116,6 @@ pkgs.testers.runNixOSTest {
     locks_cleared()
     assert not set(pids()["kwin_wayland"]) & old_kwin, "KWin was not restarted"
     assert keep() == kept, f"Selkies or the lock guard restarted: {kept} -> {keep()}"
+    machine.fail("journalctl --no-pager -o cat -b | grep -E 'unlock-session .* failed'")
   '';
 }

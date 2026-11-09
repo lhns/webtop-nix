@@ -14,6 +14,9 @@ clear_lock() {
   local s
   for _ in $(seq 1 30); do
     for s in $(loginctl show-user "$uid" -p Sessions --value); do
+      # Only the graphical session (Class=user): the manager session and the stop script's short-lived
+      # one cannot be unlocked, and trying them logged a failure on every lock.
+      [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = user ] || continue
       loginctl unlock-session "$s" || echo "webtop-lock-guard: unlock-session $s failed"
     done
     sleep 0.3
