@@ -89,6 +89,8 @@ pkgs.testers.runNixOSTest {
     ${import ./wait-compositing.nix}
     ready()
     assert kwin() not in ("0", old_kwin), "KWin survived the crash of the session"
+    # Each new session started at once: none raced the previous one's teardown.
+    machine.fail("journalctl -b -u webtop-session.service | grep 'Could not start Plasma session'")
 
     # Still inside the start limit.
     assert machine.succeed("systemctl show -p ActiveState --value webtop-session.service").strip() == "active"
