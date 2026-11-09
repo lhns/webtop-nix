@@ -26,9 +26,9 @@ pkgs.testers.runNixOSTest {
     pid = lambda unit: machine.succeed(f"systemctl show -p MainPID --value {unit}").strip()
     selkies_pid = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value selkies.service").strip()
     logout = lambda: machine.succeed(f"{ubus} busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout")
-    # A whole session: Plasma's units active (one by one: is-active passes if any is), ksmserver owning its
-    # bus name (its unit is active before), and no start job left.
-    ready = lambda: machine.wait_until_succeeds(f"for u in plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service; do {ubus} systemctl --user is-active -q $u; done && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
+    def ready():
+        ${import ./wait-session.nix}
+    restarted = lambda old: machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
     def diag():
         print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; ps -eo pid,ppid,etime,cmd | grep -E 'plasma|kwin|ksm' | head -30; journalctl -b --no-pager -o short-monotonic | grep -E 'transaction|startplasma|plasma-shutdown' | tail -20")[1])
 
@@ -44,7 +44,7 @@ pkgs.testers.runNixOSTest {
         old = pid("webtop-session.service")
         logout()
         try:
-            machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
+            restarted(old)
         except Exception:
             diag()
             raise
@@ -62,16 +62,15 @@ pkgs.testers.runNixOSTest {
         ready()
         old = pid("webtop-session.service")
         logout()
-        machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
-        machine.wait_until_succeeds(f"for n in org.kde.KWin org.kde.ksmserver org.kde.plasmashell; do {ubus} busctl --user status $n >/dev/null; done && {ubus} busctl --user introspect org.kde.KWin /Session >/dev/null", timeout=180)
+        restarted(old)
+        machine.wait_until_succeeds(f"{ubus} busctl --user status org.kde.KWin >/dev/null && {ubus} busctl --user status org.kde.ksmserver >/dev/null && {ubus} busctl --user status org.kde.plasmashell >/dev/null && {ubus} busctl --user introspect org.kde.KWin /Session >/dev/null", timeout=180)
         jobs = machine.succeed(f"{ubus} systemctl --user list-jobs --no-legend").strip()
         early += bool(jobs)
         print(f"early logout {i}, queued jobs: {jobs!r}")
         old = pid("webtop-session.service")
         logout()
         try:
-            machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
-            machine.wait_for_unit("webtop-session.service")
+            restarted(old)
             ${import ./wait-compositing.nix}
             ready()
         except Exception:
@@ -81,11 +80,10 @@ pkgs.testers.runNixOSTest {
     assert selkies_pid() == selkies, "Selkies was restarted by a logout"
 
     # A crash of the session process takes Plasma down too; the next start brings a new KWin.
-    ready()
     kwin = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-kwin_wayland.service").strip()
     old, old_kwin = pid("webtop-session.service"), kwin()
     machine.succeed(f"kill -9 {old}")
-    machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
+    restarted(old)
     ${import ./wait-compositing.nix}
     ready()
     assert kwin() not in ("0", old_kwin), "KWin survived the crash of the session"

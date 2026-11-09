@@ -20,6 +20,7 @@ pkgs.testers.runNixOSTest {
     marker = "/run/user/1000/webtop/lock"
     core = "kwin_wayland plasmashell kded6"
     session_pid = lambda: machine.succeed("systemctl show -p MainPID --value webtop-session.service").strip()
+    restarted = lambda old: machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
     # The user's graphical session: not its manager session (which cannot be locked), nor one still closing after a Log Out.
     def sid():
         rows = machine.succeed("for s in $(loginctl show-user user -p Sessions --value); do echo $s $(loginctl show-session $s -p Class --value) $(loginctl show-session $s -p State --value); done")
@@ -36,8 +37,8 @@ pkgs.testers.runNixOSTest {
     def ready():
         machine.wait_for_unit("webtop-session.service")
         ${import ./wait-compositing.nix}
-        # Settled as in relogin.nix: processes are compared across a lock, and a Log Out before KWin and ksmserver are up is cancelled.
-        machine.wait_until_succeeds(f"for u in plasma-workspace.target plasma-ksmserver.service plasma-plasmashell.service; do {ubus} systemctl --user is-active -q $u; done && {ubus} busctl --user status org.kde.ksmserver >/dev/null && test -z \"$({ubus} systemctl --user list-jobs --no-legend)\"", timeout=180)
+        # Processes are compared across a lock, and a Log Out before KWin and ksmserver are up is cancelled.
+        ${import ./wait-session.nix}
         machine.wait_until_succeeds(f"{ubus} systemctl --user is-active webtop-lock-guard.service", timeout=60)
         # dbus-monitor must be attached before the first lock.
         machine.wait_until_succeeds("pgrep -u user -x dbus-monitor", timeout=60)
@@ -73,7 +74,7 @@ pkgs.testers.runNixOSTest {
     machine.succeed("echo WEBTOP_LOCK_SCREEN=true > /run/webtop-lock.env")
     old_session, old_kwin = session_pid(), set(pids()["kwin_wayland"])
     machine.succeed(f"{ubus} busctl --user call org.kde.Shutdown /Shutdown org.kde.Shutdown logout")
-    machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old_session}", timeout=120)
+    restarted(old_session)
     retry(lambda _: bool(pids()["kwin_wayland"]) and not set(pids()["kwin_wayland"]) & old_kwin, 120)
     ready()
     machine.succeed("grep -qx 'action/lock_screen=true' /etc/xdg/kdeglobals")
@@ -104,7 +105,7 @@ pkgs.testers.runNixOSTest {
     keep = lambda: [machine.succeed(f"{ubus} systemctl --user show -p MainPID --value {u}").strip() for u in ("selkies.service", "webtop-lock-guard.service")]
     kept, old_session, old_kwin = keep(), session_pid(), set(pids()["kwin_wayland"])
     machine.succeed("systemctl restart webtop-session.service")
-    machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old_session}", timeout=120)
+    restarted(old_session)
     ready()
     locks_cleared()
     assert not set(pids()["kwin_wayland"]) & old_kwin, "KWin was not restarted"
