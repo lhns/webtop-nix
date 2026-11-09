@@ -22,6 +22,7 @@ pkgs.testers.runNixOSTest {
     };
   };
   testScript = ''
+    import time
     ubus = "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
     pid = lambda unit: machine.succeed(f"systemctl show -p MainPID --value {unit}").strip()
     selkies_pid = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value selkies.service").strip()
@@ -79,6 +80,35 @@ pkgs.testers.runNixOSTest {
     assert early, "no Log Out happened while start jobs were queued"
     assert selkies_pid() == selkies, "Selkies was restarted by a logout"
 
+    # Stopped about 2 s after its workspace is up, plasmashell deadlocked on exit (pkgs/kguiaddons.nix)
+    # and the next session waited out its 40 s stop timeout.
+    for how in ["logout", "kill"]:
+        ready()
+        old = pid("webtop-session.service")
+        logout()
+        restarted(old)
+        machine.wait_until_succeeds(f"{ubus} systemctl --user is-active plasma-workspace.target", timeout=180)
+        time.sleep(2)
+        old = pid("webtop-session.service")
+        if how == "logout":
+            logout()
+        else:
+            machine.succeed(f"kill -9 {old}")
+        start = time.monotonic()
+        restarted(old)
+        took = time.monotonic() - start
+        print(f"early {how}: next session after {took:.1f} s")
+        if took > 20:
+            diag()
+        assert took <= 20, f"early {how}: the next session took {took:.0f} s"
+        ${import ./wait-compositing.nix}
+    ready()
+    # Grafted: no process of the session still loads the stock library.
+    for unit in ["plasma-plasmashell.service", "plasma-kwin_wayland.service"]:
+        p = machine.succeed(f"{ubus} systemctl --user show -p MainPID --value {unit}").strip()
+        libs = set(machine.succeed(f"grep -o '/nix/store/[^/]*-kguiaddons-[^/]*' /proc/{p}/maps || true").split())
+        assert libs <= {"${pkgs.kguiaddonsClipboardFix}"}, f"{unit} loads {libs}"
+
     # A crash of the session process takes Plasma down too; the next start brings a new KWin.
     kwin = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-kwin_wayland.service").strip()
     old, old_kwin = pid("webtop-session.service"), kwin()
@@ -88,7 +118,10 @@ pkgs.testers.runNixOSTest {
     ready()
     assert kwin() not in ("0", old_kwin), "KWin survived the crash of the session"
     # Each new session started at once: none raced the previous one's teardown.
-    machine.fail("journalctl -b -u webtop-session.service | grep 'Could not start Plasma session'")
+    # startplasma logs to its logind scope, not to the unit.
+    machine.fail("journalctl -b | grep -E 'Could not start (systemd managed )?Plasma session'")
+    # No stop of the session waited for Plasma.
+    machine.fail("journalctl -b | grep -E \"user jobs still queued|plasma-.*State 'stop-sigterm' timed out\"")
 
     # Still inside the start limit.
     assert machine.succeed("systemctl show -p ActiveState --value webtop-session.service").strip() == "active"
@@ -106,6 +139,8 @@ pkgs.testers.runNixOSTest {
     assert marks, "no poweroff request in the previous boot"
     late = [l for l in j[marks[0]:] if "webtop-session" in l and ("Scheduled restart job" in l or "Started" in l)]
     assert not late, "session restarted during shutdown: " + repr(late)
-    assert not [l for l in j if "user jobs still queued" in l], "the session's teardown held up the shutdown"
+    # webtop-stop-session does not wait during a shutdown, so a hung Plasma shows only as its stop timeout.
+    hung = [l for l in j[marks[0]:] if "State 'stop-sigterm' timed out" in l]
+    assert not hung, "a stop held up the shutdown: " + repr(hung)
   '';
 }
