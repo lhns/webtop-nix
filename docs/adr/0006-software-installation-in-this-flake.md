@@ -45,3 +45,7 @@ The patch takes its locks at commit and re-applies each command's change on curr
 ## Amendment 2026-11-06
 
 Nix also carries `daemon-eof-wait.patch` on `nix-store`, so the desktops run a patched daemon: a builder that closes its output before exiting is waited for, without blocking other builds, up to the new `builder-exit-timeout` setting (default 10 s), instead of killed on the log EOF. It needs rebasing with a Nix bump too.
+
+## Amendment 2026-11-10
+
+The design of the declaration and the patched `nix profile` is recorded in [0014](0014-nix-profile-records-into-one-declaration.md). With `storeOverlay`, `nixProfile.fromImageStore` defaults to off: the volume keeps the store and the restore units run the reinstall ([0013](0013-the-store-overlay-survives-image-updates.md)).

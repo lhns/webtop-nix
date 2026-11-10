@@ -11,6 +11,9 @@
     softwareCenter.enable = true;
     nixProfile.enable = true;
     adminTools.enable = true;
+    # The store survives container and image updates on the /persist volume (README, "Store overlay");
+    # image/webtop-entrypoint mounts it.
+    storeOverlay.enable = true;
     # Reached through the container's published port; Selkies' auth is off (README, "Image").
     address = "0.0.0.0";
   };

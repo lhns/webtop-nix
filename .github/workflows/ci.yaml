@@ -163,7 +163,7 @@ jobs:
       - name: reinstall test
         run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval
-        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest -L
+        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#webtop-power .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest .#checks.${{ matrix.system }}.store-overlay-layout -L
       - name: key bar in the built client
         if: matrix.system == 'x86_64-linux'
         run: |
@@ -181,6 +181,10 @@ jobs:
       - name: lock test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.lock -L
+      # Sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
+      - name: power test
+        if: matrix.vm
+        run: nix build .#checks.${{ matrix.system }}.power -L
 
       # Several app screens at once, run outside the sandbox so its artifacts survive a failure; summary.txt has the measured cost.
       - name: app screens test
@@ -240,9 +244,16 @@ jobs:
       - name: image boot test
         timeout-minutes: 15
         run: tests/image-boot.sh "$IMAGE:dev" 600
+      # Two boots on one volume with the store overlay's state edited between them, then the user's software
+      # through the restore and the reinstall (needs the network to substitute).
+      - name: store overlay across an image update
+        timeout-minutes: 40
+        run: tests/lower-swap-test.sh "$IMAGE:dev" 300
       - name: image boot diagnostics
         if: failure()
         run: |
+          docker logs webtop-swap 2>&1 | tail -n 100 || true
+          docker rm -f webtop-swap || true
           docker exec webtop-image systemctl --failed --no-pager || true
           docker exec webtop-image systemctl status webtop-session --no-pager -n 40 || true
           docker exec webtop-image journalctl -b --no-pager -g 'kwin|startplasma|wayland|webtop-session' 2>&1 | head -n 200 || true
