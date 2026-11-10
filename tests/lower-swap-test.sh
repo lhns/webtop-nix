@@ -31,6 +31,9 @@ boot() {
     [ "$(date +%s)" -lt "$deadline" ] || { docker logs "$c" 2>&1 | tail -n 50; fail "no nix-daemon within ${timeout}s"; }
     sleep 2
   done
+  # Samples progress.json as soon as the shell is usable: the restore can finish before a later poller starts.
+  [ -z "${poll:-}" ] || docker exec -d "$c" sh -c 'until [ -d /run/webtop/restore ]; do sleep 0.1; done
+    while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/run/progress.log'
 }
 # Stopped from outside (SIGRTMIN+3), as docker stop does.
 stop() { docker stop -t 15 "$c" >/dev/null; }
@@ -151,12 +154,19 @@ done
 sudo sed -i '1s/.*/stamp old-image/' "$dir/persist/nix/lower-paths"
 echo old-image | sudo tee "$dir/persist/nix/lower-stamp" >/dev/null
 echo "== software: boot 2 (restore)"
-boot
+poll=1 boot
 clog=$(docker logs "$c" 2>&1)
 grep 'webtop-nix-partial\|webtop-init: .*store\|webtop-init: .*PARTIAL' <<<"$clog" || true
 grep -q 'store overlay kept' <<<"$clog" || fail "the partial invalidation did not run or fell back"
 wait_markers
 software_works "after the restore"
+rj=$(journal webtop-nix-restore)
+grep -q 'all roots restored' <<<"$rj" || { echo "$rj"; fail "the restore did not restore every root"; }
+# The reinstall restarts progress.json, so the restore's own phase is only in the samples.
+plog=$(x cat /run/progress.log)
+jq -s -e 'map(select(.active and .total > 0 and (.current | test("^(Restoring|Downloading)")))) | length > 0' <<<"$plog" >/dev/null || { echo "$plog"; fail "progress.json never showed the restore"; }
+# The steps come in a burst at the end of the copy, too short for the sampling to catch: only check the invariant.
+jq -s -e 'all(.[]; .done <= .total)' <<<"$plog" >/dev/null || { echo "$plog"; fail "progress.json counted more than its total"; }
 manifest=$(as_user cat /home/user/.local/state/nix/profiles/profile/manifest.json)
 stop
 

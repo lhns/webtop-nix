@@ -283,7 +283,7 @@ In a container the `webtop` module defaults `sleep.mode` to `freeze` and `sessio
 
 Not in this flake: whatever reports to or is driven by an orchestrator, such as an agent that reports power actions and boot progress, or a tray job that shows the restore.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
-(`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it; a consumer's agent can.
+(`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it (the restore's copy phase counts roots, the reinstall's counts packages; a new phase restarts the file); this flake shows none of it; a consumer's agent can.
 
 ## Sleep and session save
 
