@@ -1,0 +1,43 @@
+diff --git a/src/systemclipboard/waylandclipboard.cpp b/src/systemclipboard/waylandclipboard.cpp
+index a83f6b5..a1e2880 100644
+--- a/src/systemclipboard/waylandclipboard.cpp
++++ b/src/systemclipboard/waylandclipboard.cpp
+@@ -548,8 +548,11 @@ public:
+     {
+         while (!isInterruptionRequested()) {
+             while (!isInterruptionRequested() && wl_display_prepare_read_queue(m_display, m_queue) != 0) {
+-                QMutexLocker lock(&s_clipboardLock);
++                if (!lockUnlessInterrupted()) {
++                    return;
++                }
+                 wl_display_dispatch_queue_pending(m_display, m_queue);
++                s_clipboardLock.unlock();
+             }
+             wl_display_flush(m_display);
+ 
+@@ -564,9 +567,24 @@ public:
+                 wl_display_read_events(m_display);
+             }
+ 
+-            QMutexLocker lock(&s_clipboardLock);
++            if (!lockUnlessInterrupted()) {
++                return;
++            }
+             wl_display_dispatch_queue_pending(m_display, m_queue);
++            s_clipboardLock.unlock();
++        }
++    }
++
++    // mimeData() keeps s_clipboardLock until the main thread's event loop runs again. If that loop has
++    // exited, ~WaylandClipboard can wait for this thread while still holding it: give up once interrupted.
++    bool lockUnlessInterrupted()
++    {
++        while (!s_clipboardLock.tryLock(100)) {
++            if (isInterruptionRequested()) {
++                return false;
++            }
+         }
++        return true;
+     }
+     wl_callback *m_callback = nullptr;
+     wl_event_queue *m_queue = nullptr;

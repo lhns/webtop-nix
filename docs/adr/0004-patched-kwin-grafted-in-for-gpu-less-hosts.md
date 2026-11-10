@@ -34,3 +34,8 @@ reports "requires compositing" and the screen stays gray. Staying on Plasma 6.7 
 
 The patched KWin also carries LinuxServer's `kwin-6.7-output-device-globals.patch`, so pixelflux can
 confirm the screens it grows for Selkies' second display; it likewise only adds a function to `libkwin`.
+
+## Amendment 2026-11-09
+
+KGuiAddons is patched and grafted the same way (`pkgs/kguiaddons.nix`), unconditionally: a bug fix with
+no option. Drop the patch once upstream fixes the clipboard thread's deadlock on exit.

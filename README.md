@@ -6,8 +6,8 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
-`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
-attributes, `kwin` as `kwinSoftwarePresentation`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
+`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin,kguiaddons}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
+attributes, `kwin` as `kwinSoftwarePresentation` and `kguiaddons` as `kguiaddonsClipboardFix`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
 ones come from `python3Packages`, nixpkgs' default interpreter).
 
 | package | version | source |
@@ -101,7 +101,7 @@ A consumer whose home is reached through other paths sets `nixProfile.homeStorag
 ## Time zone and locale
 
 The session's time zone and locale come from, in order: the user's `webtop.timeZone` / `webtop.locale` (home-manager options of the `packages` home module, or alone as `webtop.homeModules.timeLocale`; they write `timeZone=` and `locale=` to `~/.config/webtop/session.conf`), then `WEBTOP_TIME_ZONE` / `WEBTOP_LOCALE` from `services.webtop.localeEnvironmentFiles` (kube-webtop-workspaces passes its chart values this way), then `services.webtop.timeZone` / `services.webtop.locale`. With none set, `time.timeZone` and `i18n.defaultLocale` apply.
-Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image. It then relinks `/etc/localtime` and rewrites `/etc/locale.conf` (`LANG` only), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user (a link is followed: home-manager's is one into the store; what the user cannot open is not read), a file over 64 KiB is ignored, and other keys are skipped with one journal line per start. The format is the gateway's: `key=value`, blanks around either ignored, `#` comment lines.
+Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image. It then relinks `/etc/localtime` and rewrites `/etc/locale.conf` (`LANG` only), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user (a link is followed: home-manager's is one into the store; what the user cannot open is not read), a file over 64 KiB is ignored, and other keys are skipped with one journal line per start (keys in `services.webtop.sessionConfKeys` without it). The format is the gateway's: `key=value`, blanks around either ignored, `#` comment lines.
 A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then. The module sets `i18n.imperativeLocale` (as a default), so `/etc/locale.conf` is a plain file that `localectl` reads and NixOS no longer exports `LANG` itself, and a `time.timeZone` of the system is not combined with these options (`timedatectl` would keep reporting the declared zone).
 `services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale`.
 
@@ -124,6 +124,10 @@ with a GPU nothing changes. Plasma's other packages are
 not rebuilt, but evaluating the system builds the stock one first. The patch targets KWin 6.8.x and
 `pkgs/kwin.nix` fails the evaluation on other minor versions; on Plasma 6.7 set the option to `false`
 ([ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
+
+The module grafts `packages.<system>.kguiaddons` the same way, always: KGuiAddons with
+[a patch](pkgs/kguiaddons/kguiaddons-clipboard-thread-interruptible-lock.patch) to its Wayland clipboard
+thread, which could deadlock plasmashell's exit when the session was stopped in its first seconds.
 
 ## One app per screen
 
@@ -260,6 +264,41 @@ boot progress reported to a controller) and the restore around an image update, 
 Plasma session when a pod is deleted. A standalone container stopped from outside loses the unsaved session unless the user logs out first.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
 (`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
+
+## Extension points
+
+A consumer (a deployment that builds its own system from these modules) extends the desktop only
+through what this section lists. The module's units are not an interface: their commands, files and
+ordering may change between commits, so set an option instead of overriding a unit.
+
+| option | default | what |
+| --- | --- | --- |
+| `services.webtop.environmentFiles` | `[ ]` | `EnvironmentFile=` of the Selkies user service: `SELKIES_*` settings (above, "Runtime settings") |
+| `services.webtop.sessionEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-session.service`: environment for Plasma and the apps it starts |
+| `services.webtop.sessionStopCommands` | `[ ]` | `ExecStopPost=` lines of `webtop-session.service`, run after each end of the session (Log Out, crash, restart, shutdown) once Plasma is stopped; `+` runs one as root, `-` ignores its failure, `$SERVICE_RESULT` and `$EXIT_CODE` tell how the session ended |
+| `services.webtop.localeEnvironmentFiles` | `[ ]` | `WEBTOP_TIME_ZONE=`, `WEBTOP_LOCALE=` ("Time zone and locale") |
+| `services.webtop.lockEnvironmentFiles` | `[ ]` | `WEBTOP_LOCK_SCREEN=true\|false` ("Lock screen") |
+| `services.webtop.sessionConfKeys` | `[ ]` | keys of the user's `~/.config/webtop/session.conf` that the consumer reads; the desktop skips them instead of logging them as unknown |
+| `services.webtop.nixProfile.templateEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-home-manager-template.service`: `WEBTOP_HOME_PATHS`, the space-separated `/home/<name>` paths this home has been mounted at, so a starter rendered for an earlier login name still counts as unmodified |
+| `services.webtop.nixProfile.homeStoragePath`, `.fromImageStore`, `.progress` | | "Software" |
+
+All env files are read at each start of their unit, so a consumer can write them at boot without a
+rebuild; a `-` prefix makes one optional, later files win.
+
+Files and commands a consumer can use:
+
+| what | contract |
+| --- | --- |
+| `~/.config/webtop/session.conf` | the user's `key=value` file (blanks around either ignored, `#` comment lines, at most 64 KiB); the desktop reads `timeZone` and `locale`, a consumer its `sessionConfKeys` |
+| `~/.config/webtop/selkies.env` | the user's Selkies settings, limited to `userSettings` |
+| `$XDG_RUNTIME_DIR/webtop/lock` | written (the time) each time the session is locked ("Lock screen") |
+| `/run/webtop/restore/progress.json` | the software restore's progress ("Container module") |
+| `nixProfile.notify` | `webtop-notify TITLE BODY [ICON]`: a notification in the session |
+| `nixProfile.reinstall` | `webtop-nix-reinstall MANIFEST`: bring the user's packages back after the store lost them |
+| `webtop-template` | on the system path with `nixProfile`: update a file the image wrote into the home only while unmodified |
+
+Units a consumer may order its own against: `webtop-session.service`, `webtop-home-manager-template.service`,
+`webtop-home-manager.service` and the user service `selkies.service`.
 
 ## Tests
 

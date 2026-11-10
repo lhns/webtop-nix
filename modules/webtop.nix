@@ -100,6 +100,7 @@ let
     "${config.i18n.glibcLocales}/lib/locale/locale-archive"
     (toString cfg.timeZone)
     (toString cfg.locale)
+    (lib.concatStringsSep " " cfg.sessionConfKeys)
   ] ++ cfg.localeEnvironmentFiles);
 
   # Lock screen on or off for this start (README, "Lock screen"). Root, before the session starts.
@@ -312,6 +313,37 @@ in
       '';
     };
 
+    sessionEnvironmentFiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "-/run/webtop/session.env" ];
+      description = ''
+        `EnvironmentFile=` entries of `webtop-session.service`, so Plasma and the apps it starts see
+        them (later wins; a `-` prefix makes a file optional).
+      '';
+    };
+
+    sessionStopCommands = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "+/run/current-system/sw/bin/my-report session-exit" ];
+      description = ''
+        `ExecStopPost=` lines of `webtop-session.service`, run after each end of the session (Log Out,
+        crash, restart, shutdown) once Plasma is stopped. systemd's prefixes apply (`+` as root, `-`
+        ignores failure); `$SERVICE_RESULT` and `$EXIT_CODE` tell how it ended.
+      '';
+    };
+
+    sessionConfKeys = lib.mkOption {
+      type = lib.types.listOf (lib.types.strMatching "[A-Za-z]+");
+      default = [ ];
+      example = [ "myKey" ];
+      description = ''
+        Keys of the user's `~/.config/webtop/session.conf` that belong to the consumer. The desktop
+        skips them; any other unknown key is logged as ignored.
+      '';
+    };
+
     timeZone = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -424,10 +456,13 @@ in
 
     # A graft: the rewritten system keeps plasma-workspace and the rest as built by nixpkgs. Note that
     # evaluating the system builds the stock one first (replaceDependencies reads its references).
-    system.replaceDependencies.replacements = lib.mkIf cfg.kwinSoftwarePresentation [{
+    system.replaceDependencies.replacements = [{
+      oldDependency = pkgs.kdePackages.kguiaddons;
+      newDependency = pkgs.kguiaddonsClipboardFix;
+    }] ++ lib.optional cfg.kwinSoftwarePresentation {
       oldDependency = pkgs.kdePackages.kwin;
       newDependency = pkgs.kwinSoftwarePresentation;
-    }];
+    };
 
     # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
     # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
@@ -567,7 +602,8 @@ in
         ExecStart = lib.getExe startSession;
         # Else KWin, ksmserver and plasmashell outlive the unit, bound to its removed logind session.
         # Post, not ExecStop: that is skipped when startplasma dies of a signal.
-        ExecStopPost = "-${lib.getExe stopSession}";
+        ExecStopPost = [ "-${lib.getExe stopSession}" ] ++ cfg.sessionStopCommands;
+        EnvironmentFile = cfg.sessionEnvironmentFiles;
         # "always": Log Out exits 0 and there is no greeter, so it must come back.
         Restart = "always";
         RestartSec = 2;
