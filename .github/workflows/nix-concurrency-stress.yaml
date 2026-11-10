@@ -28,33 +28,9 @@ jobs:
       ROUNDS: ${{ inputs.rounds || '20' }}
     steps:
       - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: ./.github/actions/nix
+        id: nix
         with:
-          extra_nix_config: |
-            extra-substituters = file:///home/runner/nix-cache
-            require-sigs = false
-      - name: patched Nix store path
-        id: nixpkg
-        run: |
-          out=$(nix eval --raw .#nix-profile-backends.outPath)
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-          echo "key=nix-profile-backends-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
-      - run: mkdir -p ~/nix-cache
-      - uses: actions/cache/restore@v6
-        id: nix-cache
-        with:
-          path: ~/nix-cache
-          key: ${{ steps.nixpkg.outputs.key }}
-      - run: nix build .#nix-profile-backends -L --no-link
-      - name: save patched Nix
-        if: steps.nix-cache.outputs.cache-hit != 'true'
-        run: |
-          sudo chown -R "$USER" ~/nix-cache
-          nix copy --to "file://$HOME/nix-cache?compression=zstd" "${{ steps.nixpkg.outputs.out }}"
-      - uses: actions/cache/save@v6
-        if: steps.nix-cache.outputs.cache-hit != 'true'
-        with:
-          path: ~/nix-cache
-          key: ${{ steps.nixpkg.outputs.key }}
+          save: 'true'
       - name: stress
-        run: WEBTOP_TEST_SCENARIOS="$SCENARIOS" WEBTOP_TEST_ROUNDS="$ROUNDS" bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
+        run: WEBTOP_TEST_SCENARIOS="$SCENARIOS" WEBTOP_TEST_ROUNDS="$ROUNDS" bash tests/nix-profile-concurrency.sh "${{ steps.nix.outputs.nix }}"

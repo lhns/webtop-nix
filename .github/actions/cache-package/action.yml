@@ -1,0 +1,47 @@
+name: cache-package
+description: >
+  Builds a flake package of this repo through the Actions cache: a local binary cache at ~/<attr>-cache
+  (listed in .github/actions/nix) restored before the build and saved after a miss. A miss or a failed
+  restore just builds.
+inputs:
+  attr:
+    description: Flake package name, as in .#<attr>.
+    required: true
+runs:
+  using: composite
+  steps:
+    # The key is the store path, i.e. a hash of the derivation: it changes exactly when the package does.
+    - name: store path
+      id: path
+      shell: bash
+      run: |
+        out=$(nix eval --raw ".#${{ inputs.attr }}.outPath")
+        echo "key=${{ inputs.attr }}-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
+    # Evaluating may make the nix daemon (root) create files in the cache directory; start clean so
+    # the restore, which runs as the user, can write.
+    - shell: bash
+      run: |
+        sudo rm -rf ~/${{ inputs.attr }}-cache
+        mkdir ~/${{ inputs.attr }}-cache
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/${{ inputs.attr }}-cache
+        key: ${{ steps.path.outputs.key }}
+    - name: build ${{ inputs.attr }}
+      shell: bash
+      run: nix build ".#${{ inputs.attr }}" -L --no-link
+    # The whole closure: a binary cache refuses a path whose references it lacks. zstd keeps it small.
+    - name: save ${{ inputs.attr }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      # The daemon (root) created parts of the directory while substituting.
+      run: |
+        sudo chown -R "$USER" ~/${{ inputs.attr }}-cache
+        nix copy --to "file://$HOME/${{ inputs.attr }}-cache?compression=zstd" $(nix build ".#${{ inputs.attr }}" --no-link --print-out-paths)
+        du -sh ~/${{ inputs.attr }}-cache
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/${{ inputs.attr }}-cache
+        key: ${{ steps.path.outputs.key }}
