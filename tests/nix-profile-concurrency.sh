@@ -1119,6 +1119,7 @@ elif [ -n "${WEBTOP_TEST_SHARD:-}" ]; then
   # The count must match, so that a shard added here and not to the CI matrix fails instead of never running.
   [ "${WEBTOP_TEST_SHARD#*/}" = "${#shards[@]}" ] || { echo "WEBTOP_TEST_SHARD=$WEBTOP_TEST_SHARD, but there are ${#shards[@]} shards"; exit 1; }
   scenarios=${shards[${WEBTOP_TEST_SHARD%/*}]}
+  [ -n "$scenarios" ] || { echo "WEBTOP_TEST_SHARD=$WEBTOP_TEST_SHARD: no such shard"; exit 1; }
 else
   scenarios=${shards[*]}
 fi

@@ -18,7 +18,7 @@ runs:
     - uses: cachix/install-nix-action@v31
       with:
         extra_nix_config: |
-          extra-substituters = file:///home/runner/kwin-cache file:///home/runner/nix-cache file:///home/runner/build-cache
+          extra-substituters = file:///home/runner/kwin-cache file:///home/runner/pixelflux-cache file:///home/runner/pcmflux-cache file:///home/runner/nix-software-center-cache file:///home/runner/nix-cache file:///home/runner/build-cache
           require-sigs = false
 
     # The key is the store path, i.e. a hash of its derivation. v2: the entry holds every output `nix build`
