@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lhns/webtop-nix/pkgs/webtop-power/internal/state"
 )
 
 const um = "/user.slice/user-1000.slice/user@1000.service/"
@@ -260,4 +262,9 @@ func TestParseShow(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v", got)
 	}
+}
+
+// Asleep reports whether units are recorded as frozen.
+func Asleep(stateDir string) bool {
+	return state.Read(filepath.Join(stateDir, state.FrozenUnits)) != ""
 }

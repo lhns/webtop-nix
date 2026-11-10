@@ -19,8 +19,6 @@ const systemctlTimeout = 5 * time.Second
 // to the user manager's private socket under XDG_RUNTIME_DIR.
 type User struct {
 	UID, GID uint32
-	Name     string // login name; empty if unknown
-	Home     string // empty if unknown
 }
 
 // LookupUser resolves the account with the given uid, falling back to gid 100.
@@ -28,7 +26,7 @@ func LookupUser(uid uint32) User {
 	u := User{UID: uid, GID: 100}
 	if r, err := user.LookupId(strconv.FormatUint(uint64(uid), 10)); err == nil {
 		if gid, err := strconv.ParseUint(r.Gid, 10, 32); err == nil {
-			u = User{UID: uid, GID: uint32(gid), Name: r.Username, Home: r.HomeDir}
+			u = User{UID: uid, GID: uint32(gid)}
 		}
 	}
 	return u

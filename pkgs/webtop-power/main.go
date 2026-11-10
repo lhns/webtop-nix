@@ -116,11 +116,11 @@ func suspend(cfg config) int {
 			Sessions: selkies.Sessions(cfg.port),
 			Poll:     500 * time.Millisecond,
 			Notify: func(asleep bool) {
+				st := "awake"
 				if asleep {
-					runHooks(cfg.hooks, "asleep")
-				} else {
-					runHooks(cfg.hooks, "awake")
+					st = "asleep"
 				}
+				runHooks(cfg.hooks, st)
 			},
 		}).Run(ctx)
 		if err == nil {

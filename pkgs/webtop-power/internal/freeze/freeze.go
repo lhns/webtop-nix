@@ -109,11 +109,6 @@ type Freezer struct {
 
 func (f *Freezer) file() string { return filepath.Join(f.StateDir, state.FrozenUnits) }
 
-// Asleep reports whether units are recorded as frozen.
-func Asleep(stateDir string) bool {
-	return state.Read(filepath.Join(stateDir, state.FrozenUnits)) != ""
-}
-
 func (f *Freezer) recorded() []string {
 	return strings.Fields(state.Read(f.file()))
 }
