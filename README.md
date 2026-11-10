@@ -100,10 +100,24 @@ A consumer whose home is reached through other paths sets `nixProfile.homeStorag
 
 ## Time zone and locale
 
-The session's time zone and locale come from, in order: the user's `webtop.timeZone` / `webtop.locale` (home-manager options of the `packages` home module, or alone as `webtop.homeModules.timeLocale`; they write `timeZone=` and `locale=` to `~/.config/webtop/session.conf`), then `WEBTOP_TIME_ZONE` / `WEBTOP_LOCALE` from `services.webtop.localeEnvironmentFiles` (kube-webtop-workspaces passes its chart values this way), then `services.webtop.timeZone` / `services.webtop.locale`. With none set, `time.timeZone` and `i18n.defaultLocale` apply.
-Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image. It then relinks `/etc/localtime` and rewrites `/etc/locale.conf` (`LANG` only), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user (a link is followed: home-manager's is one into the store; what the user cannot open is not read), a file over 64 KiB is ignored, and other keys are skipped with one journal line per start (keys in `services.webtop.sessionConfKeys` without it). The format is the gateway's: `key=value`, blanks around either ignored, `#` comment lines.
-A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then. The module sets `i18n.imperativeLocale` (as a default), so `/etc/locale.conf` is a plain file that `localectl` reads and NixOS no longer exports `LANG` itself, and a `time.timeZone` of the system is not combined with these options (`timedatectl` would keep reporting the declared zone).
-`services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale`.
+Time zone, language and formats resolve per key, each from the first valid of: the user's `~/.config/webtop/session.conf` (the home-manager options `webtop.timeZone`, `webtop.locale`, `webtop.language` and `webtop.formats.<LC_x>` of the `packages` home module, or alone `webtop.homeModules.timeLocale`), then the admin's `session.conf` in the defaults directory ("Admin defaults" below), then `services.webtop.timeZone` / `services.webtop.locale`. Keys: `timeZone`, `locale` (`LANG`), `language` (`LANGUAGE`, a `:` list) and `LC_TIME`, `LC_NUMERIC`, `LC_MONETARY`, `LC_MEASUREMENT`, `LC_PAPER`, `LC_COLLATE`, `LC_ADDRESS`, `LC_NAME`, `LC_TELEPHONE`. With none set, `time.timeZone` and `i18n.defaultLocale` apply.
+Before each start of `webtop-session.service`, as root, `webtop-locale` takes the first valid value of each key: a zone must resolve to a TZif file under `/etc/zoneinfo` (no `..`, no link out of it), a locale must be in the image, `language` is a `:` list of catalog names. It then relinks `/etc/localtime`, rewrites `/etc/locale.conf` (`LANG`, `LANGUAGE` and the resolved `LC_*`), which `timedatectl` and `localectl` report and the session wrapper loads, so Plasma, its user services and terminals see them, and writes `/run/webtop/xdg-session/plasma-localerc` with the same values (`[Formats]`, `[Translations]`). That file is the highest system layer of Plasma's config cascade: `startplasma` and System Settings (Region & Language) see the resolved values as the system default, and a key saved in `~/.config/plasma-localerc` beats it. The chain for formats is therefore module default < admin < `webtop.*` < System Settings; removing the System Settings key brings the others back. An invalid value is logged to the journal and the next source is used; the session starts regardless. The user's file is read as the user (a link is followed: home-manager's is one into the store; what the user cannot open is not read), a file over 64 KiB is ignored, and other keys are skipped with one journal line per start (keys in `services.webtop.sessionConfKeys` without it). The format is the gateway's: `key=value`, blanks around either ignored, `#` comment lines.
+A change is applied by restarting the desktop session (or at the next boot). A time zone set in KDE's settings goes through `timedated` to `/etc/localtime` and holds until then; only `webtop.timeZone` persists. The module sets `i18n.imperativeLocale` (as a default), so `/etc/locale.conf` is a plain file that `localectl` reads and NixOS no longer exports `LANG` itself, and a `time.timeZone` of the system is not combined with these options (`timedatectl` would keep reporting the declared zone). Terminals outside Plasma see `/etc/locale.conf`, not a format the user chose in System Settings.
+`services.webtop.locales` lists the locales built into the image (default: en_US, en_GB, de_DE, fr_FR, es_ES, it_IT, nl_NL, pl_PL, pt_PT, sv_SE, all UTF-8, and C.UTF-8). Any other needs a package in the user's profile that provides one, and is not selectable with `webtop.locale` or the formats. ISO dates with 24 h are a locale choice, not a format string: `sv_SE.UTF-8` as `LC_TIME` (month and weekday names then come in Swedish in long dates).
+
+### Admin defaults
+
+`services.webtop.defaults.source` (default `/etc/webtop/defaults`; a bind mount, a ConfigMap or `environment.etc`; it may be missing) is a directory of defaults for every desktop. All of it is a default the user can override, none of it is enforced, and every user can read it, so it holds no secrets:
+
+| entry | what | user override |
+| --- | --- | --- |
+| `session.conf` | `key=value`, the keys above | `webtop.*` options (`~/.config/webtop/session.conf`), per key |
+| `xdg/<file>` | KDE/XDG config (`kdeglobals`, `kwinrc`, ...) as ini text, read by every KConfig reader | System Settings, `kwriteconfig6` or plasma-manager (`~/.config/<file>`), per key |
+| `home.nix` | a home-manager module (imported by the starter flake in a later change) | plain assignments in the user's `home.nix` |
+
+`webtop-defaults.service` copies the directory once per boot to the root-owned `/run/webtop/defaults` (links followed, so ConfigMap mounts work), which keeps its content fixed while the desktop runs: a change in the source applies after `systemctl restart webtop-defaults` (or a reboot) and a session start. Only `session.conf`, `xdg/` and `home.nix` are kept. A missing source gives an empty snapshot; a `home.nix` that does not parse (`nix-instantiate --parse`) is replaced by `{ }` and logged, since it would fail every user's switch. `xdg/plasma-localerc` is dropped: `webtop-locale` owns that layer.
+The session wrapper sets `XDG_CONFIG_DIRS` to `/run/webtop/xdg-session`, `/run/webtop/defaults/xdg`, then the previous value (`/etc/xdg` if unset); `startplasma` puts `~/.config/kdedefaults` in front. KConfig merges per key, so `~/.config/<file>` holds only what the user changed, and an admin change reaches every key the user has not written. Limits: do not manage KDE rc files with `xdg.configFile` (store links are read-only, so a KCM write fails or replaces the link); a global theme applied later writes `~/.config/kdedefaults`, which sits above the admin layer; panel and widget layout (`plasma-org.kde.plasma.desktop-appletsrc`) is generated at first login and is not cascaded; running plasmashell and KWin read config at start, so admin changes apply at the next session start.
+`tests/defaults.nix` (`checks.<system>.defaults`) covers this in a VM and prints the results for the assumptions it rests on as `RESULT` lines.
 
 ## Sign out at the login provider
 
@@ -316,7 +330,7 @@ ordering may change between commits, so set an option instead of overriding a un
 | `services.webtop.environmentFiles` | `[ ]` | `EnvironmentFile=` of the Selkies user service: `SELKIES_*` settings (above, "Runtime settings") |
 | `services.webtop.sessionEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-session.service`: environment for Plasma and the apps it starts |
 | `services.webtop.sessionStopCommands` | `[ ]` | `ExecStopPost=` lines of `webtop-session.service`, run after each end of the session (Log Out, crash, restart, shutdown) once Plasma is stopped; `+` runs one as root, `-` ignores its failure, `$SERVICE_RESULT` and `$EXIT_CODE` tell how the session ended |
-| `services.webtop.localeEnvironmentFiles` | `[ ]` | `WEBTOP_TIME_ZONE=`, `WEBTOP_LOCALE=` ("Time zone and locale") |
+| `services.webtop.defaults.source` | `/etc/webtop/defaults` | the admin's defaults directory: `session.conf`, `xdg/`, `home.nix` ("Time zone and locale", "Admin defaults") |
 | `services.webtop.lockEnvironmentFiles` | `[ ]` | `WEBTOP_LOCK_SCREEN=true\|false` ("Lock screen") |
 | `services.webtop.sessionConfKeys` | `[ ]` | keys of the user's `~/.config/webtop/session.conf` that the consumer reads; the desktop skips them instead of logging them as unknown |
 | `services.webtop.nixProfile.templateEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-home-manager-template.service`: `WEBTOP_HOME_PATHS`, the space-separated `/home/<name>` paths this home has been mounted at, so a starter rendered for an earlier login name still counts as unmodified |
@@ -332,7 +346,8 @@ Files and commands a consumer can use:
 
 | what | contract |
 | --- | --- |
-| `~/.config/webtop/session.conf` | the user's `key=value` file (blanks around either ignored, `#` comment lines, at most 64 KiB); the desktop reads `timeZone` and `locale`, a consumer its `sessionConfKeys` |
+| `~/.config/webtop/session.conf` | the user's `key=value` file (blanks around either ignored, `#` comment lines, at most 64 KiB); the desktop reads `timeZone`, `locale`, `language` and the `LC_*` formats, a consumer its `sessionConfKeys` |
+| `/run/webtop/defaults/` | the snapshot of the defaults directory, root-owned, taken once per boot by `webtop-defaults.service` ("Admin defaults") |
 | `~/.config/webtop/selkies.env` | the user's Selkies settings, limited to `userSettings` |
 | `$XDG_RUNTIME_DIR/webtop/lock` | written (the time) each time the session is locked ("Lock screen") |
 | `/run/webtop/restore/progress.json` | the software restore's progress ("Container module") |
@@ -342,7 +357,7 @@ Files and commands a consumer can use:
 | `nixProfile.reinstall` | `webtop-nix-reinstall MANIFEST`: bring the user's packages back after the store lost them |
 | `webtop-template` | on the system path with `nixProfile`: update a file the image wrote into the home only while unmodified |
 
-Units a consumer may order its own against: `webtop-session.service`, `webtop-home-manager-template.service`,
+Units a consumer may order its own against: `webtop-defaults.service`, `webtop-session.service`, `webtop-home-manager-template.service`,
 `webtop-home-manager.service`, `webtop-session-save.service`, `webtop-nix-restore.service`, `webtop-nix-reinstall.service` and the user service `selkies.service`.
 
 ## Tests

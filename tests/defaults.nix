@@ -40,6 +40,11 @@ pkgs.testers.runNixOSTest {
       LC_TIME=sv_SE.UTF-8
       LC_MONETARY=nl_NL.UTF-8
     '';
+    environment.etc."webtop/defaults/home.nix".text = ''
+      { lib, ... }: {
+        home.sessionVariables.SITE_DEFAULT = lib.mkDefault "admin";
+      }
+    '';
     environment.etc."webtop/defaults/xdg/kdeglobals".text = ''
       [Webtop]
       AdminKey=admin
@@ -131,7 +136,8 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("webtop-defaults.service")
     assert machine.succeed(f"stat -c '%U:%a' {snap}").strip() == "root:755", "snapshot is not root-owned and world-readable"
-    assert machine.succeed(f"cat {snap}/home.nix").strip() == "{ }", "no home.nix in the source: expected the empty module"
+    # A valid module survives the snapshot (nix-instantiate --parse works in the unit).
+    machine.succeed(f"cmp {snap}/home.nix /etc/webtop/defaults/home.nix")
     assert "AdminKey=admin" in machine.succeed(f"cat {snap}/xdg/kdeglobals")
     machine.succeed(f"test ! -e {snap}/..data && test ! -L {snap}/session.conf")
     ready()
@@ -147,6 +153,9 @@ pkgs.testers.runNixOSTest {
     dirs = e.get("XDG_CONFIG_DIRS", "")
     check("XDG_CONFIG_DIRS", dirs.startswith("/home/user/.config/kdedefaults:/run/webtop/xdg-session:/run/webtop/defaults/xdg:") and "/etc/xdg" in dirs.split(":"), dirs)
     check("systemd user manager sees XDG_CONFIG_DIRS", "/run/webtop/xdg-session" in machine.succeed(f"{ubus} systemctl --user show-environment"))
+    # A terminal: a shell started from the session's environment (it sources NixOS's profile scripts).
+    status, term = user_run("/run/current-system/sw/bin/bash -ic 'echo TERM_XDG=$XDG_CONFIG_DIRS; echo TERM_KEY=$(kreadconfig6 --file kdeglobals --group Webtop --key AdminKey)'", e)
+    check("a terminal sees XDG_CONFIG_DIRS and the admin's xdg key", "TERM_KEY=admin" in term and "/run/webtop/defaults/xdg" in term, term)
     # A Plasma app (Qt, KConfig) in the session's environment.
     f = qt_fmt({**e, "QT_QPA_PLATFORM": "offscreen"})
     print("DIAG Qt in the session, admin LC_TIME sv_SE:", f)
@@ -159,7 +168,6 @@ pkgs.testers.runNixOSTest {
     check("kdeglobals: admin key through KConfig", seen["AdminKey"] == "admin", str(seen))
     check("kdeglobals: other keys of /etc/xdg survive (lock screen)", kread("kdeglobals", "KDE Action Restrictions", "action/lock_screen", e) == "false")
     print(f"RESULT A4 (info): look-and-feel keys seen through the cascade after the first login: widgetStyle={seen['widgetStyle']!r} ColorScheme={seen['ColorScheme']!r}; kdedefaults exists: {machine.execute('test -d /home/user/.config/kdedefaults')[0] == 0}")
-    before = machine.succeed("cat /home/user/.config/kdeglobals 2>/dev/null || true")
     kwrite("--file kdeglobals --group Webtop --key Both user", e)
     after = ini(machine.succeed("cat /home/user/.config/kdeglobals"))
     check("kdeglobals: a user write lands in ~/.config only, with that key", after.get("Webtop") == {"Both": "user"} and "AdminKey" not in after.get("Webtop", {}) and after.get("KDE", {}).get("widgetStyle") != "AdminStyle", str(after.get("Webtop")))
@@ -267,6 +275,18 @@ pkgs.testers.runNixOSTest {
     machine.succeed(f"test \"$(cat {snap}/home.nix)\" = '{{ }}' && test ! -e {snap}/session.conf")
     restart_session()
     check("source is not a directory: module defaults", zone() == "America/New_York" and penv().get("LANG") == "en_GB.UTF-8")
+
+    # Nothing set at all (no module default, no admin file): LANG stays the image's and is still given to
+    # the cascade, so startplasma does not write its own into the user's plasma-localerc.
+    machine.succeed("rm -rf /etc/webtop; systemctl restart webtop-defaults.service")
+    machine.succeed("printf 'LANG=en_GB.UTF-8\n' > /etc/locale.conf; rm -rf /tmp/xs")
+    bin = machine.succeed("ls /nix/store/*-webtop-locale/bin/webtop-locale").split()[0]
+    machine.succeed(f"{bin} 1000 /run/current-system/sw/lib/locale/locale-archive \"\" \"\" \"\" /run/webtop/defaults /tmp/xs")
+    check("no source and no module default: LANG still reaches the cascade, locale.conf untouched",
+          machine.succeed("cat /tmp/xs/plasma-localerc") == "[Formats]
+LANG=en_GB.UTF-8
+" and machine.succeed("cat /etc/locale.conf") == "LANG=en_GB.UTF-8
+")
 
     print("PROBLEMS:", problems)
     assert not problems, problems

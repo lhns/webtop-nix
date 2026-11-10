@@ -42,3 +42,8 @@ this flake holds what a single desktop needs; kww adds only multi-user orchestra
 A consumer extends the desktop only through the options, env vars, files and commands listed in the
 README's "Extension points"; the module's units are not an interface. Where a consumer needs a new
 hook, it becomes an option here instead of a unit override there.
+
+## Amendment 2026-11-10
+
+Time zone and locale reach the desktop through the admin defaults directory
+(`services.webtop.defaults.source`, ADR 0015), not environment files: `localeEnvironmentFiles` is removed.
