@@ -1103,46 +1103,32 @@ home-manager switch --flake "$H" > "$t/log/first" 2>&1 || { tail -n 40 "$t/log/f
 mkdir -p "$t/roots"
 for r in "$nix_out" "$hm" "$hm_locked"; do nix-store --add-root "$t/roots/$(basename "$r")" -r "$r" > /dev/null || exit 1; done
 
+# The whole run in shards of about 5 min, one CI job each (WEBTOP_TEST_SHARD=<index>/<count>).
+shards=(
+  "plain:scenario_parallel_adds plain:scenario_parallel_removes plain:scenario_upgrades plain:scenario_add_remove_same plain:scenario_slow_during_fast plain:scenario_interrupted plain:scenario_plain_revert scenario_parallel_adds scenario_kill9_stages scenario_cancel"
+  "scenario_parallel_removes scenario_upgrades scenario_add_remove_same scenario_interrupted"
+  "scenario_slow_during_fast scenario_two_backends scenario_mixed scenario_store_path_lock scenario_reinstall"
+  "scenario_signal_sweep scenario_activations scenario_flake_elsewhere scenario_disk_full"
+  "scenario_cgroup scenario_commands scenario_repairs scenario_process_kills scenario_lock_holders scenario_hm_atomic"
+)
 # WEBTOP_TEST_SCENARIOS: only these, as `scenario_x` or `plain:scenario_x`. WEBTOP_TEST_ROUNDS: for the
 # repeated ones. Both for .github/workflows/nix-concurrency-stress.yaml.
-mixed_rounds=${WEBTOP_TEST_ROUNDS:-2}
 if [ -n "${WEBTOP_TEST_SCENARIOS:-}" ]; then
-  rounds=${WEBTOP_TEST_ROUNDS:-5}
-  for s in $WEBTOP_TEST_SCENARIOS; do
-    case $s in plain:*) M=plain; s=${s#plain:} ;; *) M=declaration ;; esac
-    "$s"
-  done
+  scenarios=$WEBTOP_TEST_SCENARIOS
+elif [ -n "${WEBTOP_TEST_SHARD:-}" ]; then
+  # The count must match, so that a shard added here and not to the CI matrix fails instead of never running.
+  [ "${WEBTOP_TEST_SHARD#*/}" = "${#shards[@]}" ] || { echo "WEBTOP_TEST_SHARD=$WEBTOP_TEST_SHARD, but there are ${#shards[@]} shards"; exit 1; }
+  scenarios=${shards[${WEBTOP_TEST_SHARD%/*}]}
 else
-  # Many rounds where they are cheap: a declaration round runs home-manager for every command.
-  for M in plain declaration; do
-    if [ "$M" = plain ]; then rounds=15; else rounds=5; fi
-    scenario_parallel_adds
-    scenario_parallel_removes
-    scenario_upgrades
-    scenario_add_remove_same
-    scenario_slow_during_fast
-    scenario_interrupted
-  done
-  M=plain
-  scenario_plain_revert
-  M=declaration
-  scenario_two_backends
-  scenario_kill9_stages
-  scenario_cancel
-  scenario_signal_sweep
-  scenario_activations
-  scenario_lock_holders
-  scenario_process_kills
-  scenario_repairs
-  scenario_flake_elsewhere
-  scenario_commands
-  scenario_mixed
-  scenario_store_path_lock
-  scenario_hm_atomic
-  scenario_reinstall
-  scenario_cgroup
-  scenario_disk_full
+  scenarios=${shards[*]}
 fi
+mixed_rounds=${WEBTOP_TEST_ROUNDS:-2}
+for s in $scenarios; do
+  case $s in plain:*) M=plain; s=${s#plain:} ;; *) M=declaration ;; esac
+  # Many rounds where they are cheap: a declaration round runs home-manager for every command.
+  if [ "$M" = plain ]; then rounds=${WEBTOP_TEST_ROUNDS:-15}; else rounds=${WEBTOP_TEST_ROUNDS:-5}; fi
+  "$s"
+done
 
 echo "$fails failed"
 [ "$fails" = 0 ]

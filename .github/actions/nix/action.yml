@@ -1,0 +1,60 @@
+name: nix
+description: >
+  Installs Nix with the workflow's local binary caches as substituters and restores the patched Nix
+  (services.webtop.nixProfile) from the Actions cache, building it on a miss.
+inputs:
+  save:
+    description: Save the patched Nix to the Actions cache on a miss (one job per system does).
+    default: 'false'
+outputs:
+  nix:
+    description: Store path of the patched Nix.
+    value: ${{ steps.nixpkg.outputs.out }}
+runs:
+  using: composite
+  steps:
+    # Local binary caches, filled from the Actions cache or the build job's artifact. Signatures are not
+    # checked: only this repo's workflows write them.
+    - uses: cachix/install-nix-action@v31
+      with:
+        extra_nix_config: |
+          extra-substituters = file:///home/runner/kwin-cache file:///home/runner/nix-cache file:///home/runner/build-cache
+          require-sigs = false
+
+    # The key is the store path, i.e. a hash of its derivation. v2: the entry holds every output `nix build`
+    # realises, not only `out`, which left a hit rebuilding all of Nix.
+    - name: patched Nix store path
+      id: nixpkg
+      shell: bash
+      run: |
+        out=$(nix eval --raw .#nix-profile-backends.outPath)
+        echo "out=$out" >> "$GITHUB_OUTPUT"
+        echo "key=nix-profile-backends-v2-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
+    # Evaluating may make the nix daemon (root) create files in the cache directory; start clean so
+    # the restore, which runs as the user, can write.
+    - name: empty patched Nix cache directory
+      shell: bash
+      run: |
+        sudo rm -rf ~/nix-cache
+        mkdir ~/nix-cache
+    - name: restore patched Nix
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/nix-cache
+        key: ${{ steps.nixpkg.outputs.key }}
+    - name: build patched Nix
+      shell: bash
+      run: nix build .#nix-profile-backends -L --no-link
+    - name: save patched Nix
+      if: inputs.save == 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      # The daemon (root) created parts of the directory while substituting.
+      run: |
+        sudo chown -R "$USER" ~/nix-cache
+        nix copy --to "file://$HOME/nix-cache?compression=zstd" $(nix build .#nix-profile-backends --no-link --print-out-paths)
+    - if: inputs.save == 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/nix-cache
+        key: ${{ steps.nixpkg.outputs.key }}
