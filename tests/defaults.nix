@@ -65,7 +65,7 @@ pkgs.testers.runNixOSTest {
     import base64, shlex, re
     ubus = "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
     snap = "/run/webtop/defaults"
-    problems = []
+    problems: list[str] = []
 
     def check(name, ok, evidence=""):
         print(f"RESULT {name}: {'PASS' if ok else 'FAIL'} {evidence}")
