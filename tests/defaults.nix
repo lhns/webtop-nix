@@ -263,7 +263,7 @@ pkgs.testers.runNixOSTest {
     machine.succeed("journalctl -u webtop-session.service -o cat | grep -q 'defaults session.conf: ignored 1 lines'")
     machine.succeed("journalctl -u webtop-session.service -o cat | grep -q \"ignoring invalid timeZone 'Mars/Olympus' from admin defaults\"")
     # A garbage directory in place of the source.
-    machine.succeed(f"rm -rf /etc/webtop; mkdir -p /etc/webtop; head -c 3000 /dev/urandom > /etc/webtop/defaults; systemctl restart webtop-defaults.service")
+    machine.succeed("rm -rf /etc/webtop; mkdir -p /etc/webtop; head -c 3000 /dev/urandom > /etc/webtop/defaults; systemctl restart webtop-defaults.service")
     machine.succeed(f"test \"$(cat {snap}/home.nix)\" = '{{ }}' && test ! -e {snap}/session.conf")
     restart_session()
     check("source is not a directory: module defaults", zone() == "America/New_York" and penv().get("LANG") == "en_GB.UTF-8")
