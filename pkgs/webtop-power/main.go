@@ -156,7 +156,7 @@ func thaw(cfg config) {
 }
 
 func suspendPoweroff(cfg config) int {
-	if err := state.WriteAtomic(filepath.Join(cfg.stateDir, state.SleepPoweroff), []byte("suspend\n")); err != nil {
+	if err := state.WriteAtomic(filepath.Join(cfg.stateDir, state.StopReason), []byte("suspend\n")); err != nil {
 		log.Printf("suspend: %v", err)
 		return 1
 	}

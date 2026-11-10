@@ -29,6 +29,19 @@ grep -qF 'mkdir -p "$N/upper" "$N/work" "$N/var"' "$store_init" || fail "the dir
 grep -qF 'mount --bind "$N/var" /nix/var/nix' "$store_init" || fail "the Nix state is not bound from \$N/var"
 echo "mount script: ok"
 
+# The defaults of the built scripts are the former code's (the runs below override them: a volume path is
+# not writable here).
+lower_script=$init/bin/webtop-nix-lower
+partial_script=$init/bin/webtop-nix-partial
+for l in 'STAMP_FILE=${STAMP_FILE:-/webtop-image-stamp}' 'N=${WEBTOP_NIX_PERSIST:-/persist/nix}' \
+  'LOWER=${WEBTOP_LOWER_ROOT:-/.lower}' 'HOMES=${WEBTOP_HOMES_ROOT:-/home}' 'export N LOWER'; do
+  grep -qxF "$l" "$lower_script" || fail "webtop-nix-lower lacks: $l"
+done
+for l in 'N=${N:-/persist/nix}' 'LOWER=${LOWER:-/.lower}'; do
+  grep -qxF "$l" "$partial_script" || fail "webtop-nix-partial lacks: $l"
+done
+echo "script defaults: ok"
+
 # --- webtop-nix-lower
 t=$(mktemp -d)
 trap 'rm -rf "$t"' EXIT
@@ -39,7 +52,7 @@ export PARTIAL=$t/partial
 # itself is what the case below makes of it (exit code).
 cat > "$PARTIAL" <<EOS
 #!$busybox/bin/sh
-if [ "\$1" = --write-lower-paths ]; then echo "stamp \$2" > "$n/lower-paths"; exit 0; fi
+if [ "\$1" = --write-lower-paths ]; then echo "stamp \$2" > "\$WEBTOP_NIX_PERSIST/lower-paths"; exit 0; fi
 exit \${PARTIAL_RC:-0}
 EOS
 chmod +x "$PARTIAL"
@@ -65,6 +78,7 @@ mkdir -p "$h" "$n/upper/ccc-profile"
 ln -s profile-1-link "$h/profile"
 ln -s /nix/store/ccc-profile "$h/profile-1-link"
 echo '{"version":3}' > "$n/upper/ccc-profile/manifest.json"
+touch "$n/partial.attempts" # left by an interrupted partial invalidation
 echo s2 > "$t/stamp"
 PARTIAL_RC=1 lower >/dev/null
 want "reset" "$(names "$n")" "lower-paths
@@ -100,3 +114,18 @@ var/profiles/per-user/p"
 want "stamp after the reset" "$(cat "$n/lower-stamp")" s2
 want "recorded manifest" "$(cat "$n/reinstall/user.manifest.json")" '{"version":3}'
 echo "reset: ok"
+
+# A fresh volume under a home that already has a profile: the reinstall is due, with the manifest the
+# image's store has for it.
+export WEBTOP_NIX_PERSIST=$t/fresh/nix
+n=$WEBTOP_NIX_PERSIST
+mkdir -p "$t/lower/nix/store/ccc-profile"
+echo '{"version":3}' > "$t/lower/nix/store/ccc-profile/manifest.json"
+echo s3 > "$t/stamp"
+lower >/dev/null
+want "fresh volume, existing home" "$(names "$n")" "lower-paths
+lower-stamp
+reinstall
+reinstall/pending
+reinstall/user.manifest.json"
+echo "fresh volume under a home: ok"

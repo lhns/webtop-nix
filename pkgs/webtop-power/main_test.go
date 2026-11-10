@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,30 @@ func TestRunHooksAppendsStateAndSurvivesFailure(t *testing.T) {
 	b, _ := os.ReadFile(out)
 	if string(b) != "asleep\nawake\n" {
 		t.Fatalf("hooks wrote %q", b)
+	}
+}
+
+// A freeze that cannot start (no Selkies to watch) falls back to a poweroff: the marker the session
+// save and the consumer's power hook read, and the poweroff target started.
+func TestFailedFreezeFallsBackToPoweroff(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh")
+	}
+	bin, dir := t.TempDir(), t.TempDir()
+	log := filepath.Join(bin, "log")
+	os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\necho \"$@\" > "+log+"\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Port 1: nothing listens, so the sleeper fails before freezing anything.
+	if rc := suspend(config{stateDir: dir, uid: 1000, port: 1, mode: "freeze"}); rc != 0 {
+		t.Fatalf("suspend returned %d", rc)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "stop-reason")); string(b) != "suspend\n" {
+		t.Fatalf("stop-reason = %q", b)
+	}
+	if b, _ := os.ReadFile(log); !strings.Contains(string(b), "start --no-block --job-mode=replace-irreversibly poweroff.target") {
+		t.Fatalf("systemctl called with %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "frozen-units")); err == nil {
+		t.Fatal("something was left frozen")
 	}
 }

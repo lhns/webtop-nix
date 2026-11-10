@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -32,8 +31,8 @@ const (
 // Decide returns whether to save and why. A KDE-initiated shutdown has
 // already saved, and a shell `systemctl poweroff` doesn't save, like a real machine.
 func Decide(stateDir string, listJobs func() ([]sysd.Job, error)) (save bool, why string) {
-	if _, err := os.Stat(filepath.Join(stateDir, state.SleepPoweroff)); err == nil {
-		return true, "sleep poweroff"
+	if state.Read(filepath.Join(stateDir, state.StopReason)) == "suspend" {
+		return true, "suspend"
 	}
 	jobs, err := listJobs()
 	if err != nil {
@@ -44,7 +43,7 @@ func Decide(stateDir string, listJobs func() ([]sysd.Job, error)) (save bool, wh
 			return true, "container stop (halt.target queued)"
 		}
 	}
-	return false, "no halt.target job and no sleep-poweroff marker"
+	return false, "no halt.target job and no suspend marker"
 }
 
 // Run saves the session if warranted. It only logs errors.

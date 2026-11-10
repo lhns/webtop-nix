@@ -386,7 +386,7 @@ in
           and everything in `app.slice`; Selkies, the session bus and audio keep running), and
           `webtop-power suspend` waits until a new Selkies session connects, then thaws; hibernation
           variants are off. `"poweroff"`, or a freeze that failed: the session is saved, the marker
-          `/run/webtop/sleep-poweroff` is written and the system powers off. Logind offers Sleep only
+          `/run/webtop/stop-reason` (containing `suspend`) is written and the system powers off. Logind offers Sleep only
           if `/sys/power/state` is writable: in a container `sleep.init` provides a stand-in.
           `WEBTOP_SUSPEND_MODE=freeze|poweroff` in a file of `sleep.environmentFiles` overrides
           this at each Sleep; it does not turn `"systemd"` into a freeze.

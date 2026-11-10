@@ -30,13 +30,13 @@ func TestDecide(t *testing.T) {
 		{"poweroff only", "", jobs("poweroff.target"), false},
 		{"no jobs", "", jobs(), false},
 		{"list error", "", func() ([]sysd.Job, error) { return nil, errors.New("no bus") }, false},
-		{"marker beats list error", "x", func() ([]sysd.Job, error) { return nil, errors.New("no bus") }, true},
+		{"marker beats list error", "suspend", func() ([]sysd.Job, error) { return nil, errors.New("no bus") }, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if tc.marker != "" {
-				os.WriteFile(filepath.Join(dir, "sleep-poweroff"), []byte(tc.marker), 0o644)
+				os.WriteFile(filepath.Join(dir, "stop-reason"), []byte(tc.marker), 0o644)
 			}
 			if got, why := Decide(dir, tc.list); got != tc.wantYes || why == "" {
 				t.Fatalf("got %v %q", got, why)

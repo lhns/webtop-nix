@@ -18,7 +18,7 @@ ksmserver saving it. Neither needs Kubernetes; both came with the first consumer
   and PowerDevil resume as on hardware. Selkies (the readiness probe and wake trigger), the session
   bus, audio and `background.slice` keep running.
 - If freezing fails everything is thawed and Sleep falls back to `poweroff`: it writes
-  `/run/webtop/sleep-poweroff` and starts `poweroff.target`. `WEBTOP_SUSPEND_MODE` (the name the
+  `/run/webtop/stop-reason` (containing `suspend`) and starts `poweroff.target`. `WEBTOP_SUSPEND_MODE` (the name the
   first consumer already uses) switches between `freeze` and `poweroff` at runtime from
   `sleep.environmentFiles`. `sleep.hooks` tell a consumer `asleep` and `awake`.
 - `webtop-session-save.service` (`sessionSave.enable`) saves the session when it is stopped before

@@ -11,9 +11,9 @@ import (
 const (
 	// FrozenUnits lists the units frozen by Sleep; it exists only while asleep.
 	FrozenUnits = "frozen-units"
-	// SleepPoweroff exists once Sleep chose to power off instead of freezing; the session save
+	// StopReason holds "suspend" once Sleep chose to power off instead of freezing; the session save
 	// treats it as a request to save.
-	SleepPoweroff = "sleep-poweroff"
+	StopReason = "stop-reason"
 )
 
 // WriteAtomic replaces path via temp file + rename so readers never see a partial write.

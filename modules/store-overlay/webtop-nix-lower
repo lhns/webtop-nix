@@ -11,9 +11,9 @@ STAMP_FILE=${STAMP_FILE:-/webtop-image-stamp}
 N=${WEBTOP_NIX_PERSIST:-@persistPath@}
 LOWER=${WEBTOP_LOWER_ROOT:-@lowerRoot@}
 # Where each user's home lives; its nix profile manifest is recorded for the reinstall.
-HOMES=${WEBTOP_HOMES_ROOT:-$(dirname "$N")/home}
+HOMES=${WEBTOP_HOMES_ROOT:-@homesRoot@}
 PARTIAL=${PARTIAL:-$(dirname "$0")/webtop-nix-partial}
-export N
+export N LOWER
 
 log() { echo "webtop-init: $*"; }
 
@@ -89,6 +89,19 @@ write_stamp() {
   echo "$new" > "$N/lower-stamp.tmp" && mv "$N/lower-stamp.tmp" "$N/lower-stamp"
 }
 
+# A fresh volume under a home that already has a Nix profile (the volume was lost or never mounted):
+# the home's profile links dangle, so the reinstall is due once. Without a home this does nothing.
+adopt_homes() {
+  for home in "$HOMES"/*; do
+    if [ -d "$home/.local/state/nix/profiles" ]; then
+      record_manifests || return 1
+      touch "$N/reinstall/pending"
+      log "a home with a Nix profile on a fresh volume: the reinstall is due"
+      return 0
+    fi
+  done
+}
+
 new=$(cat "$STAMP_FILE") || exit 1
 old=$(cat "$N/lower-stamp" 2>/dev/null)
 if [ "$old" = "$new" ]; then
@@ -100,6 +113,7 @@ fi
 if [ -z "$old" ] && [ ! -d "$N/upper" ]; then
   log "first boot on this volume"
   mkdir -p "$N" || exit 1
+  adopt_homes || exit 1
   save_lower_paths
   write_stamp
   exit

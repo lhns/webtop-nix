@@ -106,6 +106,21 @@ touser cowsay ok >/dev/null || fail "the profile package did not survive the con
 touser nix profile add --profile-backend profile nixpkgs#tree || fail "the profile cannot be extended"
 echo "same home and store volume: ok"
 
+# A fresh store volume under the kept home (the store volume was lost): the first boot marks the
+# reinstall due, it runs once, and the declared package is back.
+docker rm -f "$c" >/dev/null
+docker volume rm "$pvol" >/dev/null
+start
+deadline=$(($(date +%s) + timeout))
+wait_for "KWin compositing on a fresh store volume" compositing
+reinstall_done() { [ "$(x systemctl show -P ActiveState webtop-nix-reinstall)" != active ] && [ "$(x systemctl show -P ExecMainExitTimestampMonotonic webtop-nix-reinstall)" != 0 ]; }
+wait_for "reinstall on a fresh store volume" reinstall_done
+[ "$(x systemctl show -P Result webtop-nix-reinstall)" = success ] \
+  || { x journalctl -u webtop-nix-reinstall --no-pager | tail -n 50; fail "webtop-nix-reinstall failed on a fresh store volume"; }
+x test ! -e /persist/nix/reinstall/pending || fail "the reinstall marker is still set"
+touser hello >/dev/null || fail "the declared package did not come back on a fresh store volume"
+echo "fresh store volume, kept home: ok"
+
 docker rm -f "$c" >/dev/null
 docker volume rm "$vol" "$pvol" >/dev/null
 echo "image boot: ok"

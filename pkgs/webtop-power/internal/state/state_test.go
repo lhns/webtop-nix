@@ -21,7 +21,7 @@ func TestReadMissingAndTrim(t *testing.T) {
 
 func TestWriteAtomicReplacesAndLeavesNoTemp(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, SleepPoweroff)
+	p := filepath.Join(dir, StopReason)
 	for _, v := range []string{"first", "second"} {
 		if err := WriteAtomic(p, []byte(v)); err != nil {
 			t.Fatal(err)

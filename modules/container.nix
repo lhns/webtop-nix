@@ -14,6 +14,8 @@ let
   remountHook = pkgs.writeShellScript "webtop-remount-store" ''
     exec ${pkgs.util-linux}/bin/mount -o remount /nix/store
   '';
+  # The users' homes sit beside the home storage path (kww: /persist/home, standalone: /home).
+  homesRoot = dirOf (cfg.nixProfile.homeStoragePath or "/home/user");
   # Static busybox shebangs: the scripts run before /nix/store is overlaid. nix-store is the image's
   # own, which is what /nix/store is until then.
   init = pkgs.runCommand "webtop-store-init" { } ''
@@ -23,6 +25,7 @@ let
         --subst-var-by busybox ${pkgs.pkgsStatic.busybox} \
         --subst-var-by persistPath ${lib.escapeShellArg overlay.persistPath} \
         --subst-var-by lowerRoot ${lib.escapeShellArg overlay.lowerRoot} \
+        --subst-var-by homesRoot ${lib.escapeShellArg homesRoot} \
         --subst-var-by bin $out/bin \
         --subst-var-by nixStore ${config.nix.package}/bin/nix-store
       chmod +x $out/bin/$1
@@ -74,7 +77,7 @@ in
           handles an image update (invalidates what the new store breaks, or resets the overlay and
           leaves the restore markers; `webtop-nix-lower`, `webtop-nix-partial`), mounts the overlay on
           `/nix/store` and `var` on `/nix/var/nix`. Reads `/webtop-image-stamp`, a hash identifying the
-          image's store. `WEBTOP_HOMES_ROOT` (default: `home` next to `persistPath`) names the directory
+          image's store. `WEBTOP_HOMES_ROOT` (default: the directory of `nixProfile.homeStoragePath`) names the directory
           of the users' homes, whose Nix profile manifests an update records. Under
           `nixProfile` it also sets the restore, reinstall and trash units up.
         '';
@@ -138,8 +141,15 @@ in
       (lib.mkIf overlay.enable {
         experimental-features = [ "local-overlay-store" "read-only-local-store" ];
         store = "daemon";
+        # A registered path's bytes are on disk before its row: the image-update invalidation
+        # (webtop-nix-partial) keeps upper paths by their rows. Costs an fsync per installed path.
+        fsync-store-paths = lib.mkDefault true;
       })
     ];
+    assertions = lib.optional overlay.enable {
+      assertion = overlay.upperLayer == "${overlay.persistPath}/upper";
+      message = "services.webtop.storeOverlay.upperLayer must be persistPath/upper: webtop-nix-lower and the restore expect the layout there";
+    };
     nix.checkConfig = lib.mkIf overlay.enable false; # would try to open the store at build time
     # %% : systemd would read the URL's %-escapes as unit specifiers.
     systemd.services.nix-daemon.environment.NIX_CONFIG =

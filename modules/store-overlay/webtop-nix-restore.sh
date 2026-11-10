@@ -7,7 +7,7 @@
 set -euo pipefail # as writeShellApplication runs it
 
 N=${WEBTOP_NIX_PERSIST:-/persist/nix}
-HOMES=${WEBTOP_HOMES:-/home}
+HOMES=${WEBTOP_HOMES_ROOT:-$(dirname "$N")/home}
 # Free space left to the session after the copy.
 RESERVE_KIB=${WEBTOP_NIX_RESTORE_RESERVE_KIB:-1048576}
 

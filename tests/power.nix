@@ -110,14 +110,14 @@ pkgs.testers.runNixOSTest {
     assert "not saving" in machine.succeed("journalctl -u webtop-session-save.service -o cat -n 20")
     assert machine.execute(f"grep -q '{group}' {rc}")[0] != 0, "saved without a reason"
     # With the marker, while asleep: ksmserver must answer, so the stop thaws before it saves.
-    machine.succeed("touch /run/webtop/sleep-poweroff")
+    machine.succeed("echo suspend > /run/webtop/stop-reason")
     sleep()
     machine.succeed("systemctl stop webtop-session-save.service")
     machine.succeed(f"! test -e {frozen_file}")
     assert state("plasma-ksmserver.service") == "running"
     machine.succeed(f"grep -q '{group}' {rc}")
     assert "save-session: saved" in machine.succeed("journalctl -u webtop-session-save.service -o cat -n 20")
-    machine.succeed("systemctl start webtop-session-save.service; rm -f /run/webtop/sleep-poweroff")
+    machine.succeed("systemctl start webtop-session-save.service; rm -f /run/webtop/stop-reason")
     connect("client-3")
     awake()
 
@@ -128,6 +128,6 @@ pkgs.testers.runNixOSTest {
     machine.start()
     machine.wait_for_unit("multi-user.target")
     prev = machine.succeed("journalctl -b -1 -u webtop-session-save.service -o cat")
-    assert "saving (sleep poweroff)" in prev and "save-session: saved" in prev, prev
+    assert "saving (suspend)" in prev and "save-session: saved" in prev, prev
   '';
 }

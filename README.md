@@ -211,8 +211,7 @@ or put an authenticating proxy in front.
 The entrypoint ([image/webtop-entrypoint](image/webtop-entrypoint)) mounts the [store overlay](#store-overlay)
 on `/persist` (the image declares it a `VOLUME`; without `-v` docker makes an anonymous one) and the `/sys/power`
 stand-in that lets [Sleep](#sleep-and-session-save) be offered. Software installed with `nix profile` lives in
-`/persist` and the home in `/home`: mount both volumes or neither, since a home that outlives its store is
-not repaired. `docker stop` saves the session; `docker kill` does not.
+`/persist` and the home in `/home`: keep them together. A home that outlives its store (a new `/persist`) gets the reinstall once at its next boot: declared packages come back, a package only in the old profile does not. `docker stop` saves the session; `docker kill` does not.
 
 `lib.buildImage { name; nixos; copyToRoot ? []; config ? {}; extraGroups ? []; reference ?; tag ?; }` builds
 such an image from any NixOS system with nix2container ([ADR 0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)).
@@ -257,7 +256,7 @@ no core dumps, no rtkit or oomd); the standalone image is `webtop` plus this ([A
 
 | option | default | what |
 | --- | --- | --- |
-| `services.webtop.storeOverlay.enable` | `false` | the Nix daemon uses a `local-overlay` store: the image's store (`lowerRoot`, `/.lower`) is read-only below, a volume (`persistPath`, `/persist/nix`; `upperLayer`) above. The entrypoint mounts it before systemd runs with `storeOverlay.init` ("Store overlay"); the daemon alone opens the store, clients go through it. `trusted-users`, `fsync-store-paths` and `sandbox` stay with the consumer |
+| `services.webtop.storeOverlay.enable` | `false` | the Nix daemon uses a `local-overlay` store: the image's store (`lowerRoot`, `/.lower`) is read-only below, a volume (`persistPath`, `/persist/nix`; `upperLayer`) above. The entrypoint mounts it before systemd runs with `storeOverlay.init` ("Store overlay"); the daemon alone opens the store, clients go through it. `fsync-store-paths` is on by default (the update below relies on it); `trusted-users` and `sandbox` stay with the consumer |
 | `services.webtop.journalRelay.enable` | `false` | writes the journal to the fifo `path` (`/run/webtop/console`) for the entrypoint to copy to the container log |
 | `services.webtop.adminTools.enable` | `false` | ps, ip, lsof, git, jq, curl, wget, htop and a few more in the system (the standalone image sets it) |
 | `services.webtop.sudo.enable` | `false` | the desktop user joins `wheel` with an empty password and passwordless sudo; only where the container is the user's own |
@@ -277,7 +276,7 @@ Sleep (`systemd-suspend.service`, what the desktop's Sleep action and `systemctl
 | --- | --- | --- |
 | `systemd` | systemd's own suspend | outside containers |
 | `freeze` | `webtop-power suspend` freezes the session (`plasma-*` in `session.slice`, everything in `app.slice`) with the cgroup freezer and waits; a Selkies session that was not there at Sleep (a new id, or more sessions than the fewest seen since) thaws it. Selkies, the session bus, audio and `background.slice` keep running. Hibernation variants are off | in containers |
-| `poweroff` | saves the session, writes `/run/webtop/sleep-poweroff` and powers off | |
+| `poweroff` | saves the session, writes `/run/webtop/stop-reason` (containing `suspend`) and powers off | |
 
 A freeze that fails is thawed again and falls back to `poweroff`. `WEBTOP_SUSPEND_MODE=freeze|poweroff` in a file of `sleep.environmentFiles` switches between the two at each Sleep (it does not turn `systemd` into `freeze`); `WEBTOP_HTTP_PORT` in such a file names Selkies' port if it is not `port`.
 `sleep.hooks` are commands run as root with `asleep` right after the freeze and `awake` right after the thaw (best effort, 10 s each): a consumer reports the state with them. The frozen units are listed in `/run/webtop/frozen-units` while asleep.
@@ -288,7 +287,7 @@ Logind offers Sleep only if `/sys/power/state` is writable: a container's entryp
 
 ## Store overlay
 
-With `storeOverlay.enable` the user's Nix store survives the container and image updates ([ADR 0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)). `/nix/store` is an overlayfs: the image's store below (bound read-only at `/.lower`), the volume above. `storeOverlay.init` is a package of static busybox scripts for the entrypoint to run as root, with `/run` mounted, mounts private and the volume in place, before `exec /sbin/init` ([image/webtop-entrypoint](image/webtop-entrypoint) is an example): `webtop-store-init` mounts the overlay and binds `var` on `/nix/var/nix`. It needs `/webtop-image-stamp` in the image: a hash of the image's store (the standalone image builds it from the system's closure, see [flake.nix](flake.nix)). Set `nix.settings.fsync-store-paths = true` as well: the update below keeps upper paths by their database rows.
+With `storeOverlay.enable` the user's Nix store survives the container and image updates ([ADR 0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)). `/nix/store` is an overlayfs: the image's store below (bound read-only at `/.lower`), the volume above. `storeOverlay.init` is a package of static busybox scripts for the entrypoint to run as root, with `/run` mounted, mounts private and the volume in place, before `exec /sbin/init` ([image/webtop-entrypoint](image/webtop-entrypoint) is an example): `webtop-store-init` mounts the overlay and binds `var` on `/nix/var/nix`. It needs `/webtop-image-stamp` in the image: a hash of the image's store (the standalone image builds it from the system's closure, see [flake.nix](flake.nix)). `fsync-store-paths` is on by default (`mkDefault`): the update below keeps upper paths by their database rows.
 
 Layout under `persistPath` (`/persist/nix`), fixed for existing volumes (`tests/store-overlay-layout-test.sh` pins it):
 
@@ -300,7 +299,7 @@ Layout under `persistPath` (`/persist/nix`), fixed for existing volumes (`tests/
 | `reinstall/` | after an update: each user's profile manifest, and the markers `pending` (the reinstall is due) and `restore` (the restore is due) |
 | `trash-*/` | what an update moved out of the overlay, until the restore has copied the users' paths from it |
 
-On an image whose store differs from the stamp, `webtop-nix-lower` first records each user's Nix profile manifest (`WEBTOP_HOMES_ROOT`, default the `home` directory beside `persistPath`, names the homes), then `webtop-nix-partial` invalidates, with Nix's own GC, only the upper paths whose closure the new store breaks. If that fails the overlay is reset: it moves to `trash-*` and the markers are set. With `nixProfile` enabled the module then runs `webtop-nix-restore` (copies the users' paths from `trash-*`, substitutes what only the old image had), `webtop-nix-trash` and `webtop-nix-reinstall` (what did not come back, from the manifest), and `webtop-home-manager` waits for `pending` to go. `nixProfile.fromImageStore` defaults to off then. `tests/lower-swap-test.sh` runs this end to end on the image.
+On an image whose store differs from the stamp, `webtop-nix-lower` first records each user's Nix profile manifest (`WEBTOP_HOMES_ROOT`, default the directory of `nixProfile.homeStoragePath`, names the homes; `webtop-nix-restore` reads the same variable), then `webtop-nix-partial` invalidates, with Nix's own GC, only the upper paths whose closure the new store breaks. If that fails the overlay is reset: it moves to `trash-*` and the markers are set. With `nixProfile` enabled the module then runs `webtop-nix-restore` (copies the users' paths from `trash-*`, substitutes what only the old image had), `webtop-nix-trash` and `webtop-nix-reinstall` (what did not come back, from the manifest), and `webtop-home-manager` waits for `pending` to go. `nixProfile.fromImageStore` defaults to off then. `tests/lower-swap-test.sh` runs this end to end on the image. A fresh volume under a home that already has a Nix profile (the store volume lost or not mounted) sets `reinstall/pending` on its first boot, so the reinstall runs once and the declared packages come back.
 
 ## Extension points
 
@@ -320,7 +319,7 @@ ordering may change between commits, so set an option instead of overriding a un
 | `services.webtop.nixProfile.homeStoragePath`, `.fromImageStore`, `.progress` | | "Software" |
 | `services.webtop.sleep.mode`, `.environmentFiles`, `.hooks`, `.init` | `freeze` in containers | Sleep: `WEBTOP_SUSPEND_MODE=freeze|poweroff` and `WEBTOP_HTTP_PORT` in the env files, commands told `asleep` / `awake`, the `/sys/power` stand-in for an entrypoint ("Sleep and session save") |
 | `services.webtop.sessionSave.enable`, `.command` | on in containers | the session save on an external stop; `bin/webtop-power save-session` ("Sleep and session save") |
-| `services.webtop.storeOverlay.persistPath`, `.init` | `/persist/nix` | the overlay's state on the volume, and the scripts for an entrypoint; `WEBTOP_HOMES_ROOT` names the homes whose profile manifests an update records ("Store overlay") |
+| `services.webtop.storeOverlay.persistPath`, `.init` | `/persist/nix` | the overlay's state on the volume, and the scripts for an entrypoint; `WEBTOP_HOMES_ROOT` names the homes whose profile manifests an update records and the restore reads ("Store overlay") |
 
 All env files are read at each start of their unit, so a consumer can write them at boot without a
 rebuild; a `-` prefix makes one optional, later files win.
@@ -333,7 +332,7 @@ Files and commands a consumer can use:
 | `~/.config/webtop/selkies.env` | the user's Selkies settings, limited to `userSettings` |
 | `$XDG_RUNTIME_DIR/webtop/lock` | written (the time) each time the session is locked ("Lock screen") |
 | `/run/webtop/restore/progress.json` | the software restore's progress ("Container module") |
-| `/run/webtop/frozen-units`, `/run/webtop/sleep-poweroff` | exist while Sleep has the session frozen, and once Sleep chose to power off ("Sleep and session save") |
+| `/run/webtop/frozen-units`, `/run/webtop/stop-reason` (containing `suspend`) | exist while Sleep has the session frozen, and once Sleep chose to power off ("Sleep and session save") |
 | `/persist/nix/reinstall/{pending,restore}` | exist while an image update's reinstall or restore is due ("Store overlay") |
 | `nixProfile.notify` | `webtop-notify TITLE BODY [ICON]`: a notification in the session |
 | `nixProfile.reinstall` | `webtop-nix-reinstall MANIFEST`: bring the user's packages back after the store lost them |

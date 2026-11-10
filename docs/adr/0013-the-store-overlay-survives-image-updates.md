@@ -31,9 +31,12 @@ not be lost to an update.
 
 ## Consequences
 
-- A volume holds the store, so the home and `/persist` must be kept together; a home with a new
-  store is not repaired.
+- A home that outlives its store (a fresh volume): the first boot sets `reinstall/pending` when a home
+  has a Nix profile, so the reinstall runs once; undeclared profile packages are lost unless a manifest
+  was recorded.
 - The scripts take the volume, the lower root and the homes' directory as parameters (`persistPath`,
   `lowerRoot`, `WEBTOP_HOMES_ROOT`) with the former values as defaults.
 - Existing volumes keep working only while the layout stays: a change needs a migration and a new ADR.
+- `fsync-store-paths` is on by default with the overlay, which the partial invalidation relies on; this
+  moves it from the consumer (ADR 0008) into the module as a default.
 - Depends on the experimental `local-overlay-store` feature.

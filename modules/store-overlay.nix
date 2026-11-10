@@ -10,6 +10,7 @@ let
   uid = toString webtop.uid;
   persist = overlay.persistPath;
   inherit (webtop.nixProfile) reinstall;
+  homesRoot = dirOf (webtop.nixProfile.homeStoragePath or "/home/user");
 
   restore = pkgs.writeShellApplication {
     name = "webtop-nix-restore";
@@ -22,7 +23,7 @@ let
     name = "webtop-nix-restore-unit";
     runtimeInputs = with pkgs; [ coreutils systemd restore ];
     text = ''
-      export WEBTOP_NIX_PERSIST=${lib.escapeShellArg persist}
+      export WEBTOP_NIX_PERSIST=${lib.escapeShellArg persist} WEBTOP_HOMES_ROOT=${lib.escapeShellArg homesRoot}
       webtop-nix-restore || echo "webtop-nix-restore exit $?"
       # Not reached when the unit is stopped: the marker stays and the restore resumes next boot.
       rm -f ${lib.escapeShellArg persist}/reinstall/restore
@@ -32,7 +33,24 @@ let
   };
 in
 {
-  config = lib.mkIf (overlay.enable && (webtop.nixProfile.enable or false)) {
+  config = lib.mkIf overlay.enable (lib.mkMerge [
+    {
+      systemd.services.webtop-nix-trash = {
+        description = "Delete store overlays left by an image update";
+        wantedBy = [ "multi-user.target" ];
+        unitConfig = {
+          ConditionPathExistsGlob = "${persist}/trash-*";
+          ConditionPathExists = "!${persist}/reinstall/restore"; # the restore reads from them
+        };
+        serviceConfig = {
+          Type = "exec"; # see webtop-nix-restore
+          ExecStart = "${pkgs.runtimeShell} -c '${pkgs.coreutils}/bin/rm -rf ${persist}/trash-*'";
+          Nice = 19;
+          IOSchedulingClass = "idle";
+        };
+      };
+    }
+    (lib.mkIf (webtop.nixProfile.enable or false) {
     # The restore's work is the reinstall's first half: the switch waits for both.
     systemd.services.webtop-home-manager-template.before = [ "webtop-nix-reinstall.service" ];
     # After an image update the reinstall unit runs the setup instead, once the store paths are back.
@@ -81,19 +99,6 @@ in
         ExecStopPost = "+${pkgs.runtimeShell} -c '[ \"$$SERVICE_RESULT\" = success ] && [ \"$$EXIT_CODE\" = exited ] && ${pkgs.coreutils}/bin/rm -f ${persist}/reinstall/pending || true'";
       };
     };
-    systemd.services.webtop-nix-trash = {
-      description = "Delete store overlays left by an image update";
-      wantedBy = [ "multi-user.target" ];
-      unitConfig = {
-        ConditionPathExistsGlob = "${persist}/trash-*";
-        ConditionPathExists = "!${persist}/reinstall/restore"; # the restore reads from them
-      };
-      serviceConfig = {
-        Type = "exec"; # see webtop-nix-restore
-        ExecStart = "${pkgs.runtimeShell} -c '${pkgs.coreutils}/bin/rm -rf ${persist}/trash-*'";
-        Nice = 19;
-        IOSchedulingClass = "idle";
-      };
-    };
-  };
+    })
+  ]);
 }
