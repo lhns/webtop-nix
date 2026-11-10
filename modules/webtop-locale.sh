@@ -100,8 +100,8 @@ pick() {
   done
 }
 
-tz=$(pick "time zone" tz_ok "user file:$user_tz" "pod env:$env_tz" "module default:$default_tz" 3>&1 >&2) || true
-lc=$(pick "locale" locale_ok "user file:$user_locale" "pod env:$env_locale" "module default:$default_locale" 3>&1 >&2) || true
+tz=$(pick "time zone" tz_ok "user file:$user_tz" "env file:$env_tz" "module default:$default_tz" 3>&1 >&2) || true
+lc=$(pick "locale" locale_ok "user file:$user_locale" "env file:$env_locale" "module default:$default_locale" 3>&1 >&2) || true
 
 if [ -n "$tz" ]; then
   if ! { ln -sfn "$zonedir/$tz" /etc/localtime.new && mv -T /etc/localtime.new /etc/localtime; }; then log "could not set /etc/localtime"; fi

@@ -22,7 +22,7 @@ pkgs.testers.runNixOSTest {
     services.webtop.environmentFiles = [ "-/etc/webtop-test.env" ];
     environment.etc."webtop-test.env".text = "SELKIES_USE_BROWSER_CURSORS=false
 ";
-    # Time zone and locale: module default < env file (the pod env in a cluster) < the user's session.conf.
+    # Time zone and locale: module default < env file (an orchestrator's env) < the user's session.conf.
     services.webtop.timeZone = "Europe/Berlin";
     services.webtop.locale = "en_GB.UTF-8";
     services.webtop.localeEnvironmentFiles = [ "-/etc/webtop-locale.env" ];

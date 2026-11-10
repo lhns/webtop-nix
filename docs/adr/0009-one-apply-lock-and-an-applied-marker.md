@@ -120,7 +120,7 @@ what is on `PATH` and the marker agree.
 | switch in a hook | does not evaluate, activation fails | command fails, file reverted, previous generation active | repairs |
 | reinstall and an install | none | wait for each other | reinstall |
 | reinstall | SIGKILL half-way | next run finishes; marker kept | nix-profile-reinstall-test |
-| image update | dangling generations, marker from before | moved aside, boot switches | reinstall; kube-webtop-workspaces lower-swap-test |
+| image update | dangling generations, marker from before | moved aside, boot switches | reinstall; lower-swap-test |
 | image update | during an install | pod restart: as pod deletion | cgroup |
 | terminal stock `nix profile` | none | no lock possible | accepted, ADR 0007 |
 | user flake without the packages module | none | no activation lock or marker, by choice | accepted |

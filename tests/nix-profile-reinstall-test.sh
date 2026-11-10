@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # modules/nix-profile/webtop-nix-reinstall.sh with Nix and its neighbours stubbed; needs bash and jq.
-# On the real image: tests/image-boot.sh, and kube-webtop-workspaces' lower-swap-test.sh.
+# On the real image: tests/image-boot.sh, and tests/lower-swap-test.sh.
 set -euo pipefail
 script=$(cd "$(dirname "$0")/../modules/nix-profile" && pwd)/webtop-nix-reinstall.sh
 t=$(mktemp -d)

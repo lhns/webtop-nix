@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pins the store overlay's layout on the volume (ADR 0013): existing desktops keep their volumes across
-# the move of this code from kube-webtop-workspaces, with no migration. Runs webtop-nix-lower as an
+# Pins the store overlay's layout on the volume (ADR 0013): existing volumes keep working across
+# releases, with no migration. Runs webtop-nix-lower as an
 # entrypoint would, with busybox alone on PATH, on a scratch directory, and compares the names it
 # creates with the layout a volume made by the former code has. The overlay mount options are pinned in
 # the script text (a mount needs root).
