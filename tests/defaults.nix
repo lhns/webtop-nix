@@ -283,10 +283,7 @@ pkgs.testers.runNixOSTest {
     bin = machine.succeed("ls /nix/store/*-webtop-locale/bin/webtop-locale").split()[0]
     machine.succeed(f"{bin} 1000 /run/current-system/sw/lib/locale/locale-archive \"\" \"\" \"\" /run/webtop/defaults /tmp/xs")
     check("no source and no module default: LANG still reaches the cascade, locale.conf untouched",
-          machine.succeed("cat /tmp/xs/plasma-localerc") == "[Formats]
-LANG=en_GB.UTF-8
-" and machine.succeed("cat /etc/locale.conf") == "LANG=en_GB.UTF-8
-")
+          machine.succeed("cat /tmp/xs/plasma-localerc") == "[Formats]\nLANG=en_GB.UTF-8\n" and machine.succeed("cat /etc/locale.conf") == "LANG=en_GB.UTF-8\n")
 
     print("PROBLEMS:", problems)
     assert not problems, problems
