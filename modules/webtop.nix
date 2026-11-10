@@ -41,6 +41,13 @@ let
     loginMode=restorePreviousLogout
   '';
 
+  # The splash only animates a loading screen and costs seconds per session start on this headless
+  # desktop. [$i] makes the key immutable, so a user's ~/.config/ksplashrc cannot turn it back on.
+  ksplashrc = ''
+    [KSplash]
+    Engine[$i]=none
+  '';
+
   # Start wrapper of Selkies: resolves the upload directory and applies the user's allowlisted
   # settings last, so they win over the unit environment and any EnvironmentFile.
   selkiesStart = pkgs.writeShellApplication {
@@ -625,6 +632,7 @@ in
     # System-wide defaults; a user's own ~/.config overrides them.
     environment.etc."xdg/powerdevilrc".text = powerdevilrc;
     environment.etc."xdg/ksmserverrc".text = ksmserverrc;
+    environment.etc."xdg/ksplashrc".text = ksplashrc;
 
     # /etc/xdg/kdeglobals and kscreenlockerrc are written at each session start (webtop-lock-config).
     # Autolock would start the (unusable) greeter before anyone connects, so it is off in every case.
