@@ -151,11 +151,15 @@ pkgs.testers.runNixOSTest {
     check("admin: xdg-session/plasma-localerc", lr == {"Formats": {"LANG": "de_DE.UTF-8", "LC_TIME": "sv_SE.UTF-8", "LC_MONETARY": "nl_NL.UTF-8"}, "Translations": {"LANGUAGE": "de:en"}}, str(lr))
     check("session sees the admin's locale", all(e.get(k) == v for k, v in admin.items()), str({k: e.get(k) for k in admin}))
     dirs = e.get("XDG_CONFIG_DIRS", "")
-    check("XDG_CONFIG_DIRS", dirs.startswith("/home/user/.config/kdedefaults:/run/webtop/xdg-session:/run/webtop/defaults/xdg:") and "/etc/xdg" in dirs.split(":"), dirs)
+    # Nix's wrappers of the Plasma binaries put their packages' etc/xdg first; the admin's layers sit above /etc/xdg.
+    parts = dirs.split(":")
+    check("XDG_CONFIG_DIRS: xdg-session, then the admin's xdg, both above /etc/xdg", "/run/webtop/xdg-session:/run/webtop/defaults/xdg" in dirs and parts.index("/run/webtop/xdg-session") < parts.index("/etc/xdg") and "/home/user/.config/kdedefaults" in parts[:parts.index("/run/webtop/xdg-session")], dirs)
     check("systemd user manager sees XDG_CONFIG_DIRS", "/run/webtop/xdg-session" in machine.succeed(f"{ubus} systemctl --user show-environment"))
     # A terminal: a shell started from the session's environment (it sources NixOS's profile scripts).
-    status, term = user_run("/run/current-system/sw/bin/bash -ic 'echo TERM_XDG=$XDG_CONFIG_DIRS; echo TERM_KEY=$(kreadconfig6 --file kdeglobals --group Webtop --key AdminKey)'", e)
-    check("a terminal sees XDG_CONFIG_DIRS and the admin's xdg key", "TERM_KEY=admin" in term and "/run/webtop/defaults/xdg" in term, term)
+    status, term = user_run("/run/current-system/sw/bin/bash -ic 'echo TERM_XDG=$XDG_CONFIG_DIRS' 2>/dev/null", e)
+    tdirs = re.search(r"TERM_XDG=(.*)", term)
+    tenv = {**e, "XDG_CONFIG_DIRS": tdirs.group(1)} if tdirs else e
+    check("a terminal keeps XDG_CONFIG_DIRS and sees the admin's xdg key", tdirs is not None and "/run/webtop/defaults/xdg" in tdirs.group(1) and kread("kdeglobals", "Webtop", "AdminKey", tenv) == "admin", term)
     # A Plasma app (Qt, KConfig) in the session's environment.
     f = qt_fmt({**e, "QT_QPA_PLATFORM": "offscreen"})
     print("DIAG Qt in the session, admin LC_TIME sv_SE:", f)
@@ -167,7 +171,10 @@ pkgs.testers.runNixOSTest {
     seen = {k: kread("kdeglobals", g, k, e) for g, k in [("Webtop", "AdminKey"), ("KDE", "widgetStyle"), ("General", "ColorScheme")]}
     check("kdeglobals: admin key through KConfig", seen["AdminKey"] == "admin", str(seen))
     check("kdeglobals: other keys of /etc/xdg survive (lock screen)", kread("kdeglobals", "KDE Action Restrictions", "action/lock_screen", e) == "false")
-    print(f"RESULT A4 (info): look-and-feel keys seen through the cascade after the first login: widgetStyle={seen['widgetStyle']!r} ColorScheme={seen['ColorScheme']!r}; kdedefaults exists: {machine.execute('test -d /home/user/.config/kdedefaults')[0] == 0}")
+    # A4, observed: the first login writes ~/.config/kdedefaults, which masks the admin's look-and-feel keys.
+    kd = machine.succeed("ls /home/user/.config/kdedefaults").split()
+    print(f"RESULT A4: kdedefaults written at first login: {kd}; admin widgetStyle/ColorScheme seen: {seen['widgetStyle']!r}/{seen['ColorScheme']!r}")
+    check("A4: first login writes kdedefaults and masks the admin's look-and-feel keys", "kdeglobals" in kd and seen["widgetStyle"] != "AdminStyle" and seen["ColorScheme"] != "AdminScheme", str(kd))
     kwrite("--file kdeglobals --group Webtop --key Both user", e)
     after = ini(machine.succeed("cat /home/user/.config/kdeglobals"))
     check("kdeglobals: a user write lands in ~/.config only, with that key", after.get("Webtop") == {"Both": "user"} and "AdminKey" not in after.get("Webtop", {}) and after.get("KDE", {}).get("widgetStyle") != "AdminStyle", str(after.get("Webtop")))

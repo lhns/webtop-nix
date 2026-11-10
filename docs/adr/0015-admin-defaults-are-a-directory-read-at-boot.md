@@ -37,5 +37,6 @@ links that a settings page cannot write.
 - A time zone chosen in System Settings goes through timedated and is reset at the next session start.
 - Rejected: home-manager `xdg.configFile` (read-only links), an overlay over `~/.config` (copy-up
   freezes most files), copy at first login (never updated), `[$i]` immutable keys (enforcement).
-- A global theme applied by the user writes `~/.config/kdedefaults`, which masks admin look-and-feel
-  keys; panel and widget layout is generated at first login and cannot be defaulted this way.
+- The first login writes `~/.config/kdedefaults` and a colour scheme into the user's `kdeglobals`, which
+  mask admin look-and-feel keys; panel and widget layout is generated at first login and cannot be
+  defaulted this way.
