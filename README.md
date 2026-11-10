@@ -6,8 +6,8 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
-`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
-attributes, `kwin` as `kwinSoftwarePresentation`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
+`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin,kguiaddons}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
+attributes, `kwin` as `kwinSoftwarePresentation` and `kguiaddons` as `kguiaddonsClipboardFix`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
 ones come from `python3Packages`, nixpkgs' default interpreter).
 
 | package | version | source |
@@ -124,6 +124,10 @@ with a GPU nothing changes. Plasma's other packages are
 not rebuilt, but evaluating the system builds the stock one first. The patch targets KWin 6.8.x and
 `pkgs/kwin.nix` fails the evaluation on other minor versions; on Plasma 6.7 set the option to `false`
 ([ADR 0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
+
+The module grafts `packages.<system>.kguiaddons` the same way, always: KGuiAddons with
+[a patch](pkgs/kguiaddons/kguiaddons-clipboard-thread-interruptible-lock.patch) to its Wayland clipboard
+thread, which could deadlock plasmashell's exit when the session was stopped in its first seconds.
 
 ## One app per screen
 

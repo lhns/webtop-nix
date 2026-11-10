@@ -538,10 +538,13 @@ in
 
     # A graft: the rewritten system keeps plasma-workspace and the rest as built by nixpkgs. Note that
     # evaluating the system builds the stock one first (replaceDependencies reads its references).
-    system.replaceDependencies.replacements = lib.mkIf cfg.kwinSoftwarePresentation [{
+    system.replaceDependencies.replacements = [{
+      oldDependency = pkgs.kdePackages.kguiaddons;
+      newDependency = pkgs.kguiaddonsClipboardFix;
+    }] ++ lib.optional cfg.kwinSoftwarePresentation {
       oldDependency = pkgs.kdePackages.kwin;
       newDependency = pkgs.kwinSoftwarePresentation;
-    }];
+    };
 
     # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
     # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
