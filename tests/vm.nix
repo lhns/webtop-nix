@@ -22,13 +22,12 @@ pkgs.testers.runNixOSTest {
     services.webtop.environmentFiles = [ "-/etc/webtop-test.env" ];
     environment.etc."webtop-test.env".text = "SELKIES_USE_BROWSER_CURSORS=false
 ";
-    # Time zone and locale: module default < env file (the pod env in a cluster) < the user's session.conf.
+    # Time zone and locale: module default < the admin's defaults directory < the user's session.conf.
     services.webtop.timeZone = "Europe/Berlin";
     services.webtop.locale = "en_GB.UTF-8";
-    services.webtop.localeEnvironmentFiles = [ "-/etc/webtop-locale.env" ];
     services.webtop.sessionConfKeys = [ "consumerKey" ];
-    environment.etc."webtop-locale.env".text = "WEBTOP_TIME_ZONE=Asia/Tokyo
-WEBTOP_LOCALE=de_DE.UTF-8
+    environment.etc."webtop/defaults/session.conf".text = "timeZone=Asia/Tokyo
+locale=de_DE.UTF-8
 ";
     virtualisation.memorySize = 4096;
     virtualisation.cores = 2;
@@ -110,17 +109,17 @@ WEBTOP_LOCALE=de_DE.UTF-8
         term = machine.succeed(f"runuser -u user -- env -i {shell_env} /run/current-system/sw/bin/bash -ic 'echo LANG=$LANG; date +%Z' 2>/dev/null").split()
         assert term[0] == f"LANG={lang}", f"a terminal sees {term}"
 
-    # Boot: the env file beats the module's defaults.
+    # Boot: the admin's defaults beat the module's.
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())
     assert machine.succeed("env -u TZ date +%Z").strip() == "JST"
     machine.wait_until_succeeds("runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user show-environment | grep -qx LANG=de_DE.UTF-8", timeout=120)
 
-    # The user's file beats the env file; unknown and consumer keys are ignored, only unknown ones logged.
+    # The user's file beats the admin's; unknown and consumer keys are ignored, only unknown ones logged.
     expect("America/New_York", "fr_FR.UTF-8", restart_session("# c\nonLogout=true\nconsumerKey=1\nbogus=1\ntimeZone=America/New_York\nlocale=fr_FR.UTF-8\n"))
     ignored = machine.succeed("journalctl -u webtop-session.service -o cat | grep 'session.conf: ignored' | tail -n1")
     assert "ignored 1 lines" in ignored and "e.g. bogus" in ignored, ignored
 
-    # Invalid values fall back to the next source (here the env file), and the session still starts.
+    # Invalid values fall back to the next source (here the admin's), and the session still starts.
     for bad in ["timeZone=../../etc/passwd", "timeZone=/etc/passwd", "timeZone=Asia/../../../etc/shadow",
                 "timeZone=Mars/Olympus", "timeZone=tzdata.zi", "timeZone=" + "A" * 5000,
                 "timeZone=$(touch /pwned)", "locale=xx_XX.UTF-8", "locale=de_DE.UTF-8;touch /pwned", "locale=../../x",
@@ -141,8 +140,8 @@ WEBTOP_LOCALE=de_DE.UTF-8
     machine.succeed("systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Asia/Tokyo", "de_DE.UTF-8", session_env())
 
-    # Nothing valid anywhere: the module's defaults (here after the env file is gone).
-    machine.succeed("rm -f /etc/webtop-locale.env")
+    # Nothing valid anywhere: the module's defaults (here after the admin's file is gone from the snapshot).
+    machine.succeed("rm -f /run/webtop/defaults/session.conf")
     machine.succeed(f"rm -f {conf}; systemctl reset-failed webtop-session.service; systemctl restart webtop-session.service")
     expect("Europe/Berlin", "en_GB.UTF-8", session_env())
 

@@ -172,6 +172,10 @@ jobs:
           "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
           "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
           "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py --built "$(echo selkies-out/lib/python*/site-packages/selkies/selkies_web)"
+      # The admin defaults directory and the assumptions it rests on (RESULT lines in the log).
+      - name: defaults test
+        if: matrix.vm
+        run: nix build .#checks.${{ matrix.system }}.defaults -L
       - name: VM test
         if: matrix.vm
         run: nix build .#checks.${{ matrix.system }}.vm -L

@@ -233,6 +233,7 @@
         power = import ./tests/power.nix { inherit pkgs self; };
         included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };
         vm = import ./tests/vm.nix { inherit pkgs self; };
+        defaults = import ./tests/defaults.nix { inherit pkgs self; };
         relogin = import ./tests/relogin.nix { inherit pkgs self; };
         lock = import ./tests/lock.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
