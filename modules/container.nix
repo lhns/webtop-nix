@@ -79,7 +79,7 @@ in
           `/nix/store` and `var` on `/nix/var/nix`. Reads `/webtop-image-stamp`, a hash identifying the
           image's store. `WEBTOP_HOMES_ROOT` (default: the directory of `nixProfile.homeStoragePath`) names the directory
           of the users' homes, whose Nix profile manifests an update records. Under
-          `nixProfile` (required with the overlay) it also sets the restore, reinstall and trash units up.
+          `nixProfile` (required with the overlay) it also sets the restore and reinstall units up.
         '';
       };
     };

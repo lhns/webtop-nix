@@ -33,8 +33,7 @@ jobs:
           "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py
 
   nix:
-    # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
-    # (kube-webtop-workspaces boot-tests the image on both).
+    # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack.
     strategy:
       fail-fast: false
       matrix:
@@ -261,7 +260,7 @@ jobs:
           docker exec webtop-image journalctl -b --no-pager _UID=1000 2>&1 | head -n 250 || true
           docker rm -f webtop-image || true
 
-      # By digest (the form kube-webtop-workspaces publishes with); the index job tags it. zstd at a fixed level with the pinned skopeo: the same
+      # By digest (the form a consumer can publish with); the index job tags it. zstd at a fixed level with the pinned skopeo: the same
       # layer gives the same blob on every run, so unchanged layers are reused by digest.
       - name: push image
         if: github.event_name == 'push'
