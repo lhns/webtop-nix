@@ -11,7 +11,14 @@
     softwareCenter.enable = true;
     nixProfile.enable = true;
     adminTools.enable = true;
+    # The store survives container and image updates on the /persist volume (README, "Store overlay");
+    # image/webtop-entrypoint mounts it.
+    storeOverlay.enable = true;
     # Reached through the container's published port; Selkies' auth is off (README, "Image").
     address = "0.0.0.0";
   };
+
+  # A registered path's bytes are on disk before its row: the image-update invalidation
+  # (webtop-nix-partial) keeps upper paths by their rows. Costs an fsync per installed path.
+  nix.settings.fsync-store-paths = true;
 }

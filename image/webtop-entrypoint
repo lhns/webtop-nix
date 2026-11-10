@@ -1,0 +1,18 @@
+#!@busybox@/bin/sh
+# Entrypoint of the standalone image (static busybox): /run, then the store overlay on the /persist
+# volume and the /sys/power stand-in that lets Sleep be offered, then systemd.
+export PATH=@busybox@/bin
+
+log() { echo "webtop-entrypoint: $*"; }
+fail() { log "FAILED: $1"; exit 1; }
+
+is_mounted() { awk -v m="$1" '$5 == m { f = 1 } END { exit !f }' /proc/self/mountinfo; }
+
+# Docker does not give /run as a tmpfs.
+is_mounted /run || mount -t tmpfs -o mode=755 tmpfs /run || fail "mount /run"
+mount --make-rprivate / || fail "make / rprivate"
+# The homes are at /home, not beside the store.
+WEBTOP_HOMES_ROOT=/home @storeInit@/bin/webtop-store-init || fail "store overlay"
+@sysPower@/bin/webtop-sys-power || log "no /sys/power stand-in: the desktop will not offer sleep"
+
+exec /sbin/init

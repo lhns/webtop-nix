@@ -13,6 +13,8 @@ final: prev: {
 
   webtop-app-screen = final.callPackage ./pkgs/app-screen { };
 
+  webtop-power = final.callPackage ./pkgs/webtop-power { };
+
   # The index is its own derivation so the image layering can group it with the nixpkgs paths.
   inherit (final.callPackage ./pkgs/nix-software-center.nix { }) nix-software-center nix-software-center-pkgdb;
 

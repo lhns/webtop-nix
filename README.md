@@ -201,11 +201,18 @@ beside it (one with full permissions first) takes over, so closing a phone retur
 published on `main` as `ghcr.io/lhns/webtop-nix:main` (and `sha-<sha7>`), amd64 and arm64:
 
 ```sh
-docker run --rm --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:8082 ghcr.io/lhns/webtop-nix:main
+docker run --rm --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:8082 \
+  -v webtop-persist:/persist -v webtop-home:/home ghcr.io/lhns/webtop-nix:main
 ```
 
 Then open http://127.0.0.1:8082. Selkies' own authentication is off: publish the port on loopback,
 or put an authenticating proxy in front.
+
+The entrypoint ([image/webtop-entrypoint](image/webtop-entrypoint)) mounts the [store overlay](#store-overlay)
+on `/persist` (the image declares it a `VOLUME`; without `-v` docker makes an anonymous one) and the `/sys/power`
+stand-in that lets [Sleep](#sleep-and-session-save) be offered. Software installed with `nix profile` lives in
+`/persist` and the home in `/home`: mount both volumes or neither, since a home that outlives its store is
+not repaired. `docker stop` saves the session; `docker kill` does not.
 
 `lib.buildImage { name; nixos; copyToRoot ? []; config ? {}; extraGroups ? []; reference ?; tag ?; }` builds
 such an image from any NixOS system with nix2container ([ADR 0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)).
@@ -225,7 +232,7 @@ What this flake provides, all without Kubernetes:
 - Selkies + pixelflux + pcmflux stream a nested KWin/Plasma 6 session over HTTP ([ADR 0001](docs/adr/0001-selkies-with-kwin-nested-in-pixelflux.md)); a real logind session with standard power management ([0003](docs/adr/0003-a-real-logind-session-with-standard-power-management.md)); a null audio sink, clipboard, file upload and download, per-user Selkies settings (`userSettings`), several pages on one desktop, one app per screen.
 - GPU-less rendering through a patched KWin ([0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
 - Software installation from one declaration (`nixProfile`, the Software Center; [0006](docs/adr/0006-software-installation-in-this-flake.md), [0007](docs/adr/0007-nix-profile-commit-locks.md)).
-- The container module and its options (below, [0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)); the layered image builder `lib.buildImage` ([0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)); module defaults for cursors (`XCURSOR_*`), a 30 fps start and DrKonqi's crash pickup without a runtime limit.
+- The container module and its options (below, [0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)); Sleep that freezes the session and the session save on an external stop ([0012](docs/adr/0012-sleep-freezes-the-session-an-external-stop-saves-it.md)); the Nix store overlay that survives image updates ([0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)); the layered image builder `lib.buildImage` ([0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)); module defaults for cursors (`XCURSOR_*`), a 30 fps start and DrKonqi's crash pickup without a runtime limit.
 
 Every change to a third-party program, and why:
 
@@ -250,16 +257,50 @@ no core dumps, no rtkit or oomd); the standalone image is `webtop` plus this ([A
 
 | option | default | what |
 | --- | --- | --- |
-| `services.webtop.storeOverlay.enable` | `false` | the Nix daemon uses a `local-overlay` store: the image's store (`lowerRoot`, `/.lower`) is read-only below, a volume (`upperLayer`) above. The entrypoint must mount overlayfs on `/nix/store` before systemd runs; the daemon alone opens the store, clients go through it. `trusted-users`, `fsync-store-paths` and `sandbox` stay with the consumer |
+| `services.webtop.storeOverlay.enable` | `false` | the Nix daemon uses a `local-overlay` store: the image's store (`lowerRoot`, `/.lower`) is read-only below, a volume (`persistPath`, `/persist/nix`; `upperLayer`) above. The entrypoint mounts it before systemd runs with `storeOverlay.init` ("Store overlay"); the daemon alone opens the store, clients go through it. `trusted-users`, `fsync-store-paths` and `sandbox` stay with the consumer |
 | `services.webtop.journalRelay.enable` | `false` | writes the journal to the fifo `path` (`/run/webtop/console`) for the entrypoint to copy to the container log |
 | `services.webtop.adminTools.enable` | `false` | ps, ip, lsof, git, jq, curl, wget, htop and a few more in the system (the standalone image sets it) |
 | `services.webtop.sudo.enable` | `false` | the desktop user joins `wheel` with an empty password and passwordless sudo; only where the container is the user's own |
 
-Not in this flake because they need Kubernetes or its daemon: the entrypoint that mounts the overlay, the agent (power actions and
-boot progress reported to a controller) and the restore around an image update, including `webtop-session-save`, which writes the
-Plasma session when a pod is deleted. A standalone container stopped from outside loses the unsaved session unless the user logs out first.
+In a container the `webtop` module defaults `sleep.mode` to `freeze` and `sessionSave.enable` to on ("Sleep and session save"; ADR 0008: the defaults sit in `webtop.nix`, keyed on `boot.isContainer`, the container module sets no `services.webtop.*`).
+
+Not in this flake because they need Kubernetes or its daemon: the entrypoint of a pod, the agent (power actions and boot progress reported to a controller) and the tray job that shows the restore.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
 (`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
+
+## Sleep and session save
+
+Sleep (`systemd-suspend.service`, what the desktop's Sleep action and `systemctl suspend` start) cannot suspend a container ([ADR 0012](docs/adr/0012-sleep-freezes-the-session-an-external-stop-saves-it.md)).
+`services.webtop.sleep.mode`:
+
+| mode | what Sleep does | default |
+| --- | --- | --- |
+| `systemd` | systemd's own suspend | outside containers |
+| `freeze` | `webtop-power suspend` freezes the session (`plasma-*` in `session.slice`, everything in `app.slice`) with the cgroup freezer and waits; a Selkies session that was not there at Sleep (a new id, or more sessions than the fewest seen since) thaws it. Selkies, the session bus, audio and `background.slice` keep running. Hibernation variants are off | in containers |
+| `poweroff` | saves the session, writes `/run/webtop/sleep-poweroff` and powers off | |
+
+A freeze that fails is thawed again and falls back to `poweroff`. `WEBTOP_SUSPEND_MODE=freeze|poweroff` in a file of `sleep.environmentFiles` switches between the two at each Sleep (it does not turn `systemd` into `freeze`); `WEBTOP_HTTP_PORT` in such a file names Selkies' port if it is not `port`.
+`sleep.hooks` are commands run as root with `asleep` right after the freeze and `awake` right after the thaw (best effort, 10 s each): a consumer reports the state with them. The frozen units are listed in `/run/webtop/frozen-units` while asleep.
+Logind offers Sleep only if `/sys/power/state` is writable: a container's entrypoint runs `sleep.init` (`bin/webtop-sys-power`, static busybox, needs `/run`), which binds a stand-in over it. Without that Sleep is never offered.
+
+`sessionSave.enable` (on in containers) adds `webtop-session-save.service`, stopped before the session. When the stop comes from outside (`docker stop`, a pod deletion: SIGRTMIN+3 queues `halt.target`) or from Sleep's `poweroff`, it thaws what Sleep froze, asks ksmserver to save and copies the "saved by user" group of `ksmserverrc` to "saved at previous logout", which Plasma restores. A shutdown from inside the desktop saves by itself, `systemctl poweroff` does not (as on a real machine). `sessionSave.command` is the package with `bin/webtop-power save-session` for a consumer's own stop.
+`webtop-power` is a small Go program ([pkgs/webtop-power](pkgs/webtop-power)): `suspend`, `thaw`, `save-session`.
+
+## Store overlay
+
+With `storeOverlay.enable` the user's Nix store survives the container and image updates ([ADR 0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)). `/nix/store` is an overlayfs: the image's store below (bound read-only at `/.lower`), the volume above. `storeOverlay.init` is a package of static busybox scripts for the entrypoint to run as root, with `/run` mounted, mounts private and the volume in place, before `exec /sbin/init` ([image/webtop-entrypoint](image/webtop-entrypoint) is an example): `webtop-store-init` mounts the overlay and binds `var` on `/nix/var/nix`. It needs `/webtop-image-stamp` in the image: a hash of the image's store (the standalone image builds it from the system's closure, see [flake.nix](flake.nix)). Set `nix.settings.fsync-store-paths = true` as well: the update below keeps upper paths by their database rows.
+
+Layout under `persistPath` (`/persist/nix`), fixed for existing volumes (`tests/store-overlay-layout-test.sh` pins it):
+
+| path | what |
+| --- | --- |
+| `upper`, `work` | the overlay's upper and work directories |
+| `var` | `/nix/var/nix` of the overlay store: its database (the upper paths and the lower paths they reference), GC roots, profiles |
+| `lower-stamp`, `lower-paths` | the stamp and path list of the image's store the upper was built with |
+| `reinstall/` | after an update: each user's profile manifest, and the markers `pending` (the reinstall is due) and `restore` (the restore is due) |
+| `trash-*/` | what an update moved out of the overlay, until the restore has copied the users' paths from it |
+
+On an image whose store differs from the stamp, `webtop-nix-lower` first records each user's Nix profile manifest (`WEBTOP_HOMES_ROOT`, default the `home` directory beside `persistPath`, names the homes), then `webtop-nix-partial` invalidates, with Nix's own GC, only the upper paths whose closure the new store breaks. If that fails the overlay is reset: it moves to `trash-*` and the markers are set. With `nixProfile` enabled the module then runs `webtop-nix-restore` (copies the users' paths from `trash-*`, substitutes what only the old image had), `webtop-nix-trash` and `webtop-nix-reinstall` (what did not come back, from the manifest), and `webtop-home-manager` waits for `pending` to go. `nixProfile.fromImageStore` defaults to off then. `tests/lower-swap-test.sh` runs this end to end on the image.
 
 ## Extension points
 
@@ -277,6 +318,9 @@ ordering may change between commits, so set an option instead of overriding a un
 | `services.webtop.sessionConfKeys` | `[ ]` | keys of the user's `~/.config/webtop/session.conf` that the consumer reads; the desktop skips them instead of logging them as unknown |
 | `services.webtop.nixProfile.templateEnvironmentFiles` | `[ ]` | `EnvironmentFile=` of `webtop-home-manager-template.service`: `WEBTOP_HOME_PATHS`, the space-separated `/home/<name>` paths this home has been mounted at, so a starter rendered for an earlier login name still counts as unmodified |
 | `services.webtop.nixProfile.homeStoragePath`, `.fromImageStore`, `.progress` | | "Software" |
+| `services.webtop.sleep.mode`, `.environmentFiles`, `.hooks`, `.init` | `freeze` in containers | Sleep: `WEBTOP_SUSPEND_MODE=freeze|poweroff` and `WEBTOP_HTTP_PORT` in the env files, commands told `asleep` / `awake`, the `/sys/power` stand-in for an entrypoint ("Sleep and session save") |
+| `services.webtop.sessionSave.enable`, `.command` | on in containers | the session save on an external stop; `bin/webtop-power save-session` ("Sleep and session save") |
+| `services.webtop.storeOverlay.persistPath`, `.init` | `/persist/nix` | the overlay's state on the volume, and the scripts for an entrypoint; `WEBTOP_HOMES_ROOT` names the homes whose profile manifests an update records ("Store overlay") |
 
 All env files are read at each start of their unit, so a consumer can write them at boot without a
 rebuild; a `-` prefix makes one optional, later files win.
@@ -289,12 +333,14 @@ Files and commands a consumer can use:
 | `~/.config/webtop/selkies.env` | the user's Selkies settings, limited to `userSettings` |
 | `$XDG_RUNTIME_DIR/webtop/lock` | written (the time) each time the session is locked ("Lock screen") |
 | `/run/webtop/restore/progress.json` | the software restore's progress ("Container module") |
+| `/run/webtop/frozen-units`, `/run/webtop/sleep-poweroff` | exist while Sleep has the session frozen, and once Sleep chose to power off ("Sleep and session save") |
+| `/persist/nix/reinstall/{pending,restore}` | exist while an image update's reinstall or restore is due ("Store overlay") |
 | `nixProfile.notify` | `webtop-notify TITLE BODY [ICON]`: a notification in the session |
 | `nixProfile.reinstall` | `webtop-nix-reinstall MANIFEST`: bring the user's packages back after the store lost them |
 | `webtop-template` | on the system path with `nixProfile`: update a file the image wrote into the home only while unmodified |
 
 Units a consumer may order its own against: `webtop-session.service`, `webtop-home-manager-template.service`,
-`webtop-home-manager.service` and the user service `selkies.service`.
+`webtop-home-manager.service`, `webtop-session-save.service`, `webtop-nix-restore.service`, `webtop-nix-reinstall.service` and the user service `selkies.service`.
 
 ## Tests
 
@@ -303,12 +349,13 @@ Units a consumer may order its own against: `webtop-session.service`, `webtop-ho
 Evaluating the system realises the stock closure first (the graft), so the checks need several GB of disk.
 `checks.<system>.vm` boots the module and needs KVM to run; it also asserts that KWin composites (the gray-screen check), the runtime-settings precedence, uploads into the XDG download directory (not the home) and downloads from the home.
 `checks.<system>.app-screens` runs three apps on three pages and asserts each page's stream and input reach only its app, focus, dialogs, no overlap with the main screen, the main page beside them, closing the middle one, reopening, reload, takeover and stopping Selkies with pages open; it also measures the cost at 1, 2 and 4 screens into `summary.txt` (artifact `app-screens`).
+`checks.<system>.power` boots the module with `sleep.mode = "freeze"` and asserts that Sleep freezes the session's units (not Selkies), runs the hooks, is woken by a new Selkies client but not by one that was there, that an external stop thaws before it saves, and that a `poweroff` Sleep saves the session. `checks.<system>.store-overlay-layout` runs the overlay scripts on a scratch directory and pins the names on the volume; `tests/lower-swap-test.sh` (CI, on the image) is the update end to end. `go test ./...` in [pkgs/webtop-power](pkgs/webtop-power) runs with the package build.
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
 Update nixpkgs here first (`nix flake update nixpkgs`); kube-webtop-workspaces follows this flake's nixpkgs.
 `tests/nix-profile-template-test.sh` and `tests/nix-profile-reinstall-test.sh` run the starter's template upgrade and the reinstall without Nix; `tests/nixpkgs-unfree-test.sh` checks `nixpkgs-unfree` on real Nix.
 `tests/nix-profile-concurrency.sh` runs concurrent `nix profile` commands with the patched Nix and home-manager, on a temporary home.
-CI also builds the image on both systems, boots it under docker (Selkies page, KWin compositing, Nix DB = store, `nix profile` into the declaration, `local.nix`) and prints its layer table; on `main` it pushes the image and the multi-arch index, signed with cosign.
+CI also builds the image on both systems, boots it under docker (Selkies page, KWin compositing, the lower store's DB = its store, the overlay, Sleep, `nix profile` into the declaration, `local.nix`, a restart on the same volumes) and prints its layer table; on `main` it pushes the image and the multi-arch index, signed with cosign.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0 (the pixelflux build also links GPL-2.0-or-later libx264 and x265, so the built extension is GPL-2.0-or-later).

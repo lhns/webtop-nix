@@ -1,0 +1,60 @@
+#!@busybox@/bin/sh
+# The store overlay half of a container entrypoint (static busybox, run before systemd, which itself
+# lives in /nix/store): overlayfs on /nix/store over the image's store, upper layer and Nix state on
+# the volume. Needs /run mounted, the mounts private (mount --make-rprivate /) and the volume in
+# place. Layout under @persistPath@ (do not change: existing volumes carry it):
+#   upper, work   overlay upper/work of /nix/store (lower: the image's store)
+#   var           /nix/var/nix of the overlay store (its DB holds the upper paths and the lower
+#                 paths they reference)
+#   lower-stamp   stamp of the lower store the upper was built against
+#   lower-paths   that store's path list (webtop-nix-lower, webtop-nix-partial)
+#   reinstall/    after an image update: manifests, and the `pending` / `restore` markers
+#   trash-*/      what an image update moved out of the overlay, kept until
+#                 webtop-nix-restore.service has copied the users' paths out of it
+#                 (webtop-nix-trash.service deletes it)
+# Needs /webtop-image-stamp: a hash identifying the image's store (STAMP_FILE).
+export PATH=@busybox@/bin
+N=@persistPath@
+LOWER=@lowerRoot@
+
+log() { echo "webtop-init: $*"; }
+
+# step <name> <command...>
+step() {
+  name=$1; shift
+  log "step: $name"
+  "$@" || { log "FAILED: $name (exit $?)"; exit 1; }
+}
+
+bind_lower() {
+  # Nix creates its state dirs even for a read-only lower store; they must exist before the ro bind.
+  mkdir -p /nix/var/nix/profiles/per-user /nix/var/nix/gcroots/per-user /nix/var/nix/temproots /nix/var/nix/db &&
+  mkdir -p "$LOWER/nix" &&
+  mount --bind /nix "$LOWER/nix" &&
+  # Source and target given: busybox otherwise looks the target up in /proc/mounts, whose lines
+  # (one lowerdir per image layer) overflow its buffer.
+  mount -o remount,bind,ro /nix "$LOWER/nix"
+}
+
+prepare_persist() {
+  # The upper DB is NOT seeded from the image: the overlay store reads lower paths from the lower
+  # store's own DB ($LOWER/nix/var/nix/db). This one holds the upper paths and the lower paths
+  # they reference.
+  mkdir -p "$N/upper" "$N/work" "$N/var"
+}
+
+# index=off: with index on, a kept upper whose root records the old lower's origin fails to mount
+# after an image update. xino=off: offline lower changes are allowed only without index and xino.
+mount_overlay() {
+  mount -t overlay overlay \
+    -o "lowerdir=$LOWER/nix/store,upperdir=$N/upper,workdir=$N/work,userxattr,index=off,xino=off" \
+    /nix/store
+}
+
+bind_var() { mount --bind "$N/var" /nix/var/nix; }
+
+step "bind image /nix read-only at $LOWER/nix" bind_lower
+step "store overlay after image updates" @bin@/webtop-nix-lower
+step "prepare $N" prepare_persist
+step "overlay on /nix/store" mount_overlay
+step "bind $N/var on /nix/var/nix" bind_var

@@ -1,0 +1,12 @@
+#!@busybox@/bin/sh
+# Part of a container entrypoint (static busybox, needs /run mounted): logind offers Sleep only if
+# /sys/power/state is writable, which it is not in a container. Sleep itself runs systemd-suspend.service,
+# which services.webtop.sleep maps to freezing the session, so a writable stand-in is enough.
+export PATH=@busybox@/bin
+
+# Not `test -w`: busybox reports every file writable for root, even on a read-only mount.
+[ -e /sys/power/state ] && awk '$5 == "/sys" && $6 ~ /(^|,)ro(,|$)/ { f = 1 } END { exit !f }' /proc/self/mountinfo || exit 0
+d=/run/webtop/sys-power
+mkdir -p $d && echo "freeze mem" > $d/state && echo "s2idle [deep]" > $d/mem_sleep &&
+mount --bind $d/state /sys/power/state &&
+{ [ ! -e /sys/power/mem_sleep ] || mount --bind $d/mem_sleep /sys/power/mem_sleep; }
