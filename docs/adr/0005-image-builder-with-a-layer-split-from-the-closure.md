@@ -8,7 +8,7 @@
 The desktop ships as a NixOS container image of several GB. nix2container's popularity layering
 (`maxLayers`) gives the first layers one small base library each and puts everything else, the Nix
 DB included, in one last layer that changes on every build, so every update was a full pull.
-Consumers (kube-webtop-workspaces) build their own image from their own NixOS configuration.
+Consumers build their own image from their own NixOS configuration.
 
 ## Decision
 

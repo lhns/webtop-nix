@@ -14,7 +14,7 @@ let
   remountHook = pkgs.writeShellScript "webtop-remount-store" ''
     exec ${pkgs.util-linux}/bin/mount -o remount /nix/store
   '';
-  # The users' homes sit beside the home storage path (kww: /persist/home, standalone: /home).
+  # The users' homes sit beside the home storage path (for example /persist/home, standalone: /home).
   homesRoot = dirOf (cfg.nixProfile.homeStoragePath or "/home/user");
   # Static busybox shebangs: the scripts run before /nix/store is overlaid. nix-store is the image's
   # own, which is what /nix/store is until then.
@@ -79,7 +79,7 @@ in
           `/nix/store` and `var` on `/nix/var/nix`. Reads `/webtop-image-stamp`, a hash identifying the
           image's store. `WEBTOP_HOMES_ROOT` (default: the directory of `nixProfile.homeStoragePath`) names the directory
           of the users' homes, whose Nix profile manifests an update records. Under
-          `nixProfile` it also sets the restore and reinstall units up; the trash unit needs only the overlay.
+          `nixProfile` (required with the overlay) it also sets the restore, reinstall and trash units up.
         '';
       };
     };
@@ -146,10 +146,16 @@ in
         fsync-store-paths = lib.mkDefault true;
       })
     ];
-    assertions = lib.optional overlay.enable {
-      assertion = overlay.upperLayer == "${overlay.persistPath}/upper";
-      message = "services.webtop.storeOverlay.upperLayer must be persistPath/upper: webtop-nix-lower and the restore expect the layout there";
-    };
+    assertions = lib.optionals overlay.enable [
+      {
+        assertion = overlay.upperLayer == "${overlay.persistPath}/upper";
+        message = "services.webtop.storeOverlay.upperLayer must be persistPath/upper: webtop-nix-lower and the restore expect the layout there";
+      }
+      {
+        assertion = cfg.nixProfile.enable or false;
+        message = "services.webtop.storeOverlay needs services.webtop.nixProfile.enable: after a full reset of the overlay only the restore unit clears reinstall/restore, and webtop-nix-trash waits for that";
+      }
+    ];
     nix.checkConfig = lib.mkIf overlay.enable false; # would try to open the store at build time
     # %% : systemd would read the URL's %-escapes as unit specifiers.
     systemd.services.nix-daemon.environment.NIX_CONFIG =
