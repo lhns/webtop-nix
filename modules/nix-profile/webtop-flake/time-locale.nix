@@ -1,5 +1,5 @@
 # Writes timeZone=, locale=, language= and the LC_* formats to ~/.config/webtop/session.conf, the file
-# the desktop reads before the session starts. The gateway's keys (sso-logout.nix) share it; the text
+# the desktop reads before the session starts. The consumer's keys (sso-logout.nix) share it; the text
 # merges line by line. Only what is set is written, so each other key stays with the admin's default.
 { config, lib, ... }:
 

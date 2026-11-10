@@ -616,7 +616,7 @@ in
         SELKIES_PORT = toString cfg.port;
         # Authentication is the job of whatever fronts this port.
         SELKIES_ENABLE_BASIC_AUTH = "false";
-        # No SELKIES_SUBFOLDER: a gateway prefix is stripped before it reaches us and the web client
+        # No SELKIES_SUBFOLDER: a reverse proxy strips a path prefix before it reaches us and the web client
         # derives it from the page URL; setting it would make Selkies expect it on every route.
         SELKIES_ENABLE_CLIPBOARD = cfg.clipboard;
         SELKIES_FILE_TRANSFERS = if cfg.fileTransfers == [ ] then "none" else lib.concatStringsSep "," cfg.fileTransfers;

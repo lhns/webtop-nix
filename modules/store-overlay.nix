@@ -1,7 +1,7 @@
 # What an image update needs around the store overlay (ADR 0013): the old overlay is kept in
 # trash-* by webtop-nix-lower; these units copy the users' paths from it into the new store, reinstall
 # what did not come back, and delete the trash. Part of the `container` module, active with
-# `storeOverlay.enable`; the restore and reinstall units also need `nixProfile.enable`.
+# `storeOverlay.enable`; `storeOverlay.enable` asserts `nixProfile.enable`.
 { config, lib, pkgs, ... }:
 
 let

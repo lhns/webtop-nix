@@ -5,14 +5,13 @@
 
 ## Context
 
-kube-webtop-workspaces built the patched `nix profile`, the `packages.json` declaration and the starter
-home-manager flake for its image (its ADR 0013, which records the design). None of it is specific to
-Kubernetes, and the standalone image should install software the same way.
+The first consumer built the patched `nix profile`, the `packages.json` declaration and the starter
+home-manager flake for its image. None of it is specific to Kubernetes, and the standalone image should install software the same way.
 
 ## Decision
 
-- **Principle:** webtop-nix holds what a single desktop needs without Kubernetes; kube-webtop-workspaces
-  adds only multi-user orchestration (controller, gateway, agent, CRD).
+- **Principle:** webtop-nix holds what a single desktop needs without Kubernetes; a consumer
+  adds only its orchestration.
 - This flake owns them, as `services.webtop.nixProfile` (`modules/nix-profile`), and gains the inputs
   they need: `home-manager` and `flake-registry`. Consumers follow them, like `nixpkgs`.
 - `nixProfile.enable` defaults to off: it builds Nix from source, changes what `nix profile` does for
@@ -27,7 +26,7 @@ Kubernetes, and the standalone image should install software the same way.
 
 ## Consequences
 
-- Module, patch and template changes reach kube-webtop-workspaces through its flake lock.
+- Module, patch and template changes reach a consumer through its flake lock.
 - A change to the starter is a template upgrade for every user: unmodified flakes follow it, edited
   ones get a notice.
 - Nixpkgs bumps here must keep the Nix minor version the patch applies to, or rebase the patch.

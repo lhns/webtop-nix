@@ -1,7 +1,7 @@
 {
   description = "Browser-streamed Plasma desktop on NixOS (Selkies + pixelflux + pcmflux)";
 
-  # Consumers follow this nixpkgs (kube-webtop-workspaces: one Qt tree, and the image builder's skopeo).
+  # Consumers follow this nixpkgs (one Qt tree, and the image builder's skopeo).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   # The image builder's layersFile (image/default.nix) is new upstream; bump deliberately.
   inputs.nix2container = {

@@ -1,5 +1,5 @@
 # usage: webtop-restore-progress start TOTAL | total TOTAL | current TEXT | step | finish [MESSAGE] | nixconfig
-# The software restore's progress, for a reader that shows it (kube-webtop-workspaces' agent turns it into a tray job): steps are the
+# The software restore's progress, for a reader that shows it (a consumer's agent can turn it into a tray job): steps are the
 # reinstalled profile entries plus the home-manager switch. Atomic, so the reader never sees a partial file.
 # `total`, `current` and `step` do nothing unless a restore is running, so the setup script can call
 # them on any boot. `finish` with a message marks the restore failed. `nixconfig` prints NIX_CONFIG
