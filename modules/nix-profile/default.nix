@@ -121,10 +121,13 @@ in
 
     fromImageStore = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = !(webtop.storeOverlay.enable or false);
+      defaultText = lib.literalExpression "!config.services.webtop.storeOverlay.enable";
       description = ''
         The store is the image's alone, so the home outlives it: every boot runs the reinstall without
-        a manifest ahead of the switch. Off for a consumer that runs the reinstall after its own restore.
+        a manifest ahead of the switch. Off with `storeOverlay`, whose volume keeps the store and
+        whose restore units run the reinstall after an image update (README, "Store overlay"), and for
+        a consumer that runs the reinstall after its own restore.
       '';
     };
 

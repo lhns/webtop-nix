@@ -105,7 +105,7 @@ jobs:
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
       # references (import from derivation), which needs a build of that system, hence native runners.
       - name: build packages and module-eval
-        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest -L
+        run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#webtop-power .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest .#checks.${{ matrix.system }}.store-overlay-layout -L
       - name: key bar in the built client
         if: matrix.system == 'x86_64-linux'
         run: |
@@ -117,7 +117,7 @@ jobs:
       # The drivers hold the test systems; the vm jobs run the tests.
       - name: build VM test drivers
         if: matrix.system == 'x86_64-linux'
-        run: nix build .#checks.${{ matrix.system }}.{vm,relogin,lock,app-screens,second-display,latest-owner}.driver -L --no-link
+        run: nix build .#checks.${{ matrix.system }}.{vm,relogin,lock,power,app-screens,second-display,latest-owner}.driver -L --no-link
       - name: build image
         run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#layer-report -L --no-link
 
@@ -197,7 +197,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [vm, relogin, lock]
+        # power: sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
+        test: [vm, relogin, lock, power]
         # Run outside the sandbox, so that their screenshots and logs survive a failure as an artifact.
         include:
           # Several app screens at once; summary.txt has the measured cost.
@@ -289,9 +290,16 @@ jobs:
       - name: image boot test
         timeout-minutes: 15
         run: tests/image-boot.sh "$IMAGE:dev" 600
+      # Two boots on one volume with the store overlay's state edited between them, then the user's software
+      # through the restore and the reinstall (needs the network to substitute).
+      - name: store overlay across an image update
+        timeout-minutes: 40
+        run: tests/lower-swap-test.sh "$IMAGE:dev" 300
       - name: image boot diagnostics
         if: failure()
         run: |
+          docker logs webtop-swap 2>&1 | tail -n 100 || true
+          docker rm -f webtop-swap || true
           docker exec webtop-image systemctl --failed --no-pager || true
           docker exec webtop-image systemctl status webtop-session --no-pager -n 40 || true
           docker exec webtop-image journalctl -b --no-pager -g 'kwin|startplasma|wayland|webtop-session' 2>&1 | head -n 200 || true

@@ -41,6 +41,13 @@ let
     loginMode=restorePreviousLogout
   '';
 
+  # The splash only animates a loading screen and costs seconds per session start on this headless
+  # desktop. [$i] makes the key immutable, so a user's ~/.config/ksplashrc cannot turn it back on.
+  ksplashrc = ''
+    [KSplash]
+    Engine[$i]=none
+  '';
+
   # Start wrapper of Selkies: resolves the upload directory and applies the user's allowlisted
   # settings last, so they win over the unit environment and any EnvironmentFile.
   selkiesStart = pkgs.writeShellApplication {
@@ -95,6 +102,16 @@ let
     (toString cfg.locale)
     (lib.concatStringsSep " " cfg.sessionConfKeys)
   ] ++ cfg.localeEnvironmentFiles);
+
+  # Sleep and the session save (README, "Sleep and session save", ADR 0012).
+  power = lib.getExe cfg.sessionSave.command;
+  userBus = "unix:path=${runtimeDir}/bus";
+  sleepHooks = pkgs.writeText "webtop-sleep-hooks" (lib.concatLines cfg.sleep.hooks);
+  sysPower = pkgs.runCommand "webtop-sys-power" { } ''
+    mkdir -p $out/bin
+    substitute ${./power/webtop-sys-power} $out/bin/webtop-sys-power --subst-var-by busybox ${pkgs.pkgsStatic.busybox}
+    chmod +x $out/bin/webtop-sys-power
+  '';
 
   # Lock screen on or off for this start (README, "Lock screen"). Root, before the session starts.
   applyLockConfig = pkgs.writeShellApplication {
@@ -335,6 +352,85 @@ in
         Keys of the user's `~/.config/webtop/session.conf` that belong to the consumer. The desktop
         skips them; any other unknown key is logged as ignored.
       '';
+    };
+
+    sessionSave = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = config.boot.isContainer;
+        defaultText = lib.literalExpression "config.boot.isContainer";
+        description = ''
+          `webtop-session-save.service`: saves the Plasma session when the system is stopped from
+          outside, where Plasma does not (a container stop, SIGRTMIN+3, queues `halt.target`), and
+          when Sleep falls back to a poweroff. Stopped before the session, it first thaws what Sleep
+          froze, since ksmserver must answer. A shutdown from inside the desktop saves by itself and
+          `systemctl poweroff` does not save, as on a real machine. Writes the same
+          `ksmserverrc` groups Plasma restores from. On in containers, off otherwise.
+        '';
+      };
+
+      command = lib.mkOption {
+        type = lib.types.package;
+        readOnly = true;
+        default = pkgs.webtop-power;
+        defaultText = lib.literalExpression "pkgs.webtop-power";
+        description = ''
+          `bin/webtop-power save-session`, as the desktop user with the session bus in its
+          environment: saves the session if one of the two conditions above holds. The unit above
+          runs it; a consumer can run it for a stop of its own.
+        '';
+      };
+    };
+
+    sleep = {
+      mode = lib.mkOption {
+        type = lib.types.enum [ "systemd" "freeze" "poweroff" ];
+        default = if config.boot.isContainer then "freeze" else "systemd";
+        defaultText = lib.literalExpression ''if config.boot.isContainer then "freeze" else "systemd"'';
+        description = ''
+          What Sleep (`systemd-suspend.service`) does. `"systemd"`: systemd's own suspend. `"freeze"`:
+          the session's processes are frozen through the cgroup freezer (`plasma-*` in `session.slice`
+          and everything in `app.slice`; Selkies, the session bus and audio keep running), and
+          `webtop-power suspend` waits until a new Selkies session connects, then thaws; hibernation
+          variants are off. `"poweroff"`, or a freeze that failed: the session is saved, the marker
+          `/run/webtop/stop-reason` (containing `suspend`) is written and the system powers off. Logind offers Sleep only
+          if `/sys/power/state` is writable: in a container `sleep.init` provides a stand-in.
+          `WEBTOP_SUSPEND_MODE=freeze|poweroff` in a file of `sleep.environmentFiles` overrides
+          this at each Sleep; it does not turn `"systemd"` into a freeze.
+        '';
+      };
+
+      environmentFiles = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "-/run/webtop/env" ];
+        description = ''
+          `EnvironmentFile=` entries of `systemd-suspend.service`, read at each Sleep (later wins; a
+          `-` prefix makes one optional): `WEBTOP_SUSPEND_MODE=freeze|poweroff`, and
+          `WEBTOP_HTTP_PORT`, the port of Selkies when it is not `port`.
+        '';
+      };
+
+      hooks = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "/run/current-system/sw/bin/my-report" ];
+        description = ''
+          Commands run as root with one more argument, `asleep` right after a freeze and `awake`
+          right after the thaw, in order. Best effort: a failing or slow hook (10 s) is logged and
+          skipped. Only `"freeze"` calls them.
+        '';
+      };
+
+      init = lib.mkOption {
+        type = lib.types.package;
+        readOnly = true;
+        description = ''
+          `bin/webtop-sys-power`, a static busybox script for a container's entrypoint (needs `/run`
+          mounted, root): binds a writable stand-in over `/sys/power/state` where `/sys` is read-only,
+          so logind offers Sleep. Without it a container never offers Sleep. Does nothing elsewhere.
+        '';
+      };
     };
 
     timeZone = lib.mkOption {
@@ -606,6 +702,56 @@ in
       startLimitBurst = 20;
     };
 
+    services.webtop.sleep.init = sysPower;
+
+    # webtop-power's state (the frozen units, the poweroff marker) and the consumers' env files.
+    systemd.tmpfiles.rules = [ "d /run/webtop 0755 root root -" ];
+
+    # Saves the Plasma session on an external stop, where ksmserver does not. Stopped before the
+    # session and the user manager (plasma-ksmserver.service runs there). The thaw first ("+": as
+    # root) is a no-op unless Sleep left units frozen, which would hang ksmserver.
+    systemd.services.webtop-session-save = lib.mkIf cfg.sessionSave.enable {
+      description = "Save the Plasma session before an external stop";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "webtop-session.service" "user@${uid}.service" ];
+      environment = {
+        DBUS_SESSION_BUS_ADDRESS = userBus;
+        XDG_RUNTIME_DIR = runtimeDir;
+        WEBTOP_UID = uid;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = uid;
+        ExecStart = "${pkgs.coreutils}/bin/true";
+        ExecStop = [ "+${power} thaw" "${power} save-session" ];
+        TimeoutStopSec = 40;
+      };
+    };
+
+    # Sleep (ADR 0012). webtop-power blocks until the next web client, so no start timeout. After=
+    # webtop-session-save stops this first, so it thaws before ksmserver is asked to save.
+    systemd.services.systemd-suspend = lib.mkIf (cfg.sleep.mode != "systemd") {
+      path = [ config.systemd.package ];
+      after = [ "webtop-session-save.service" ];
+      environment = {
+        WEBTOP_SUSPEND_MODE = cfg.sleep.mode;
+        WEBTOP_HTTP_PORT = toString cfg.port;
+        WEBTOP_UID = uid;
+        WEBTOP_SLEEP_HOOKS = toString sleepHooks;
+      };
+      serviceConfig = {
+        ExecStart = [ "" "${power} suspend" ];
+        EnvironmentFile = cfg.sleep.environmentFiles;
+        TimeoutStartSec = "infinity";
+      };
+    };
+    systemd.sleep.settings.Sleep = lib.mkIf (cfg.sleep.mode != "systemd") {
+      AllowHibernation = "no";
+      AllowHybridSleep = "no";
+      AllowSuspendThenHibernate = "no";
+    };
+
     # Power actions from inside the desktop, as on a real machine.
     security.polkit.extraConfig = ''
       polkit.addRule(function(action, subject) {
@@ -625,6 +771,7 @@ in
     # System-wide defaults; a user's own ~/.config overrides them.
     environment.etc."xdg/powerdevilrc".text = powerdevilrc;
     environment.etc."xdg/ksmserverrc".text = ksmserverrc;
+    environment.etc."xdg/ksplashrc".text = ksplashrc;
 
     # /etc/xdg/kdeglobals and kscreenlockerrc are written at each session start (webtop-lock-config).
     # Autolock would start the (unusable) greeter before anyone connects, so it is off in every case.

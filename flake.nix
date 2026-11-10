@@ -63,6 +63,8 @@
               sessionStopCommands = [ "+/run/test/session-stop" ];
               sessionConfKeys = [ "testKey" "otherKey" ];
               nixProfile.templateEnvironmentFiles = [ "-/run/test/template.env" ];
+              sleep.environmentFiles = [ "-/run/test/sleep.env" ];
+              sleep.hooks = [ "/run/test/sleep-hook" ];
             };
             # Direct unit overrides of an older consumer, in the shapes it used; they must still merge.
             systemd.services.webtop-session.serviceConfig = {
@@ -95,7 +97,7 @@
       };
 
       packages = forAllSystems (system: pkgs: {
-        inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen nix-software-center nix-software-center-pkgdb;
+        inherit (pkgs) pixelflux pcmflux selkies webtop-app-screen webtop-power nix-software-center nix-software-center-pkgdb;
         kwin = pkgs.kwinSoftwarePresentation;
         kguiaddons = pkgs.kguiaddonsClipboardFix;
         # `nix profile` with backends (services.webtop.nixProfile); CI caches it like KWin.
@@ -107,22 +109,43 @@
         image =
           let
             sys = standalone.${system};
+            toplevel = sys.config.system.build.toplevel;
             rootfs = pkgs.runCommand "rootfs" { } ''
-              mkdir -p $out/sbin $out/etc $out/run $out/tmp $out/var $out/home $out/proc $out/sys $out/dev
+              mkdir -p $out/sbin $out/etc $out/run $out/tmp $out/var $out/persist $out/home $out/proc $out/sys $out/dev
               chmod 1777 $out/tmp
-              ln -s ${sys.config.system.build.toplevel}/init $out/sbin/init
+              ln -s ${toplevel}/init $out/sbin/init
+            '';
+            # The shebang is a static busybox: it runs before /nix/store is overlaid.
+            entrypoint = pkgs.runCommand "webtop-entrypoint" { } ''
+              mkdir -p $out
+              substitute ${./image/webtop-entrypoint} $out/webtop-entrypoint \
+                --subst-var-by busybox ${pkgs.pkgsStatic.busybox} \
+                --subst-var-by storeInit ${sys.config.services.webtop.storeOverlay.init} \
+                --subst-var-by sysPower ${sys.config.services.webtop.sleep.init}
+              chmod +x $out/webtop-entrypoint
+            '';
+            # Identifies the image's store (the overlay's lower): webtop-nix-lower compares it with the
+            # stamp on the volume. It lives outside /nix so busybox can read it before the overlay is
+            # mounted. Over paths and NAR hashes: a path rebuilt with other bytes is a change too.
+            lowerClosure = pkgs.closureInfo { rootPaths = [ toplevel entrypoint rootfs ]; };
+            stamp = pkgs.runCommand "webtop-image-stamp" { } ''
+              mkdir -p $out
+              sha256sum ${lowerClosure}/registration | cut -d' ' -f1 > $out/webtop-image-stamp
             '';
           in
           (imageLib system).buildImage {
             name = "ghcr.io/lhns/webtop-nix";
             tag = "dev";
             nixos = sys;
-            copyToRoot = [ rootfs ];
+            copyToRoot = [ rootfs entrypoint stamp ];
             config = {
-              Entrypoint = [ "/sbin/init" ];
+              Entrypoint = [ "/webtop-entrypoint" ];
               StopSignal = "SIGRTMIN+3";
               Env = [ "container=docker" "PATH=/run/current-system/sw/bin:/run/wrappers/bin" ];
               ExposedPorts."8082/tcp" = { };
+              # The store overlay's upper layer and Nix state (README, "Store overlay"); docker makes an
+              # anonymous volume when none is mounted.
+              Volumes."/persist" = { };
               # Links the ghcr package to this repo, so the workflow's GITHUB_TOKEN may push it.
               Labels."org.opencontainers.image.source" = "https://github.com/lhns/webtop-nix";
             };
@@ -147,6 +170,9 @@
         # Evaluates a system using the module, without building it.
         module-eval =
           let sys = moduleSystem system; in
+          # Outside a container Sleep is systemd's and nothing saves the session (ADR 0012).
+          assert (sys.config.services.webtop.sleep.mode == "systemd" && !sys.config.services.webtop.sessionSave.enable
+            && !(sys.config.systemd.services ? webtop-session-save) && sys.config.services.webtop.nixProfile.fromImageStore) || throw "non-container defaults";
           pkgs.writeText "module-eval" (builtins.unsafeDiscardStringContext sys.config.system.build.toplevel.drvPath);
         # The container module's options, evaluated and asserted on: the overlay store reaches the daemon only.
         container-eval =
@@ -171,8 +197,40 @@
             && nixpkgs.lib.hasInfix "'testKey otherKey'" (builtins.head s.ExecStartPre)) || throw "session extension points";
           assert (nixpkgs.lib.sort (a: b: a < b) c.systemd.services.webtop-home-manager-template.serviceConfig.EnvironmentFile
             == [ "-/run/test/legacy-template.env" "-/run/test/template.env" ]) || throw "templateEnvironmentFiles";
+          # Sleep and the session save (ADR 0012): the container defaults, keyed on boot.isContainer in webtop.nix.
+          assert (c.services.webtop.sleep.mode == "freeze" && c.services.webtop.sessionSave.enable) || throw "container power defaults";
+          assert (let u = c.systemd.services.systemd-suspend; in
+            nixpkgs.lib.hasSuffix "/bin/webtop-power suspend" (nixpkgs.lib.last u.serviceConfig.ExecStart)
+            && builtins.head u.serviceConfig.ExecStart == ""
+            && u.serviceConfig.EnvironmentFile == [ "-/run/test/sleep.env" ]
+            && u.environment.WEBTOP_SUSPEND_MODE == "freeze" && u.environment.WEBTOP_HTTP_PORT == "8082"
+            && u.serviceConfig.TimeoutStartSec == "infinity") || throw "sleep unit";
+          assert (c.systemd.sleep.settings.Sleep.AllowHibernation == "no") || throw "hibernation off";
+          assert (let s = c.systemd.services.webtop-session-save; in
+            nixpkgs.lib.hasSuffix "/bin/webtop-power thaw" (builtins.head s.serviceConfig.ExecStop)
+            && nixpkgs.lib.hasPrefix "+" (builtins.head s.serviceConfig.ExecStop)
+            && nixpkgs.lib.hasSuffix "/bin/webtop-power save-session" (builtins.elemAt s.serviceConfig.ExecStop 1)
+            && builtins.elem "webtop-session.service" s.after) || throw "session save unit";
+          # The overlay's layout on the volume is what the former code made (tests/store-overlay-layout-test.sh).
+          assert (c.services.webtop.storeOverlay.persistPath == "/persist/nix"
+            && c.services.webtop.storeOverlay.upperLayer == "/persist/nix/upper"
+            && c.services.webtop.storeOverlay.lowerRoot == "/.lower") || throw "overlay layout";
+          assert (!c.services.webtop.nixProfile.fromImageStore
+            && c.systemd.services.webtop-home-manager.unitConfig.ConditionPathExists == "!/persist/nix/reinstall/pending"
+            && c.systemd.services.webtop-nix-restore.unitConfig.ConditionPathExists == "/persist/nix/reinstall/restore"
+            && c.systemd.services.webtop-nix-trash.unitConfig.ConditionPathExistsGlob == "/persist/nix/trash-*"
+            && builtins.elem "webtop-nix-reinstall.service" c.systemd.services.webtop-home-manager-template.before
+            && nixpkgs.lib.hasSuffix " /persist/nix/reinstall/user.manifest.json" c.systemd.services.webtop-nix-reinstall.serviceConfig.ExecStart) || throw "restore units";
           pkgs.writeText "container-eval" (builtins.unsafeDiscardStringContext c.system.build.toplevel.drvPath);
-        inherit (self.packages.${system}) pixelflux pcmflux selkies nix-software-center nix-software-center-pkgdb;
+        inherit (self.packages.${system}) pixelflux pcmflux selkies webtop-power nix-software-center nix-software-center-pkgdb;
+        # The overlay's layout on the volume, run on the scripts as built (busybox alone on PATH).
+        store-overlay-layout =
+          let init = standalone.${system}.config.services.webtop.storeOverlay.init;
+          in pkgs.runCommand "store-overlay-layout" { } ''
+            bash ${./tests/store-overlay-layout-test.sh} ${init} ${pkgs.pkgsStatic.busybox}
+            touch $out
+          '';
+        power = import ./tests/power.nix { inherit pkgs self; };
         included-manifest = import ./tests/included-manifest.nix { inherit pkgs; sys = moduleSystem system; pkgdb = pkgs.nix-software-center-pkgdb; };
         vm = import ./tests/vm.nix { inherit pkgs self; };
         relogin = import ./tests/relogin.nix { inherit pkgs self; };
