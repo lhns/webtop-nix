@@ -25,15 +25,15 @@ grep -r . /sys/module/overlay/parameters/ 2>/dev/null | sed 's|/sys/module/overl
 boot() {
   docker rm -f "$c" >/dev/null 2>&1 || true
   docker run -d --name "$c" --privileged --cgroupns=private --shm-size=1g -v "$dir/persist:/persist" -v "$dir/home:/home" "$image" >/dev/null
-  # Samples progress.json from the start of the boot: the restore can finish before a later poller starts.
-  [ -z "${poll:-}" ] || docker exec -d "$c" sh -c 'until [ -d /run/webtop/restore ]; do sleep 0.1; done
-    while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/run/progress.log'
   local deadline=$(($(date +%s) + timeout))
   until x nix-store -q --hash /run/current-system >/dev/null 2>&1; do
     [ "$(docker inspect -f '{{.State.Running}}' "$c")" = true ] || { docker logs "$c" 2>&1 | tail -n 50; fail "the container exited"; }
     [ "$(date +%s)" -lt "$deadline" ] || { docker logs "$c" 2>&1 | tail -n 50; fail "no nix-daemon within ${timeout}s"; }
     sleep 2
   done
+  # Samples progress.json as soon as the shell is usable: the restore can finish before a later poller starts.
+  [ -z "${poll:-}" ] || docker exec -d "$c" sh -c 'until [ -d /run/webtop/restore ]; do sleep 0.1; done
+    while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/run/progress.log'
 }
 # Stopped from outside (SIGRTMIN+3), as docker stop does.
 stop() { docker stop -t 15 "$c" >/dev/null; }
