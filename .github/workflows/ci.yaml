@@ -97,7 +97,7 @@ jobs:
       # The drivers hold the test systems; the vm jobs run the tests.
       - name: build VM test drivers
         if: matrix.system == 'x86_64-linux'
-        run: nix build .#checks.${{ matrix.system }}.{vm,relogin,lock,power,app-screens,second-display,latest-owner}.driver -L --no-link
+        run: nix build .#checks.${{ matrix.system }}.{vm,defaults,relogin,lock,power,app-screens,second-display,latest-owner}.driver -L --no-link
       - name: build image
         run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#layer-report -L --no-link
 
@@ -178,7 +178,7 @@ jobs:
       fail-fast: false
       matrix:
         # power: sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
-        test: [vm, relogin, lock, power]
+        test: [defaults]
         # Run outside the sandbox, so that their screenshots and logs survive a failure as an artifact.
         include:
           # Several app screens at once; summary.txt has the measured cost.
