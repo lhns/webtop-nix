@@ -67,6 +67,10 @@ jobs:
         with:
           save: 'true'
 
+      # skopeo's source patch, from the repo: github.com answers 429 to CI (see flake.nix).
+      - name: seed skopeo patch
+        run: nix build .#skopeo-patch --no-link -L
+
       # Cached across runs by store path (.github/actions/cache-package); the rest of the build comes from
       # cache.nixos.org. The patched KWin takes 25-45 min to build, pixelflux and nix-software-center 10-16.
       - uses: ./.github/actions/cache-package
