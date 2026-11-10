@@ -89,8 +89,7 @@ if [ "$((need_kib + RESERVE_KIB))" -gt "$avail_kib" ]; then
 fi
 
 if [ "${#subst[@]}" -gt 0 ]; then
-  mapfile -t subst < <(printf '%s
-' "${subst[@]}" | sort -u)
+  mapfile -t subst < <(printf '%s\n' "${subst[@]}" | sort -u)
   log "substituting ${#subst[@]} paths the new image's store lacks"
   progress current "Downloading ${#subst[@]} missing software packages"
   # Rooted until the copy is done, so a GC in between cannot take them. --keep-going: a path without a

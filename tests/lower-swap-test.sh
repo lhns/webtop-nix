@@ -25,6 +25,9 @@ grep -r . /sys/module/overlay/parameters/ 2>/dev/null | sed 's|/sys/module/overl
 boot() {
   docker rm -f "$c" >/dev/null 2>&1 || true
   docker run -d --name "$c" --privileged --cgroupns=private --shm-size=1g -v "$dir/persist:/persist" -v "$dir/home:/home" "$image" >/dev/null
+  # Samples progress.json from the start of the boot: the restore can finish before a later poller starts.
+  [ -z "${poll:-}" ] || docker exec -d "$c" sh -c 'until [ -d /run/webtop/restore ]; do sleep 0.1; done
+    while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/run/progress.log'
   local deadline=$(($(date +%s) + timeout))
   until x nix-store -q --hash /run/current-system >/dev/null 2>&1; do
     [ "$(docker inspect -f '{{.State.Running}}' "$c")" = true ] || { docker logs "$c" 2>&1 | tail -n 50; fail "the container exited"; }
@@ -151,18 +154,18 @@ done
 sudo sed -i '1s/.*/stamp old-image/' "$dir/persist/nix/lower-paths"
 echo old-image | sudo tee "$dir/persist/nix/lower-stamp" >/dev/null
 echo "== software: boot 2 (restore)"
-boot
+poll=1 boot
 clog=$(docker logs "$c" 2>&1)
 grep 'webtop-nix-partial\|webtop-init: .*store\|webtop-init: .*PARTIAL' <<<"$clog" || true
 grep -q 'store overlay kept' <<<"$clog" || fail "the partial invalidation did not run or fell back"
-# The reinstall restarts progress.json, so the restore's phase is caught while it runs.
-docker exec -d "$c" sh -c 'while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/tmp/progress.log'
 wait_markers
 software_works "after the restore"
 rj=$(journal webtop-nix-restore)
 grep -q 'all roots restored' <<<"$rj" || { echo "$rj"; fail "the restore did not restore every root"; }
-x jq -s -e 'map(select(.active and .total > 1 and (.current | startswith("Restoring software")))) | length > 0' /tmp/progress.log >/dev/null   || { x cat /tmp/progress.log; fail "progress.json never showed the restore with a total above 1"; }
-x jq -s -e 'map(select(.done > 0 and .done <= .total and .total > 1)) | length > 0' /tmp/progress.log >/dev/null   || fail "progress.json never counted restored roots"
+# The reinstall restarts progress.json, so the restore's own phase is only in the samples.
+plog=$(x cat /run/progress.log)
+jq -s -e 'map(select(.active and (.current | startswith("Restoring software")))) | length > 0' <<<"$plog" >/dev/null || { echo "$plog"; fail "progress.json never showed the restore"; }
+jq -s -e 'map(select(.active and .total > 0 and .done == .total and (.current | startswith("Restoring software")))) | length > 0' <<<"$plog" >/dev/null || { echo "$plog"; fail "progress.json never counted every restored root"; }
 manifest=$(as_user cat /home/user/.local/state/nix/profiles/profile/manifest.json)
 stop
 
