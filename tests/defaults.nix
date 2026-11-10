@@ -123,7 +123,7 @@ pkgs.testers.runNixOSTest {
         return machine.succeed("readlink /etc/localtime").strip().removeprefix("/etc/zoneinfo/")
 
     def qt_fmt(env):
-        status, out = user_run(f"env QT_QPA_PLATFORM=offscreen ${pkgs.kdePackages.qtdeclarative}/bin/qml ${fmtQml}", env)
+        status, out = user_run("env QT_QPA_PLATFORM=offscreen ${pkgs.kdePackages.qtdeclarative}/bin/qml ${fmtQml}", env)
         m = re.search(r"QTFMT (.*)", out)
         return m.group(1).split("|") if m else out
 
