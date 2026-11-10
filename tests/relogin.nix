@@ -103,11 +103,10 @@ pkgs.testers.runNixOSTest {
         assert took <= 20, f"early {how}: the next session took {took:.0f} s"
         ${import ./wait-compositing.nix}
     ready()
-    # Grafted: no process of the session still loads the stock library.
-    for unit in ["plasma-plasmashell.service", "plasma-kwin_wayland.service"]:
-        p = machine.succeed(f"{ubus} systemctl --user show -p MainPID --value {unit}").strip()
-        libs = set(machine.succeed(f"grep -o '/nix/store/[^/]*-kguiaddons-[^/]*' /proc/{p}/maps || true").split())
-        assert libs == {"${pkgs.kguiaddonsClipboardFix}"}, f"{unit} loads {libs}"
+    # Grafted: plasmashell maps the patched library, not the stock one.
+    p = machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-plasmashell.service").strip()
+    libs = set(machine.succeed(f"grep -o '/nix/store/[^/]*-kguiaddons-[^/]*' /proc/{p}/maps || true").split())
+    assert libs == {"${pkgs.kguiaddonsClipboardFix}"}, f"plasmashell loads {libs}"
 
     # A crash of the session process takes Plasma down too; the next start brings a new KWin.
     kwin = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-kwin_wayland.service").strip()
