@@ -269,7 +269,7 @@ In a container the `webtop` module defaults `sleep.mode` to `freeze` and `sessio
 
 Not in this flake because they need Kubernetes or its daemon: the entrypoint of a pod, the agent (power actions and boot progress reported to a controller) and the tray job that shows the restore.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
-(`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it; this flake shows none of it, the consumer's agent does.
+(`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it (the restore's copy phase counts roots, the reinstall's counts packages; a new phase restarts the file); this flake shows none of it, the consumer's agent does.
 
 ## Sleep and session save
 

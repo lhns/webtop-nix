@@ -12,6 +12,9 @@ HOMES=${WEBTOP_HOMES_ROOT:-$(dirname "$N")/home}
 RESERVE_KIB=${WEBTOP_NIX_RESTORE_RESERVE_KIB:-1048576}
 
 log() { echo "webtop-nix-restore: $*"; }
+# The restore's progress file (nixProfile.progress); never fatal, a no-op without a reader. It is left
+# active at the end: the reinstall that follows restarts it, and a "finished" here would flash away.
+progress() { webtop-restore-progress "$@" || true; }
 
 olds=()
 for d in "$N"/trash-*/; do
@@ -55,6 +58,8 @@ for r in "${roots[@]}"; do
 done
 [ "${#todo[@]}" -gt 0 ] || { log "nothing to restore"; exit 0; }
 log "restoring ${#todo[@]} roots: ${todo[*]}"
+progress start "${#todo[@]}"
+progress current "Restoring software"
 
 # The closure part the new store lacks: in an old upper (copied, counted against free space), or
 # only in the old image's store (substituted).
@@ -84,20 +89,42 @@ if [ "$((need_kib + RESERVE_KIB))" -gt "$avail_kib" ]; then
 fi
 
 if [ "${#subst[@]}" -gt 0 ]; then
-  mapfile -t subst < <(printf '%s\n' "${subst[@]}" | sort -u)
+  mapfile -t subst < <(printf '%s
+' "${subst[@]}" | sort -u)
   log "substituting ${#subst[@]} paths the new image's store lacks"
-  # --keep-going: a path without a substitute only fails the roots that need it.
-  nix-store --realise --keep-going "${subst[@]}" >/dev/null || true
+  progress current "Downloading ${#subst[@]} missing software packages"
+  # Rooted until the copy is done, so a GC in between cannot take them. --keep-going: a path without a
+  # substitute only fails the roots that need it.
+  gcdir=$(mktemp -d)
+  trap 'rm -rf "$gcdir"' EXIT
+  NIX_CONFIG=$(progress nixconfig) nix-store --realise --keep-going --indirect --add-root "$gcdir/subst" "${subst[@]}" >/dev/null || true
 fi
 
+# One nix copy per old overlay for all its roots: each call pays for walking the shared closures, which
+# dominated when it ran once per root. A failed batch falls back to root by root, so one bad root
+# cannot take the others down, and each root is then tried against every old overlay.
 failed=()
-for r in "${todo[@]}"; do
+done_n=0
+step() { done_n=$((done_n + 1)); progress current "Restoring software ($done_n/${#todo[@]})"; progress step; }
+retry=()
+for d in "${olds[@]}"; do
+  rs=()
+  for r in "${todo[@]}"; do [ "${from[$r]}" = "$d" ] && rs+=("$r"); done
+  [ "${#rs[@]}" -gt 0 ] || continue
+  if nix copy --from "$(src "$d")" --no-check-sigs "${rs[@]}"; then
+    for _ in "${rs[@]}"; do step; done
+  else
+    retry+=("${rs[@]}")
+  fi
+done
+for r in "${retry[@]}"; do
   ok=0
   for d in "${olds[@]}"; do
     nix path-info --store "$(src "$d")" "$r" >/dev/null 2>&1 || continue
     if nix copy --from "$(src "$d")" --no-check-sigs "$r"; then ok=1; break; fi
   done
   [ "$ok" = 1 ] || failed+=("$r")
+  step
 done
 
 # A root whose closure is split across old overlays (an interrupted partial invalidation followed by

@@ -155,8 +155,14 @@ boot
 clog=$(docker logs "$c" 2>&1)
 grep 'webtop-nix-partial\|webtop-init: .*store\|webtop-init: .*PARTIAL' <<<"$clog" || true
 grep -q 'store overlay kept' <<<"$clog" || fail "the partial invalidation did not run or fell back"
+# The reinstall restarts progress.json, so the restore's phase is caught while it runs.
+docker exec -d "$c" sh -c 'while :; do cat /run/webtop/restore/progress.json 2>/dev/null; sleep 0.2; done >/tmp/progress.log'
 wait_markers
 software_works "after the restore"
+rj=$(journal webtop-nix-restore)
+grep -q 'all roots restored' <<<"$rj" || { echo "$rj"; fail "the restore did not restore every root"; }
+x jq -s -e 'map(select(.active and .total > 1 and (.current | startswith("Restoring software")))) | length > 0' /tmp/progress.log >/dev/null   || { x cat /tmp/progress.log; fail "progress.json never showed the restore with a total above 1"; }
+x jq -s -e 'map(select(.done > 0 and .done <= .total and .total > 1)) | length > 0' /tmp/progress.log >/dev/null   || fail "progress.json never counted restored roots"
 manifest=$(as_user cat /home/user/.local/state/nix/profiles/profile/manifest.json)
 stop
 

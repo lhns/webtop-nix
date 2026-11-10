@@ -14,7 +14,7 @@ let
 
   restore = pkgs.writeShellApplication {
     name = "webtop-nix-restore";
-    runtimeInputs = with pkgs; [ coreutils findutils gnugrep config.nix.package ];
+    runtimeInputs = with pkgs; [ coreutils findutils gnugrep config.nix.package webtop.nixProfile.progress ];
     text = builtins.readFile ./store-overlay/webtop-nix-restore.sh;
   };
 
