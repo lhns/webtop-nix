@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # A branch run tests only: publishing is gated on push.
+  workflow_dispatch:
 
 # Main runs get a group per commit, so no publish is cancelled midway.
 concurrency:
@@ -17,6 +19,10 @@ permissions:
 env:
   IMAGE: ghcr.io/lhns/webtop-nix
 
+# One build job per system; the test jobs take its store from an artifact (a file:// binary cache) and run
+# in parallel. The concurrency and script tests need only the patched Nix and start at once.
+# Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
+# (kube-webtop-workspaces boot-tests the image on both).
 jobs:
   # The touch key bar of the web client, in mobile-emulated Chromium against a stub of the client's key input.
   # A real Android keyboard is not covered.
@@ -32,31 +38,24 @@ jobs:
           "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
           "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py
 
-  nix:
-    # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
-    # (kube-webtop-workspaces boot-tests the image on both).
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
           - system: x86_64-linux
             runner: ubuntu-latest
-            vm: true
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
-            vm: false
-    name: nix (${{ matrix.system }})
+    name: build (${{ matrix.system }})
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      packages: write
     # A cold run builds KWin (25–45 min on x86_64); with the cache it takes minutes.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
-      # Evaluating the module realises the stock Plasma closure (the KWin graft reads its references).
-      # The image is loaded into docker as well.
+      # Evaluating the module realises the stock Plasma closure (the KWin graft reads its references), and
+      # the export below holds the whole closure once more.
       - name: free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
@@ -64,104 +63,27 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h /
 
-      # The VM test needs /dev/kvm, and the Nix daemon only offers the kvm feature if it exists when it starts.
-      - name: enable KVM
-        if: matrix.vm
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+      - uses: ./.github/actions/nix
+        with:
+          save: 'true'
 
-      # The cache below is a local binary cache of the patched KWin closure (the rest of the build comes from
-      # cache.nixos.org). Signatures are not checked: only this repo's workflows write that cache.
-      - uses: cachix/install-nix-action@v31
+      # Cached across runs by store path (.github/actions/cache-package); the rest of the build comes from
+      # cache.nixos.org. The patched KWin takes 25-45 min to build, pixelflux and nix-software-center 10-16.
+      - uses: ./.github/actions/cache-package
         with:
-          extra_nix_config: |
-            extra-substituters = file:///home/runner/kwin-cache file:///home/runner/nix-cache
-            require-sigs = false
-
-      # The key is the store path of the patched KWin, i.e. a hash of its derivation: the patch,
-      # nixpkgs and flake.lock all change it.
-      - name: patched KWin store path
-        id: kwin
-        run: |
-          out=$(nix eval --raw .#kwin.outPath)
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-          echo "key=kwin-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
-      # Evaluating may make the nix daemon (root) create files in the cache directory; start clean so
-      # the restore, which runs as the user, can write.
-      - name: empty cache directory
-        run: |
-          sudo rm -rf ~/kwin-cache
-          mkdir ~/kwin-cache
-      - name: restore patched KWin
-        id: kwin-cache
-        uses: actions/cache/restore@v6
+          attr: kwin
+      - uses: ./.github/actions/cache-package
         with:
-          path: ~/kwin-cache
-          key: ${{ steps.kwin.outputs.key }}
-      - name: build patched KWin
-        run: nix build .#kwin -L --no-link
-      # The whole closure: a binary cache refuses a path whose references it lacks. zstd keeps it small.
-      - name: save patched KWin
-        if: steps.kwin-cache.outputs.cache-hit != 'true'
-        # The daemon (root) created parts of the directory while substituting.
-        run: |
-          sudo chown -R "$USER" ~/kwin-cache
-          nix copy --to "file://$HOME/kwin-cache?compression=zstd" "${{ steps.kwin.outputs.out }}"
-      - uses: actions/cache/save@v6
-        if: steps.kwin-cache.outputs.cache-hit != 'true'
+          attr: pixelflux
+      - uses: ./.github/actions/cache-package
         with:
-          path: ~/kwin-cache
-          key: ${{ steps.kwin.outputs.key }}
-
-      # The same for the patched Nix (services.webtop.nixProfile), built from source. Its own key: its
-      # changes must not cost a KWin build.
-      - name: patched Nix store path
-        id: nixpkg
-        run: |
-          out=$(nix eval --raw .#nix-profile-backends.outPath)
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-          echo "key=nix-profile-backends-$(basename "$out" | cut -d- -f1)" >> "$GITHUB_OUTPUT"
-      - name: empty patched Nix cache directory
-        run: |
-          sudo rm -rf ~/nix-cache
-          mkdir ~/nix-cache
-      - name: restore patched Nix
-        id: nix-cache
-        uses: actions/cache/restore@v6
+          attr: pcmflux
+      - uses: ./.github/actions/cache-package
         with:
-          path: ~/nix-cache
-          key: ${{ steps.nixpkg.outputs.key }}
-      - name: build patched Nix
-        run: nix build .#nix-profile-backends -L --no-link
-      - name: save patched Nix
-        if: steps.nix-cache.outputs.cache-hit != 'true'
-        run: |
-          sudo chown -R "$USER" ~/nix-cache
-          nix copy --to "file://$HOME/nix-cache?compression=zstd" "${{ steps.nixpkg.outputs.out }}"
-      - uses: actions/cache/save@v6
-        if: steps.nix-cache.outputs.cache-hit != 'true'
-        with:
-          path: ~/nix-cache
-          key: ${{ steps.nixpkg.outputs.key }}
-      - name: nix daemon EOF test
-        timeout-minutes: 10
-        run: bash tests/nix-daemon-eof-test.sh "${{ steps.nixpkg.outputs.out }}"
-      - name: nix profile concurrency test
-        timeout-minutes: 90
-        run: bash tests/nix-profile-concurrency.sh "${{ steps.nixpkg.outputs.out }}"
+          attr: nix-software-center
 
       # `nix flake check --no-build` cannot evaluate the system: the graft reads the stock closure's
       # references (import from derivation), which needs a build of that system, hence native runners.
-      - name: layer split unit test
-        run: python3 tests/split-layers-test.py
-      - name: starter template upgrade test
-        run: bash tests/nix-profile-template-test.sh
-      - name: nixpkgs-unfree test
-        run: bash tests/nixpkgs-unfree-test.sh
-      - name: reinstall test
-        run: bash tests/nix-profile-reinstall-test.sh
       - name: build packages and module-eval
         run: nix build .#pixelflux .#pcmflux .#selkies .#webtop-app-screen .#webtop-power .#nix-software-center .#nix-software-center-pkgdb .#checks.${{ matrix.system }}.module-eval .#checks.${{ matrix.system }}.container-eval .#checks.${{ matrix.system }}.included-manifest .#checks.${{ matrix.system }}.store-overlay-layout -L
       - name: key bar in the built client
@@ -172,63 +94,187 @@ jobs:
           "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
           "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
           "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py --built "$(echo selkies-out/lib/python*/site-packages/selkies/selkies_web)"
-      - name: VM test
-        if: matrix.vm
-        run: nix build .#checks.${{ matrix.system }}.vm -L
-      - name: relogin test
-        if: matrix.vm
-        run: nix build .#checks.${{ matrix.system }}.relogin -L
-      - name: lock test
-        if: matrix.vm
-        run: nix build .#checks.${{ matrix.system }}.lock -L
-      # Sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
-      - name: power test
-        if: matrix.vm
-        run: nix build .#checks.${{ matrix.system }}.power -L
+      # The drivers hold the test systems; the vm jobs run the tests.
+      - name: build VM test drivers
+        if: matrix.system == 'x86_64-linux'
+        run: nix build .#checks.${{ matrix.system }}.{vm,relogin,lock,power,app-screens,second-display,latest-owner}.driver -L --no-link
+      - name: build image
+        run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#layer-report -L --no-link
 
-      # Several app screens at once, run outside the sandbox so its artifacts survive a failure; summary.txt has the measured cost.
-      - name: app screens test
-        if: matrix.vm
+      # Everything built here, import-from-derivation outputs included, with its closure (a binary cache
+      # refuses a path whose references it lacks): the test jobs then build nothing they share.
+      - name: export the build
         run: |
-          nix build .#checks.${{ matrix.system }}.app-screens.driver -L -o app-screens-driver
-          mkdir -p app-screens
-          ./app-screens-driver/bin/nixos-test-driver -o app-screens
+          sudo rm -rf ~/build-cache
+          nix path-info --all --json \
+            | jq -r 'if type == "array" then .[] | select(.ultimate) | .path else to_entries[] | select(.value.ultimate) | .key end' \
+            | grep -v '\.drv$' > "$RUNNER_TEMP/built"
+          wc -l < "$RUNNER_TEMP/built"
+          xargs nix copy --to "file://$HOME/build-cache?compression=zstd&parallel-compression=true" < "$RUNNER_TEMP/built"
+          du -sh ~/build-cache
+      # Already zstd; kept for the run only.
       - uses: actions/upload-artifact@v4
-        if: always() && matrix.vm
         with:
-          name: app-screens
-          path: app-screens
+          name: build-${{ matrix.system }}
+          path: ~/build-cache
+          compression-level: 0
+          retention-days: 1
+
+  # Script tests of the patched Nix, the layer split and the nix-profile templates.
+  nix-scripts:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    name: nix scripts (${{ matrix.system }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix
+        id: nix
+      - name: nix daemon EOF test
+        timeout-minutes: 10
+        run: bash tests/nix-daemon-eof-test.sh "${{ steps.nix.outputs.nix }}"
+      - name: layer split unit test
+        run: python3 tests/split-layers-test.py
+      - name: starter template upgrade test
+        run: bash tests/nix-profile-template-test.sh
+      - name: nixpkgs-unfree test
+        run: bash tests/nixpkgs-unfree-test.sh
+      - name: reinstall test
+        run: bash tests/nix-profile-reinstall-test.sh
+
+  # tests/nix-profile-concurrency.sh, one job per shard; the count must match the script's.
+  concurrency:
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [x86_64-linux, aarch64-linux]
+        shard: [0, 1, 2, 3, 4]
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    name: concurrency ${{ matrix.shard }} (${{ matrix.system }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix
+        id: nix
+      - name: nix profile concurrency test
+        timeout-minutes: 30
+        run: WEBTOP_TEST_SHARD=${{ matrix.shard }}/5 bash tests/nix-profile-concurrency.sh "${{ steps.nix.outputs.nix }}"
+
+  vm:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        # power: sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
+        test: [vm, relogin, lock, power]
+        # Run outside the sandbox, so that their screenshots and logs survive a failure as an artifact.
+        include:
+          # Several app screens at once; summary.txt has the measured cost.
+          - test: app-screens
+            driver: true
+          - test: second-display
+            driver: true
+          # Which page owns the primary display.
+          - test: latest-owner
+            driver: true
+    name: vm (${{ matrix.test }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SYSTEM: x86_64-linux
+    steps:
+      - uses: actions/checkout@v7
+      # The Nix daemon only offers the kvm feature if /dev/kvm exists when it starts.
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # A download can stall for good; a second attempt gets through.
+      - id: download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = file:///home/runner/build-cache
+            require-sigs = false
+      - name: ${{ matrix.test }} test
+        if: '!matrix.driver'
+        run: nix build .#checks.$SYSTEM.${{ matrix.test }} -L
+      - name: ${{ matrix.test }} test
+        if: matrix.driver
+        run: |
+          nix build .#checks.$SYSTEM.${{ matrix.test }}.driver -L -o driver
+          mkdir -p out
+          ./driver/bin/nixos-test-driver -o out
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.driver
+        with:
+          name: ${{ matrix.test }}
+          path: out
           if-no-files-found: ignore
 
-      # Run outside the sandbox so its screenshots and logs survive a failure as an artifact.
-      - name: second display test
-        if: matrix.vm
-        run: |
-          nix build .#checks.${{ matrix.system }}.second-display.driver -L -o second-display-driver
-          mkdir -p second-display
-          ./second-display-driver/bin/nixos-test-driver -o second-display
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.vm
+  # ------ standalone image (README, "Image") ------
+  image:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    name: image (${{ matrix.system }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      # A download can stall for good; a second attempt gets through.
+      - id: download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        timeout-minutes: 10
         with:
-          name: second-display
-          path: second-display
-          if-no-files-found: ignore
-
-      # The same, for which page owns the primary display.
-      - name: latest owner test
-        if: matrix.vm
-        run: |
-          nix build .#checks.${{ matrix.system }}.latest-owner.driver -L -o latest-owner-driver
-          mkdir -p latest-owner
-          ./latest-owner-driver/bin/nixos-test-driver -o latest-owner
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.vm
+          name: build-${{ matrix.system }}
+          path: ~/build-cache
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        timeout-minutes: 10
         with:
-          name: latest-owner
-          path: latest-owner
-          if-no-files-found: ignore
-
-      # ------ standalone image (README, "Image") ------
+          name: build-${{ matrix.system }}
+          path: ~/build-cache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = file:///home/runner/build-cache
+            require-sigs = false
       - name: build image
         run: nix build .#image .#image.layerSplit -L -o img
       - name: layer table
@@ -280,10 +326,11 @@ jobs:
           name: digest-${{ matrix.system }}
           path: out/${{ matrix.system }}
 
-  # One multi-arch index over the per-system images, tagged main and sha-<sha7>, signed keyless.
+  # One multi-arch index over the per-system images, tagged main and sha-<sha7>, signed keyless. After every
+  # test job, so main is tagged only when all of them pass.
   image-index:
     if: github.event_name == 'push'
-    needs: nix
+    needs: [key-bar, build, nix-scripts, concurrency, vm, image]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
