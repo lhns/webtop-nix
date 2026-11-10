@@ -1,5 +1,5 @@
 # Writes timeZone= / locale= to ~/.config/webtop/session.conf, the file the desktop reads before the
-# session starts. The gateway's keys (sso-logout.nix) share it; the text merges line by line.
+# session starts. The consumer's keys (sso-logout.nix) share it; the text merges line by line.
 { config, lib, ... }:
 
 let

@@ -1,7 +1,7 @@
 {
   description = "Browser-streamed Plasma desktop on NixOS (Selkies + pixelflux + pcmflux)";
 
-  # Consumers follow this nixpkgs (kube-webtop-workspaces: one Qt tree, and the image builder's skopeo).
+  # Consumers follow this nixpkgs (one Qt tree, and the image builder's skopeo).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   # The image builder's layersFile (image/default.nix) is new upstream; bump deliberately.
   inputs.nix2container = {
@@ -103,6 +103,18 @@
         # `nix profile` with backends (services.webtop.nixProfile); CI caches it like KWin.
         nix-profile-backends = nixpkgs.legacyPackages.${system}.callPackage ./modules/nix-profile/nix { };
         nixpkgs-unfree-flake = import ./modules/nix-profile/nixpkgs-unfree.nix { inherit (pkgs) runCommand; inherit nixpkgs; };
+        # nix2container's skopeo fetches this patch from github.com, which answers 429 to CI. Same name and hash, so the
+        # same store path: built first (CI), the skopeo build finds it present instead of downloading it. Keep the
+        # postFetch equal to nix2container's default.nix (skopeo-nix2container).
+        # Upstream: https://github.com/nlewo/container-libs/commit/21b053ac62f3137de42585611953e923577d0e10.patch
+        skopeo-patch = pkgs.fetchpatch2 {
+          name = "21b053ac62f3137de42585611953e923577d0e10.patch";
+          url = "file://${./patches/container-libs-nix-transport.patch}";
+          sha256 = "sha256-pfwQh7FKWHY/xVAGMSvnjMOmkpMo9NG2HFZqhqZ1VN0=";
+          postFetch = ''
+            sed -i               -e '/^index /d'               -e '/^similarity index /d'               -e '/^dissimilarity index /d'               $out
+          '';
+        };
         default = pkgs.selkies;
 
         # docker run-able desktop (README, "Image"); its own closure is the layer reference.
