@@ -178,6 +178,16 @@
         default = self.nixosModules.webtop;
       };
 
+      # Python Playwright with nixpkgs' Chromium, so CI's browser tests need no apt or Playwright CDN
+      # (tests/key-bar-test.py). Host-requirement validation targets distro packages, which Nix replaces.
+      devShells = forAllSystems (system: pkgs: {
+        playwright = pkgs.mkShell {
+          packages = [ (pkgs.python3.withPackages (p: [ p.playwright ])) ];
+          PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+        };
+      });
+
       checks = forAllSystems (system: pkgs: {
         # Evaluates a system using the module, without building it.
         module-eval =
