@@ -218,6 +218,7 @@ as_user grep -qF 'flake:webtop' $pdir/flake.nix || fail "the upgrade did not wri
 run_setup
 as_user hello >/dev/null || fail "hello is gone after the upgrade"
 lock | jq -e '.nodes.root.inputs.webtop' >/dev/null || fail "the upgrade did not lock webtop"
+lock | jq -e '.nodes.defaults.locked.type == "path" and .nodes.defaults.locked.path == "/run/webtop/defaults"' >/dev/null || fail "the upgrade did not lock the defaults input"
 
 # A failing switch fails the unit and says so.
 as_user sh -c "cp $decl /tmp/decl.bak && jq '.elements.broken = {originalUrl: \"flake:nixpkgs\", attrPath: \"legacyPackages.$nixsys.noSuchPackageCi\"}' /tmp/decl.bak > $decl"
