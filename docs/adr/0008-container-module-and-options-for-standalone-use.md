@@ -48,3 +48,8 @@ hook, it becomes an option here instead of a unit override there.
 The overlay entrypoint no longer stays with the consumer: this flake ships it (`storeOverlay.init`),
 with the restore units and the Sleep and session-save handling (ADRs 0012, 0013). A consumer's
 entrypoint calls it and keeps only its own parts.
+
+## Amendment 2026-11-10 (locale)
+
+Time zone and locale reach the desktop through the admin defaults directory
+(`services.webtop.defaults.source`, ADR 0015), not environment files: `localeEnvironmentFiles` is removed.

@@ -1,11 +1,17 @@
-# Writes timeZone= / locale= to ~/.config/webtop/session.conf, the file the desktop reads before the
-# session starts. The consumer's keys (sso-logout.nix) share it; the text merges line by line.
+# Writes timeZone=, locale=, language= and the LC_* formats to ~/.config/webtop/session.conf, the file
+# the desktop reads before the session starts. The consumer's keys (sso-logout.nix) share it; the text
+# merges line by line. Only what is set is written, so each other key stays with the admin's default.
 { config, lib, ... }:
 
 let
   cfg = config.webtop;
+  formatKeys = [ "LC_TIME" "LC_NUMERIC" "LC_MONETARY" "LC_MEASUREMENT" "LC_PAPER" "LC_COLLATE" "LC_ADDRESS" "LC_NAME" "LC_TELEPHONE" ];
   line = key: value: lib.optional (value != null) "${key}=${value}";
-  lines = line "timeZone" cfg.timeZone ++ line "locale" cfg.locale;
+  lines =
+    line "timeZone" cfg.timeZone
+    ++ line "locale" cfg.locale
+    ++ line "language" cfg.language
+    ++ lib.concatMap (key: line key cfg.formats.${key}) formatKeys;
 in
 {
   options.webtop = {
@@ -28,10 +34,35 @@ in
         (`services.webtop.locales`). `null` leaves it to the deployment. Applied when the session starts.
       '';
     };
+    language = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "de:en";
+      description = ''
+        Interface language (`LANGUAGE`), a colon-separated list in order of preference. `null` leaves
+        it to the deployment. Applied when the session starts.
+      '';
+    };
+    formats = lib.mkOption {
+      type = lib.types.submodule {
+        options = lib.genAttrs formatKeys (key: lib.mkOption {
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+          example = "sv_SE.UTF-8";
+          description = "Locale (`${key}`) for this category, one of `services.webtop.locales`. `null` leaves it to the deployment.";
+        });
+      };
+      default = { };
+      example = { LC_TIME = "sv_SE.UTF-8"; };
+      description = ''
+        Formats per category (dates and times, numbers, currency, ...). A value set in System Settings
+        (Region & Language) still wins over it. Applied when the session starts.
+      '';
+    };
   };
 
   config = lib.mkIf (lines != [ ]) {
     xdg.configFile."webtop/session.conf".text =
-      lib.concatStringsSep "\n" ([ "# Written by home-manager (webtop.timeZone, webtop.locale)." ] ++ lines) + "\n";
+      lib.concatStringsSep "\n" ([ "# Written by home-manager (webtop.timeZone, webtop.locale, webtop.language, webtop.formats)." ] ++ lines) + "\n";
   };
 }

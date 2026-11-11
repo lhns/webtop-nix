@@ -101,7 +101,19 @@ let
     (toString cfg.timeZone)
     (toString cfg.locale)
     (lib.concatStringsSep " " cfg.sessionConfKeys)
-  ] ++ cfg.localeEnvironmentFiles);
+    defaultsSnapshot
+    xdgSessionDir
+  ]);
+
+  # The admin's defaults (README, "Time zone and locale", "Admin defaults"): a root-owned snapshot, taken once per boot.
+  defaultsSnapshot = "/run/webtop/defaults";
+  # The layer of Plasma's config cascade that webtop-locale writes (plasma-localerc); the admin's xdg/ is below it.
+  xdgSessionDir = "/run/webtop/xdg-session";
+  snapshotDefaults = pkgs.writeShellApplication {
+    name = "webtop-defaults";
+    runtimeInputs = [ pkgs.coreutils pkgs.findutils config.nix.package ];
+    text = builtins.readFile ./webtop-defaults.sh;
+  };
 
   # Sleep and the session save (README, "Sleep and session save", ADR 0012).
   power = lib.getExe cfg.sessionSave.command;
@@ -162,13 +174,20 @@ let
         [ -S "$sock" ] && [ -e "$sock.lock" ] && ! flock -n "$sock.lock" true && break
         sleep 0.1
       done
-      # The locale applied before this start (LANG only); systemd's own copy predates it.
+      # The locale applied before this start; systemd's own copy predates it.
       if [ -r /etc/locale.conf ]; then
         set -a
         # shellcheck source=/dev/null
         . /etc/locale.conf
         set +a
       fi
+      # Admin defaults for KConfig readers, below the user's files; startplasma prepends
+      # ~/.config/kdedefaults. The default list is /etc/xdg when unset. The same dirs are in NixOS's
+      # session variables (below), which PAM may already have applied.
+      case ":''${XDG_CONFIG_DIRS:-}:" in
+        *":${xdgSessionDir}:"*) ;;
+        *) export XDG_CONFIG_DIRS="${xdgSessionDir}:${defaultsSnapshot}/xdg:''${XDG_CONFIG_DIRS:-/etc/xdg}" ;;
+      esac
       exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
     '';
   };
@@ -439,7 +458,7 @@ in
       example = "Europe/Berlin";
       description = ''
         Default time zone of the session (an IANA name), for when neither the user's
-        `webtop.timeZone` nor an environment file (`localeEnvironmentFiles`) gives a valid one.
+        `webtop.timeZone` nor the admin's `timeZone` (`defaults.source`) gives a valid one.
         `null` leaves `/etc/localtime` as NixOS has it (`time.timeZone`).
       '';
     };
@@ -449,27 +468,29 @@ in
       default = null;
       example = "de_DE.UTF-8";
       description = ''
-        Default locale of the session (one of `locales`), with the same precedence as `timeZone`.
+        Default locale (`LANG`) of the session (one of `locales`), with the same precedence as `timeZone`.
         `null` leaves `i18n.defaultLocale`.
       '';
     };
 
     locales = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "en_US.UTF-8" "en_GB.UTF-8" "de_DE.UTF-8" "fr_FR.UTF-8" "es_ES.UTF-8" "it_IT.UTF-8" "nl_NL.UTF-8" "pl_PL.UTF-8" "pt_PT.UTF-8" "C.UTF-8" ];
+      default = [ "en_US.UTF-8" "en_GB.UTF-8" "de_DE.UTF-8" "fr_FR.UTF-8" "es_ES.UTF-8" "it_IT.UTF-8" "nl_NL.UTF-8" "pl_PL.UTF-8" "pt_PT.UTF-8" "sv_SE.UTF-8" "C.UTF-8" ];
       description = ''
-        Locales built into the image, and so the ones `locale` and a user's `webtop.locale` can
-        select. Added to `i18n.supportedLocales`; an entry without `/charset` is UTF-8.
+        Locales built into the image, and so the ones `locale`, `webtop.locale` and the formats can
+        select (`sv_SE` is there for ISO dates). Added to `i18n.supportedLocales`; an entry without `/charset` is UTF-8.
       '';
     };
 
-    localeEnvironmentFiles = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
-      example = [ "-/run/webtop/env" ];
+    defaults.source = lib.mkOption {
+      type = lib.types.str;
+      default = "/etc/webtop/defaults";
       description = ''
-        Files (a `-` prefix makes one optional) with `WEBTOP_TIME_ZONE=` and `WEBTOP_LOCALE=` lines,
-        later ones winning. Their values rank between the user's and `timeZone` / `locale`.
+        Directory with the admin's defaults for every desktop, read once per boot (a bind mount, a
+        ConfigMap or `environment.etc`; it may be missing). `session.conf` gives `timeZone`, `locale`,
+        `language` and the `LC_*` formats, `xdg/<file>` KDE/XDG config below the user's own, `home.nix`
+        a home-manager module. All are defaults the user can override. Holds no secrets: every user can
+        read it. See the README, "Time zone and locale".
       '';
     };
 
@@ -557,6 +578,10 @@ in
     # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
     i18n.imperativeLocale = lib.mkDefault true;
     i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
+
+    # NixOS's set-environment (/etc/profile, /etc/bashrc) rebuilds XDG_CONFIG_DIRS from this list, so a
+    # terminal's shell would drop the admin layers the session wrapper set; they go in front of /etc/xdg here too.
+    environment.sessionVariables.XDG_CONFIG_DIRS = lib.mkBefore [ xdgSessionDir "${defaultsSnapshot}/xdg" ];
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 
@@ -659,11 +684,24 @@ in
       };
     };
 
+    # Once per boot (a restart takes a new snapshot). The session starts without it if it fails.
+    systemd.services.webtop-defaults = {
+      description = "Snapshot of the admin's desktop defaults";
+      wantedBy = [ "multi-user.target" ];
+      before = [ "webtop-session.service" "webtop-home-manager-template.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${lib.getExe snapshotDefaults} ${lib.escapeShellArg cfg.defaults.source} ${defaultsSnapshot}";
+      };
+    };
+
     systemd.services.webtop-session = {
       description = "Plasma Wayland session nested in Selkies";
       wantedBy = [ "multi-user.target" ];
+      wants = [ "webtop-defaults.service" ];
       requires = [ "user@${uid}.service" ];
-      after = [ "user@${uid}.service" "systemd-logind.service" "systemd-user-sessions.service" ];
+      after = [ "webtop-defaults.service" "user@${uid}.service" "systemd-logind.service" "systemd-user-sessions.service" ];
       environment = {
         XDG_SESSION_TYPE = "wayland";
         XDG_SESSION_CLASS = "user";
