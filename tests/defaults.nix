@@ -299,15 +299,15 @@ pkgs.testers.runNixOSTest {
     check("home.nix: the user's site.packages replaces the admin's list", not any(n.startswith("hello") for n in hm_names()), str(hm_names()))
     machine.succeed(f"rm {hm}/local.nix")
 
-    # A new snapshot changes the narHash: the flake no longer evaluates (the lock is verified) until the setup unit relocks.
+    # A new snapshot changes the directory's hash; the setup unit relocks it.
     put("/etc/webtop/defaults/home.nix", """{ lib, ... }: {
       options.site.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
       config.home.sessionVariables.SITE_DEFAULT = lib.mkDefault "admin2";
     }
     """)
     machine.succeed("systemctl restart webtop-defaults.service")
-    v, err = hm_eval("home.sessionVariables.SITE_DEFAULT")
-    check("home.nix: a new snapshot fails against the old lock, on its hash", v is None and "hash mismatch" in err.lower(), err[-300:])
+    # The old copy is still in the store, so the lock holds: the flake keeps the previous module until it is relocked.
+    check("home.nix: a new snapshot is not picked up before the relock", hm_var() == "admin")
     machine.succeed("rm -f /home/user/.local/state/webtop/home-manager-switch /home/user/.local/state/webtop/applied")
     machine.succeed("systemctl reset-failed webtop-home-manager.service; systemctl start webtop-home-manager.service")
     # The switch itself needs the network: only the relock is asserted.
