@@ -2,8 +2,8 @@
 # session.conf feeds the per-key time zone / locale / format chain (admin < user's webtop.* < System
 # Settings), its xdg/ joins Plasma's KConfig cascade, and a missing or broken source leaves the desktop
 # working. Its home.nix reaches the user's home-manager flake through the starter's `defaults` input (A3 on
-# real Nix: tests/defaults-input-test.sh). Also proves the assumptions the design rests on (RESULT lines in the log): A1 startplasma reads
-# plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
+# real Nix: tests/defaults-input-test.sh). Also proves the assumptions the design rests on (RESULT lines
+# in the log): A1 startplasma reads plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
 # login's ~/.config/kdedefaults masks admin look-and-feel keys, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
 # Needs KVM to run; evaluates without.
 { pkgs, self }:
@@ -296,10 +296,10 @@ pkgs.testers.runNixOSTest {
         status, out = machine.execute("systemctl start webtop-home-manager.service 2>&1")
         print("DIAG start webtop-home-manager:", status, out)
         machine.wait_until_succeeds("case \"$(systemctl show -P ActiveState webtop-home-manager.service)\" in inactive|failed) exit 0;; *) exit 1;; esac", timeout=900)
-        print("DIAG webtop-home-manager:", machine.execute("journalctl -u webtop-home-manager.service -o cat | tail -n 30")[1])
 
     machine.wait_until_succeeds(f"test -f {hm}/flake.nix", timeout=120)
-    check("home.nix: the starter has the defaults input and module", 'url = "path:/run/webtop/defaults";' in machine.succeed(f"cat {hm}/flake.nix") and '"''${defaults}/home.nix"' in machine.succeed(f"cat {hm}/flake.nix"))
+    starter = machine.succeed(f"cat {hm}/flake.nix")
+    check("home.nix: the starter has the defaults input and module", 'url = "path:/run/webtop/defaults";' in starter and '"''${defaults}/home.nix"' in starter)
     check("home.nix: an admin mkDefault value applies", hm_var() == "admin")
     check("home.nix: the admin's package applies", any(n.startswith("hello") for n in hm_names()), str(hm_names()))
     lock = json.loads(machine.succeed(f"cat {hm}/flake.lock"))["nodes"]["defaults"]["locked"]

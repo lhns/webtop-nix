@@ -17,6 +17,7 @@ let
   runtimeFile = render { inherit system; inherit (config.system) stateVersion; };
   stateDir = "${cfg.homeStoragePath}/.local/state/webtop";
   notice = "${stateDir}/home-manager-notice";
+  defaultsNotice = "/run/webtop/defaults-notice"; # written by webtop-defaults.sh
   # What the scripts take from the module, ahead of their text.
   withHome = file: "home=${cfg.homeStoragePath}\n" + builtins.readFile file;
   templateTool = pkgs.writeShellApplication {
@@ -210,14 +211,13 @@ in
       };
     };
 
-    # The same for a defaults home.nix that webtop-defaults.service replaced because it does not parse
-    # (the notice path is the one in webtop-defaults.sh): the starter imports that file, so this
-    # module tells the user. Plasma's notification server needs the session, hence not in the snapshot unit.
+    # The same for a defaults home.nix that webtop-defaults.service replaced because it does not parse.
+    # Plasma's notification server needs the session, hence not in the snapshot unit.
     systemd.services.webtop-defaults-notice = {
       description = "Tell the user that the admin's home.nix was ignored";
       wantedBy = [ "multi-user.target" ];
       after = [ "webtop-session.service" "webtop-defaults.service" ];
-      unitConfig.ConditionPathExists = "/run/webtop/defaults-notice";
+      unitConfig.ConditionPathExists = defaultsNotice;
       environment.WEBTOP_NOTIFY_TRIES = "24";
       serviceConfig = {
         Type = "exec"; # not oneshot: multi-user.target must not wait for the session
@@ -226,9 +226,9 @@ in
           name = "webtop-defaults-notice";
           runtimeInputs = with pkgs; [ coreutils notify ];
           text = ''
-            echo "notifying: $(head -n1 /run/webtop/defaults-notice)"
-            webtop-notify "$(head -n1 /run/webtop/defaults-notice)" \
-              "$(tail -n +2 /run/webtop/defaults-notice) See: journalctl -u webtop-defaults" dialog-warning
+            echo "notifying: $(head -n1 ${defaultsNotice})"
+            webtop-notify "$(head -n1 ${defaultsNotice})" \
+              "$(tail -n +2 ${defaultsNotice}) See: journalctl -u webtop-defaults" dialog-warning
           '';
         });
       };
