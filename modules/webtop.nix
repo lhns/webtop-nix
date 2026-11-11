@@ -577,11 +577,11 @@ in
     # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
     # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
     i18n.imperativeLocale = lib.mkDefault true;
+    i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
 
     # NixOS's set-environment (/etc/profile, /etc/bashrc) rebuilds XDG_CONFIG_DIRS from this list, so a
     # terminal's shell would drop the admin layers the session wrapper set; they go in front of /etc/xdg here too.
     environment.sessionVariables.XDG_CONFIG_DIRS = lib.mkBefore [ xdgSessionDir "${defaultsSnapshot}/xdg" ];
-    i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
 

@@ -159,13 +159,12 @@ if [ -n "$lc$language$fmts" ]; then
   }; then log "could not set /etc/locale.conf"; fi
 fi
 
-# What startplasma and the Region & Language page read as the system default. Written whenever a LANG
-# is known, so startplasma never finds none and freezes the environment's for the user.
+# What startplasma and the Region & Language page read as the system default.
 if [ -n "$lang" ]; then
   if ! {
     mkdir -p -- "$xdg_session" && {
       printf '[Formats]\n'
-      [ -z "$lang" ] || printf 'LANG=%s\n' "$lang"
+      printf 'LANG=%s\n' "$lang"
       for k in "${formats[@]}"; do [ -z "${fmt[$k]}" ] || printf '%s=%s\n' "$k" "${fmt[$k]}"; done
       [ -z "$language" ] || printf '\n[Translations]\nLANGUAGE=%s\n' "$language"
     } >"$xdg_session/plasma-localerc.new" && chmod 644 "$xdg_session/plasma-localerc.new" &&

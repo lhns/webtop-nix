@@ -2,8 +2,8 @@
 # session.conf feeds the per-key time zone / locale / format chain (admin < user's webtop.* < System
 # Settings), its xdg/ joins Plasma's KConfig cascade, and a missing or broken source leaves the desktop
 # working. Also proves the assumptions the design rests on (RESULT lines in the log): A1 startplasma reads
-# plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 whether a
-# first login writes ~/.config/kdedefaults, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
+# plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
+# login's ~/.config/kdedefaults masks admin look-and-feel keys, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
 # Needs KVM to run; evaluates without.
 { pkgs, self }:
 
