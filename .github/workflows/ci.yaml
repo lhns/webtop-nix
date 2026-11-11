@@ -22,7 +22,7 @@ env:
 # One build job per system; the test jobs take its store from an artifact (a file:// binary cache) and run
 # in parallel. The concurrency and script tests need only the patched Nix and start at once.
 # Native builds per system, no emulation. The VM tests need KVM, which the arm runners lack
-# (a consumer boot-tests the image on both).
+# (the image tests run on both).
 jobs:
   # The touch key bar of the web client, in mobile-emulated Chromium against a stub of the client's key input.
   # A real Android keyboard is not covered.
@@ -156,6 +156,18 @@ jobs:
         run: bash tests/nixpkgs-unfree-test.sh
       - name: reinstall test
         run: bash tests/nix-profile-reinstall-test.sh
+
+  # The store overlay scripts across image updates, against real local-overlay stores in privileged
+  # nixos/nix containers.
+  store-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: store restore test
+        run: tests/store-overlay-docker.sh restore
+      - name: partial invalidation test
+        run: tests/store-overlay-docker.sh partial
 
   # tests/nix-profile-concurrency.sh, one job per shard; the count must match the script's.
   concurrency:
@@ -298,6 +310,10 @@ jobs:
       - name: image boot test
         timeout-minutes: 15
         run: tests/image-boot.sh "$IMAGE:dev" 600
+      # The nix profile backends and the starter template's lifecycle on the real image (needs the network).
+      - name: nix profile and starter template on the image
+        timeout-minutes: 30
+        run: tests/nix-profile-image-test.sh "$IMAGE:dev" 600
       # Two boots on one volume with the store overlay's state edited between them, then the user's software
       # through the restore and the reinstall (needs the network to substitute).
       - name: store overlay across an image update
@@ -338,7 +354,7 @@ jobs:
   # test job, so main is tagged only when all of them pass.
   image-index:
     if: github.event_name == 'push'
-    needs: [key-bar, build, nix-scripts, concurrency, vm, image]
+    needs: [key-bar, build, nix-scripts, store-overlay, concurrency, vm, image]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
