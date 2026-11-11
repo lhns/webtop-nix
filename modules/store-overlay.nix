@@ -10,7 +10,7 @@ let
   uid = toString webtop.uid;
   persist = overlay.persistPath;
   inherit (webtop.nixProfile) reinstall;
-  homesRoot = dirOf (webtop.nixProfile.homeStoragePath or "/home/user");
+  inherit (overlay) homesRoot;
 
   restore = pkgs.writeShellApplication {
     name = "webtop-nix-restore";
@@ -33,24 +33,21 @@ let
   };
 in
 {
-  config = lib.mkIf overlay.enable (lib.mkMerge [
-    {
-      systemd.services.webtop-nix-trash = {
-        description = "Delete store overlays left by an image update";
-        wantedBy = [ "multi-user.target" ];
-        unitConfig = {
-          ConditionPathExistsGlob = "${persist}/trash-*";
-          ConditionPathExists = "!${persist}/reinstall/restore"; # the restore reads from them
-        };
-        serviceConfig = {
-          Type = "exec"; # see webtop-nix-restore
-          ExecStart = "${pkgs.runtimeShell} -c '${pkgs.coreutils}/bin/rm -rf ${persist}/trash-*'";
-          Nice = 19;
-          IOSchedulingClass = "idle";
-        };
+  config = lib.mkIf overlay.enable {
+    systemd.services.webtop-nix-trash = {
+      description = "Delete store overlays left by an image update";
+      wantedBy = [ "multi-user.target" ];
+      unitConfig = {
+        ConditionPathExistsGlob = "${persist}/trash-*";
+        ConditionPathExists = "!${persist}/reinstall/restore"; # the restore reads from them
       };
-    }
-    (lib.mkIf (webtop.nixProfile.enable or false) {
+      serviceConfig = {
+        Type = "exec"; # see webtop-nix-restore
+        ExecStart = "${pkgs.runtimeShell} -c '${pkgs.coreutils}/bin/rm -rf ${persist}/trash-*'";
+        Nice = 19;
+        IOSchedulingClass = "idle";
+      };
+    };
     # The restore's work is the reinstall's first half: the switch waits for both.
     systemd.services.webtop-home-manager-template.before = [ "webtop-nix-reinstall.service" ];
     # After an image update the reinstall unit runs the setup instead, once the store paths are back.
@@ -99,6 +96,5 @@ in
         ExecStopPost = "+${pkgs.runtimeShell} -c '[ \"$$SERVICE_RESULT\" = success ] && [ \"$$EXIT_CODE\" = exited ] && ${pkgs.coreutils}/bin/rm -f ${persist}/reinstall/pending || true'";
       };
     };
-    })
-  ]);
+  };
 }
