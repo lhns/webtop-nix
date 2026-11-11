@@ -14,6 +14,13 @@ for f in /root/.nix-profile/bin/*; do
 done
 # The profile's links break once /nix/var/nix is rebound; use the store paths directly.
 export PATH="${bins#:}:$(echo /nix/store/*-util-linux-minimal-*-bin/bin):$(echo /nix/store/*-util-linux-minimal-*-mount/bin)"
+# webtop-nix-restore.sh reports progress and takes its NIX_CONFIG from this command; the stub passes it through.
+mkdir -p /stubs
+printf '#!/bin/sh
+[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"
+' > /stubs/webtop-restore-progress
+chmod +x /stubs/webtop-restore-progress
+export PATH="/stubs:$PATH"
 umask 022
 export NIX_CONFIG="experimental-features = nix-command local-overlay-store read-only-local-store
 sandbox = false

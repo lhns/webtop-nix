@@ -15,7 +15,13 @@ if [ ! -e /bb/awk ]; then
   echo "$bb" > /bb/.root
 fi
 # The profile's coreutils stay reachable for webtop-nix-restore.sh (df --output, readlink -m).
-PROFILE_PATH=${PROFILE_PATH:-$PATH}
+# webtop-nix-restore.sh reports progress and takes its NIX_CONFIG from this command; the stub passes it through.
+mkdir -p /stubs
+printf '#!/bin/sh
+[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"
+' > /stubs/webtop-restore-progress
+chmod +x /stubs/webtop-restore-progress
+PROFILE_PATH=${PROFILE_PATH:-/stubs:$PATH}
 export PATH=/bb:$PROFILE_PATH PROFILE_PATH
 # The pod runs as root in a user namespace (hostUsers: false); do the same.
 if [ "$(awk '{print $3}' /proc/self/uid_map)" = 4294967295 ]; then
