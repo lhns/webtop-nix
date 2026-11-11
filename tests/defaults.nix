@@ -156,10 +156,15 @@ pkgs.testers.runNixOSTest {
     check("XDG_CONFIG_DIRS: xdg-session, then the admin's xdg, both above /etc/xdg", "/run/webtop/xdg-session:/run/webtop/defaults/xdg" in dirs and parts.index("/run/webtop/xdg-session") < parts.index("/etc/xdg") and "/home/user/.config/kdedefaults" in parts[:parts.index("/run/webtop/xdg-session")], dirs)
     check("systemd user manager sees XDG_CONFIG_DIRS", "/run/webtop/xdg-session" in machine.succeed(f"{ubus} systemctl --user show-environment"))
     # A terminal: a shell started from the session's environment (it sources NixOS's profile scripts).
-    status, term = user_run("/run/current-system/sw/bin/bash -ic 'echo TERM_XDG=$XDG_CONFIG_DIRS' 2>/dev/null", e)
-    tdirs = re.search(r"TERM_XDG=(.*)", term)
-    tenv = {**e, "XDG_CONFIG_DIRS": tdirs.group(1)} if tdirs else e
-    check("a terminal keeps XDG_CONFIG_DIRS and sees the admin's xdg key", tdirs is not None and "/run/webtop/defaults/xdg" in tdirs.group(1) and kread("kdeglobals", "Webtop", "AdminKey", tenv) == "admin", term)
+    # Non-interactive shells that source what a terminal's shell does (a login shell: /etc/profile; an
+    # interactive one: /etc/bashrc), so no tty or job control is involved.
+    bash = "/run/current-system/sw/bin/bash"
+    for how, cmd in [("login shell", f"{bash} -lc 'echo TERM_XDG=$XDG_CONFIG_DIRS' < /dev/null"),
+                     ("interactive rc", f"PS1=x {bash} -c '. /etc/bashrc; echo TERM_XDG=$XDG_CONFIG_DIRS' < /dev/null")]:
+        status, term = user_run(cmd, e)
+        tdirs = re.search(r"TERM_XDG=(.*)", term)
+        tenv = {**e, "XDG_CONFIG_DIRS": tdirs.group(1)} if tdirs else e
+        check(f"a terminal ({how}) keeps XDG_CONFIG_DIRS and sees the admin's xdg key", tdirs is not None and "/run/webtop/defaults/xdg" in tdirs.group(1) and kread("kdeglobals", "Webtop", "AdminKey", tenv) == "admin", term)
     # A Plasma app (Qt, KConfig) in the session's environment.
     f = qt_fmt({**e, "QT_QPA_PLATFORM": "offscreen"})
     print("DIAG Qt in the session, admin LC_TIME sv_SE:", f)
