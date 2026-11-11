@@ -34,6 +34,8 @@ pkgs.testers.runNixOSTest {
     services.webtop.nixProfile.enable = true;
     systemd.services.webtop-home-manager.wantedBy = lib.mkForce [ ];
     nix.settings.substituters = lib.mkForce [ ];
+    # nixosSystem sets this registry entry; a test node does not.
+    nix.registry.nixpkgs.to = { type = "path"; path = "${self.inputs.nixpkgs}"; };
     # The module's own defaults, below the admin's.
     services.webtop.timeZone = "America/New_York";
     services.webtop.locale = "en_GB.UTF-8";
