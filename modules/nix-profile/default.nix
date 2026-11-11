@@ -210,6 +210,30 @@ in
       };
     };
 
+    # The same for a defaults home.nix that webtop-defaults.service replaced because it does not parse
+    # (the notice path is the one in webtop-defaults.sh): the starter imports that file, so this
+    # module tells the user. Plasma's notification server needs the session, hence not in the snapshot unit.
+    systemd.services.webtop-defaults-notice = {
+      description = "Tell the user that the admin's home.nix was ignored";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "webtop-session.service" "webtop-defaults.service" ];
+      unitConfig.ConditionPathExists = "/run/webtop/defaults-notice";
+      environment.WEBTOP_NOTIFY_TRIES = "24";
+      serviceConfig = {
+        Type = "exec"; # not oneshot: multi-user.target must not wait for the session
+        User = uid;
+        ExecStart = lib.getExe (pkgs.writeShellApplication {
+          name = "webtop-defaults-notice";
+          runtimeInputs = with pkgs; [ coreutils notify ];
+          text = ''
+            echo "notifying: $(head -n1 /run/webtop/defaults-notice)"
+            webtop-notify "$(head -n1 /run/webtop/defaults-notice)" \
+              "$(tail -n +2 /run/webtop/defaults-notice) See: journalctl -u webtop-defaults" dialog-warning
+          '';
+        });
+      };
+    };
+
     # Relock and switch (webtop-home-manager.sh), after the template unit.
     systemd.services.webtop-home-manager = {
       description = "Bring the user's home-manager setup to the image's";

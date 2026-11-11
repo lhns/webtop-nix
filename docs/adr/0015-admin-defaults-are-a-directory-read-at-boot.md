@@ -22,7 +22,7 @@ links that a settings page cannot write.
     `/run/webtop/xdg-session/plasma-localerc`, a layer of Plasma's config cascade below the user's own
     file, so System Settings sees it as the default and saves only what the user changed.
   - `xdg/<file>`: KDE/XDG config, joined to `XDG_CONFIG_DIRS` by the session wrapper. KConfig merges per key.
-  - `home.nix`: a home-manager module (imported by the user's flake in a later change).
+  - `home.nix`: a home-manager module, imported by the user's starter flake as the non-flake input `defaults`; the setup unit relocks it when the snapshot changes.
 - **A snapshot** (`webtop-defaults.service`) copies the directory once per boot to the root-owned
   `/run/webtop/defaults`, so a live ConfigMap update cannot change what a running desktop evaluates.
   A missing source gives an empty snapshot, and a `home.nix` that does not parse is replaced by `{ }`.

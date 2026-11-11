@@ -3,12 +3,15 @@
 #   webtop-defaults <source> <snapshot>
 # Keeps session.conf, xdg/ and home.nix. Never fails on bad content: what is unusable is dropped
 # and logged, and the desktop starts with the module's own defaults.
+# A home.nix that does not parse also leaves a notice for the user (title, then text) in
+# <parent of snapshot>/defaults-notice, which webtop-defaults-notice.service shows.
 src=$1 dst=$2
 
 log() { echo "webtop-defaults: $*"; }
 
 parent=$(dirname -- "$dst")
 mkdir -p -- "$parent"
+rm -f -- "$parent/defaults-notice"
 tmp=$(mktemp -d -- "$parent/.defaults.XXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT
 
@@ -36,6 +39,8 @@ if [ -f "$tmp/home.nix" ]; then
   if ! err=$(nix-instantiate --parse "$tmp/home.nix" 2>&1 >/dev/null); then
     log "home.nix does not parse, replaced by an empty module: $(printf '%s' "$err" | tr -d '\000-\010\013-\037\177' | head -c 300)"
     rm -f -- "$tmp/home.nix"
+    printf '%s\n' "Admin defaults: home.nix ignored" \
+      "It has a syntax error and is not applied to anyone's home-manager setup. Tell your administrator." >"$parent/defaults-notice"
   fi
 fi
 [ -f "$tmp/home.nix" ] || echo '{ }' >"$tmp/home.nix"
