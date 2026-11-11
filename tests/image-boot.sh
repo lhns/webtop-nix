@@ -90,6 +90,44 @@ out=$(touser webtop-home-manager-update) || fail "webtop-home-manager-update fai
 [ "$out" = "already the current template" ] || fail "webtop-home-manager-update: $out"
 echo "nix profile, local.nix: ok"
 
+# The admin's home.nix (README, "Admin defaults"): imported by the starter, switched in by the setup
+# unit after a new snapshot, a plain value or list of the user beats it.
+admin() { # <file text, an admin module>
+  docker exec -i "$c" sh -c "mkdir -p /etc/webtop/defaults && cat > /etc/webtop/defaults/home.nix" <<<"$1"
+  x systemctl restart webtop-defaults
+  x systemctl restart webtop-home-manager
+  wait_for "home-manager setup after a new snapshot" setup_done
+  [ "$(x systemctl show -P Result webtop-home-manager)" = success ] \
+    || { x journalctl -u webtop-home-manager --no-pager | tail -n 50; fail "webtop-home-manager failed after a new snapshot"; }
+}
+admin '{ lib, pkgs, config, ... }: {
+  options.site.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ pkgs.figlet ]; };
+  config = {
+    home.packages = config.site.packages;
+    home.file.".ci-admin-default".text = lib.mkDefault "admin1";
+  };
+}'
+[ "$(touser cat /home/user/.ci-admin-default)" = admin1 ] || fail "the admin's home.nix was not applied"
+touser figlet ok >/dev/null || fail "the admin's package is not on PATH"
+x journalctl -u webtop-home-manager --no-pager | grep -q 'relocking stale inputs: defaults' || fail "the new snapshot was not relocked"
+touser sh -c "echo '{ home.file.\".ci-local-nix\".text = \"ok\"; home.file.\".ci-admin-default\".text = \"user\"; site.packages = [ ]; }' > $hm/local.nix"
+touser home-manager switch --flake "$hm" >/dev/null || fail "a switch with local.nix over the admin's home.nix failed"
+[ "$(touser cat /home/user/.ci-admin-default)" = user ] || fail "the user's value does not beat the admin's mkDefault"
+! touser sh -c 'command -v figlet' >/dev/null || fail "the user's site.packages does not replace the admin's list"
+touser sh -c "echo '{ home.file.\".ci-local-nix\".text = \"ok\"; }' > $hm/local.nix"
+admin '{ lib, ... }: {
+  options.site.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+  config.home.file.".ci-admin-default".text = lib.mkDefault "admin2";
+}'
+[ "$(touser cat /home/user/.ci-admin-default)" = admin2 ] || fail "a changed home.nix was not applied"
+x rm -rf /etc/webtop/defaults
+x systemctl restart webtop-defaults
+x systemctl restart webtop-home-manager
+wait_for "home-manager setup without an admin home.nix" setup_done
+[ "$(x systemctl show -P Result webtop-home-manager)" = success ] || fail "webtop-home-manager failed without defaults"
+touser test ! -e /home/user/.ci-admin-default || fail "the admin's file stayed after its module went"
+echo "admin home.nix: ok"
+
 # A new container on the same home and store volume (what an update to the same image looks like):
 # the declared package and the profile package are still there.
 touser nix profile add nixpkgs#hello || fail "nix profile add failed"

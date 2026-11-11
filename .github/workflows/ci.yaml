@@ -148,6 +148,9 @@ jobs:
         run: python3 tests/split-layers-test.py
       - name: starter template upgrade test
         run: bash tests/nix-profile-template-test.sh
+      - name: defaults input and relock test
+        timeout-minutes: 10
+        run: bash tests/defaults-input-test.sh "${{ steps.nix.outputs.nix }}"
       - name: nixpkgs-unfree test
         run: bash tests/nixpkgs-unfree-test.sh
       - name: reinstall test
