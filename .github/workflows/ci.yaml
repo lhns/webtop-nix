@@ -31,12 +31,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      # Playwright and Chromium come from the flake's nixpkgs (devShells.playwright), not apt or a CDN.
+      - uses: cachix/install-nix-action@v31
       - name: key bar test
-        run: |
-          python3 -m venv "$RUNNER_TEMP/pw"
-          "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
-          "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
-          "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py
+        run: nix develop .#playwright -c python3 tests/key-bar-test.py
 
   build:
     strategy:
@@ -94,10 +92,7 @@ jobs:
         if: matrix.system == 'x86_64-linux'
         run: |
           nix build .#selkies -o selkies-out
-          python3 -m venv "$RUNNER_TEMP/pw"
-          "$RUNNER_TEMP/pw/bin/pip" install --quiet playwright
-          "$RUNNER_TEMP/pw/bin/playwright" install --with-deps chromium
-          "$RUNNER_TEMP/pw/bin/python" tests/key-bar-test.py --built "$(echo selkies-out/lib/python*/site-packages/selkies/selkies_web)"
+          nix develop .#playwright -c python3 tests/key-bar-test.py --built "$(echo selkies-out/lib/python*/site-packages/selkies/selkies_web)"
       # The drivers hold the test systems; the vm jobs run the tests.
       - name: build VM test drivers
         if: matrix.system == 'x86_64-linux'

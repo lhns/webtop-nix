@@ -1,7 +1,7 @@
 """key-bar.js in mobile-emulated Chromium, against tests/key-bar-stub.js (a webrtcInput with the shipped
 client's key handling). A real Android keyboard is not covered. With --built DIR (a selkies_web
 directory) it only checks that the built client loads the bar.
-Run: pip install playwright && playwright install chromium && python3 tests/key-bar-test.py"""
+Run: nix develop .#playwright -c python3 tests/key-bar-test.py"""
 import functools
 import http.server
 import os
