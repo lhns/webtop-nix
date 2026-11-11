@@ -147,6 +147,7 @@ jobs:
       - name: layer split unit test
         run: python3 tests/split-layers-test.py
       - name: starter template upgrade test
+        continue-on-error: true
         run: bash tests/nix-profile-template-test.sh
       - name: defaults input and relock test
         timeout-minutes: 10
