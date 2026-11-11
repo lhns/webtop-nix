@@ -181,9 +181,13 @@ let
         . /etc/locale.conf
         set +a
       fi
-      # Admin defaults for KConfig readers, below the user's files. After PAM, so nothing reassigns it;
-      # startplasma prepends ~/.config/kdedefaults. The default list is /etc/xdg when unset.
-      export XDG_CONFIG_DIRS="${xdgSessionDir}:${defaultsSnapshot}/xdg:''${XDG_CONFIG_DIRS:-/etc/xdg}"
+      # Admin defaults for KConfig readers, below the user's files; startplasma prepends
+      # ~/.config/kdedefaults. The default list is /etc/xdg when unset. The same dirs are in NixOS's
+      # session variables (below), which PAM may already have applied.
+      case ":''${XDG_CONFIG_DIRS:-}:" in
+        *":${xdgSessionDir}:"*) ;;
+        *) export XDG_CONFIG_DIRS="${xdgSessionDir}:${defaultsSnapshot}/xdg:''${XDG_CONFIG_DIRS:-/etc/xdg}" ;;
+      esac
       exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
     '';
   };
@@ -573,6 +577,10 @@ in
     # NixOS otherwise points localed at the read-only /etc/static/locale.conf and sets LANG for every login
     # shell (set-environment), both ahead of what webtop-locale writes to /etc/locale.conf.
     i18n.imperativeLocale = lib.mkDefault true;
+
+    # NixOS's set-environment (/etc/profile, /etc/bashrc) rebuilds XDG_CONFIG_DIRS from this list, so a
+    # terminal's shell would drop the admin layers the session wrapper set; they go in front of /etc/xdg here too.
+    environment.sessionVariables.XDG_CONFIG_DIRS = lib.mkBefore [ xdgSessionDir "${defaultsSnapshot}/xdg" ];
     i18n.extraLocales = map (l: if lib.hasInfix "/" l then l else "${l}/UTF-8") cfg.locales;
 
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ cfg.port ];
