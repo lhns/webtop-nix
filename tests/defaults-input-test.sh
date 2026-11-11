@@ -58,17 +58,19 @@ NIX
   [ "$(ev)" = '{ marker = "one"; }' ] || { cat "$w/err"; fail "a pure eval of the locked input"; }
   ok "A3: a locked path input with flake = false evaluates; its narHash is the directory's"
 
-  # The directory changed, the lock did not.
+  # The directory changed, the lock did not. With the old copy still in the store, Nix evaluates the
+  # locked content (it never reads the directory again); it must not evaluate the new one.
   echo '{ marker = "two"; }' > "$src/home.nix"
-  if out=$(ev); then fail "A3: the changed directory evaluated against the old lock: $out"; fi
-  grep -qiE 'hash mismatch' "$w/err" || { cat "$w/err"; fail "A3: the evaluation failed, but not on the hash"; }
-  ok "A3: a changed directory fails the evaluation on its narHash"
-  # Without the old copy in the store, nothing can serve the old content either.
+  out=$(ev) || { cat "$w/err"; fail "A3: the locked input does not evaluate while its old copy is in the store"; }
+  [ "$out" = '{ marker = "one"; }' ] || fail "A3: the evaluation drifted from the lock: $out"
+  ok "A3: a changed directory evaluates to the locked content while the old copy is in the store"
+  # Without the old copy, the lock can only be verified against the directory: it fails on the hash.
   nix path-info --all | sort | comm -13 "$w/paths-before" - > "$w/paths-new"
   echo "store paths from the first evaluation: $(paste -sd' ' "$w/paths-new")"
-  xargs -r nix store delete < "$w/paths-new" || echo "note: the old copy could not be deleted"
-  if out=$(ev); then fail "A3: the changed directory evaluated after the store was collected: $out"; fi
-  ok "A3: also with the old copy gone from the store"
+  xargs -r nix store delete < "$w/paths-new" || fail "A3: the old copy could not be deleted"
+  if out=$(ev); then fail "A3: the changed directory evaluated against the old lock without the old copy: $out"; fi
+  grep -qiE 'hash mismatch' "$w/err" || { cat "$w/err"; fail "A3: the evaluation failed, but not on the hash"; }
+  ok "A3: without the old copy, a changed directory fails the evaluation on its narHash"
 
   # The script, with the stubs it needs. The apply lock re-executes it, so it is a file of its own.
   stub() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$w/bin/$1"; chmod +x "$w/bin/$1"; }
