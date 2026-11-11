@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Inside a privileged nixos/nix container (store-overlay-docker.sh): webtop-nix-restore.sh against real
 # local-overlay stores. Two image stores share l1; l2 is only in the old one, l3 only in the new one.
-# A "pod" on the old store builds user paths, then an update moves its overlay aside as webtop-nix-lower
+# A container on the old store builds user paths, then an update moves its overlay aside as webtop-nix-lower
 # does, and the restore must bring the paths back on the new store without building anything.
 set -euo pipefail
 . /src/tests/store-overlay-scripts.sh
@@ -14,12 +14,6 @@ for f in /root/.nix-profile/bin/*; do
 done
 # The profile's links break once /nix/var/nix is rebound; use the store paths directly.
 export PATH="${bins#:}:$(echo /nix/store/*-util-linux-minimal-*-bin/bin):$(echo /nix/store/*-util-linux-minimal-*-mount/bin)"
-# webtop-nix-restore.sh reports progress and takes its NIX_CONFIG from this command; the stub passes it through.
-mkdir -p /stubs
-printf '#!/bin/sh
-[ "$1" != nixconfig ] || printf %%s "${NIX_CONFIG:-}"
-' > /stubs/webtop-restore-progress
-chmod +x /stubs/webtop-restore-progress
 export PATH="/stubs:$PATH"
 umask 022
 export NIX_CONFIG="experimental-features = nix-command local-overlay-store read-only-local-store
@@ -59,7 +53,7 @@ for s in A B; do
   nix store delete --store "local?root=/lower$s" "$gone" >/dev/null
 done
 
-# boot <A|B> <cmd...>: one pod boot: overlay /nix/store, /nix/var/nix on the volume, a daemon.
+# boot <A|B> <cmd...>: one container boot: overlay /nix/store, /nix/var/nix on the volume, a daemon.
 cat > /boot.sh <<'EOF'
 set -eu
 mount --make-rprivate /
@@ -93,7 +87,7 @@ fresh_volume() {
   mountpoint -q /persist && umount /persist
   mkdir -p /persist && mount -t tmpfs -o mode=755 tmpfs /persist
   mkdir -p "$H/proj" "$H/.local/state/nix/profiles"
-  # Pod on the old image: a profile package (needs l2), a `nix build` result (needs l1 only).
+  # Old image: a profile package (needs l2), a `nix build` result (needs l1 only).
   # The daemon is killed uncleanly, as on an OOM kill.
   boot A bash -c '
     set -e
