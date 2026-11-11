@@ -314,8 +314,8 @@ pkgs.testers.runNixOSTest {
     machine.succeed("systemctl reset-failed webtop-home-manager.service; systemctl start webtop-home-manager.service")
     # The switch itself needs the network: only the relock is asserted.
     machine.wait_until_succeeds("test \"$(systemctl show -P ActiveState webtop-home-manager.service)\" != active && test \"$(systemctl show -P ExecMainExitTimestampMonotonic webtop-home-manager.service)\" != 0", timeout=900)
-    log = machine.succeed("journalctl -u webtop-home-manager.service -o cat")
-    check("home.nix: the setup unit relocks the changed snapshot", "relocking stale inputs: defaults" in log, log[-600:])
+    hmlog = machine.succeed("journalctl -u webtop-home-manager.service -o cat")
+    check("home.nix: the setup unit relocks the changed snapshot", "relocking stale inputs: defaults" in hmlog, hmlog[-600:])
     check("home.nix: the new home.nix applies after the relock", hm_var() == "admin2" and not any(n.startswith("hello") for n in hm_names()))
     machine.succeed("systemctl start webtop-home-manager.service")
     machine.wait_until_succeeds("test \"$(systemctl show -P ActiveState webtop-home-manager.service)\" != active", timeout=900)
