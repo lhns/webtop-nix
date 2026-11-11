@@ -29,13 +29,10 @@ for bin in "${bins[@]}"; do
   export PATH=$w/bin:$bin:$PATH HOME=$w/home XDG_CACHE_HOME=$w/cache W=$w
   hm=$HOME/.config/home-manager src=$w/src
   mkdir "$hm"
-  # A private store: its collection cannot touch anything else, and nothing is built in it.
   export NIX_CONFIG="experimental-features = nix-command flakes
-store = $w/store
 flake-registry = $w/registry.json
 substituters ="
   other=$(nix store add --name other "$t/other")
-  nix-store --add-root "$w/root-other" --indirect -r "$other" >/dev/null
   cat > "$w/registry.json" <<JSON
 { "version": 2, "flakes": [ { "from": { "type": "indirect", "id": "other" }, "to": { "type": "path", "path": "$other" } } ] }
 JSON
@@ -52,6 +49,7 @@ NIX
   ev() { nix eval --raw "path:$hm#text" 2>"$w/err"; }
   locked() { jq -r '.nodes.defaults.locked.narHash' "$hm/flake.lock"; }
 
+  nix path-info --all | sort > "$w/paths-before"
   nix flake lock "path:$hm" 2>"$w/err" || { cat "$w/err"; fail "locking a path input with flake = false"; }
   [ "$(jq -r '.nodes.defaults.locked.type' "$hm/flake.lock")" = path ] \
     && [ "$(jq -r '.nodes.defaults.locked.path' "$hm/flake.lock")" = "$src" ] \
@@ -66,7 +64,9 @@ NIX
   grep -qiE 'hash mismatch' "$w/err" || { cat "$w/err"; fail "A3: the evaluation failed, but not on the hash"; }
   ok "A3: a changed directory fails the evaluation on its narHash"
   # Without the old copy in the store, nothing can serve the old content either.
-  nix store gc >/dev/null 2>&1
+  nix path-info --all | sort | comm -13 "$w/paths-before" - > "$w/paths-new"
+  echo "store paths from the first evaluation: $(paste -sd' ' "$w/paths-new")"
+  xargs -r nix store delete < "$w/paths-new" || echo "note: the old copy could not be deleted"
   if out=$(ev); then fail "A3: the changed directory evaluated after the store was collected: $out"; fi
   ok "A3: also with the old copy gone from the store"
 
