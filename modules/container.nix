@@ -66,6 +66,13 @@ in
         defaultText = lib.literalExpression ''"''${config.services.webtop.storeOverlay.persistPath}/upper"'';
         description = "The upper layer of /nix/store on the volume. The store's database and profiles sit beside it.";
       };
+      homesRoot = lib.mkOption {
+        type = lib.types.str;
+        internal = true;
+        readOnly = true;
+        default = homesRoot;
+        description = "The directory of the users' homes.";
+      };
       init = lib.mkOption {
         type = lib.types.package;
         readOnly = true;
