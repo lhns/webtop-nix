@@ -8,9 +8,15 @@
     };
     # The module behind packages.json: what `nix profile add` installs.
     webtop.url = "flake:webtop";
+    # The admin's home.nix, from the boot snapshot; relocked when it changes. Drop this input and its
+    # module line below to opt out.
+    defaults = {
+      url = "path:/run/webtop/defaults";
+      flake = false;
+    };
   };
 
-  outputs = { nixpkgs, home-manager, webtop, ... }: {
+  outputs = { nixpkgs, home-manager, webtop, defaults, ... }: {
     homeConfigurations."@user@" = home-manager.lib.homeManagerConfiguration {
       pkgs = nixpkgs.legacyPackages.@system@;
       # local.nix: your own module, never written by the image. In a git repo a flake sees only
@@ -18,6 +24,7 @@
       modules = [
         ./home.nix
         (webtop.homeModules.packages ./packages.json)
+        "${defaults}/home.nix"
       ] ++ nixpkgs.lib.optional (builtins.pathExists ./local.nix) ./local.nix;
     };
   };

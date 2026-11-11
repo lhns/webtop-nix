@@ -36,8 +36,29 @@ grep -qxF "$(sha256sum < "$dir/flake.nix" | cut -d' ' -f1)  $dir/flake.nix" "$st
 [ -e "$state/home-manager-switch" ] || fail "first boot did not ask for a switch"
 ok "first boot writes the starter, hashes keyed by the storage path"
 
-# An earlier template, recorded by hash, with the packages.nix it imported.
+# The starter imports the admin's home.nix through its `defaults` input.
+grep -q 'url = "path:/run/webtop/defaults";' "$src/starter/flake.nix" && grep -qF '"${defaults}/home.nix"' "$src/starter/flake.nix" \
+  || fail "the starter has no defaults input and module"
+grep -q 'defaults' "$dir/flake.nix" || fail "the first boot's starter has no defaults input"
+
+# The template before the `defaults` input, as that image rendered it (recorded by hash): unmodified,
+# so it follows the template, and is current afterwards.
+sed -e 's/@system@/x86_64-linux/g' -e 's/@user@/ci/g' -e 's|@home@|/home/ci|g' \
+  "$(dirname "$0")/fixtures/starter-flake-before-defaults.nix" > "$t/before-defaults.nix"
+! grep -q defaults "$t/before-defaults.nix" || fail "the fixture already has the defaults input"
 rm "$state/home-manager-switch"
+webtop-template write "$dir/flake.nix" "$t/before-defaults.nix"
+run
+is_current flake.nix || fail "the starter from before the defaults input was not upgraded"
+grep -q 'path:/run/webtop/defaults' "$dir/flake.nix" || fail "the upgraded starter has no defaults input"
+[ -e "$state/home-manager-switch" ] || fail "the upgrade did not ask for a switch"
+rm "$state/home-manager-switch"
+out=$(run)
+{ [ -z "$out" ] && [ ! -e "$state/home-manager-switch" ] && is_current flake.nix; } || fail "the upgraded starter is not stable: $out"
+ok "a starter from before the defaults input follows the template, then stays current"
+
+# An earlier template, recorded by hash, with the packages.nix it imported.
+rm -f "$state/home-manager-switch"
 echo '# earlier template' > "$t/old-flake.nix"; echo 'old packages' > "$t/old-packages.nix"
 webtop-template write "$dir/flake.nix" "$t/old-flake.nix"
 webtop-template write "$dir/packages.nix" "$t/old-packages.nix"

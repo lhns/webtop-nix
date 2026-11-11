@@ -61,8 +61,10 @@ profile-hook = $t/hook"
 hm_locked=$(nix build --no-link --print-out-paths --impure --expr "import $repo/modules/nix-profile/webtop-flake/home-manager-locked.nix { pkgs = (builtins.getFlake \"nixpkgs\").legacyPackages.$system; real = $hm; }") || exit 1
 export PATH=$hm_locked/bin:$PATH
 
+# The starter's `defaults` input is the image's snapshot; here an empty module.
+mkdir -p "$t/defaults" && echo '{ }' > "$t/defaults/home.nix"
 for f in flake.nix home.nix packages.json; do
-  sed -e "s|@user@|$USER|g" -e "s|@home@|$HOME|g" -e "s|@stateVersion@|25.11|g" -e "s|@system@|$system|g" \
+  sed -e "s|/run/webtop/defaults|$t/defaults|g" -e "s|@user@|$USER|g" -e "s|@home@|$HOME|g" -e "s|@stateVersion@|25.11|g" -e "s|@system@|$system|g" \
     "$repo/modules/nix-profile/starter/$f" > "$H/$f"
 done
 

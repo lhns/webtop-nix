@@ -49,15 +49,23 @@ fi
 # relock those that are no longer valid with the locked content (a path that merely exists may not be
 # a valid store path, or hold other bytes), and `webtop` whenever it is not the image's current one:
 # an old copy can survive in the store overlay and would keep the module behind.
+# A path input of the user's own (the admin's `defaults`, a snapshot outside the store) is stale when
+# the directory no longer hashes to its narHash, or is gone.
 if [ -f "$hm/flake.lock" ]; then
   stale=()
-  while IFS=$'\t' read -r name id path hash; do
-    h=$(nix-store -q --hash "$path" 2>/dev/null) && h=$(nix hash convert --hash-algo sha256 --to sri "$h") || h=
-    if [ "$h" != "$hash" ] || { [ "$id" = webtop ] && [ "$path" != "$WEBTOP_FLAKE" ]; }; then stale+=("$name"); fi
+  while IFS=$'\t' read -r name kind id path hash; do
+    if [ "$kind" = indirect ]; then
+      h=$(nix-store -q --hash "$path" 2>/dev/null) && h=$(nix hash convert --hash-algo sha256 --to sri "$h") || h=
+      if [ "$h" != "$hash" ] || { [ "$id" = webtop ] && [ "$path" != "$WEBTOP_FLAKE" ]; }; then stale+=("$name"); fi
+    else
+      h=$(nix hash path --sri "$path" 2>/dev/null) || h=
+      if [ "$h" != "$hash" ]; then stale+=("$name"); fi
+    fi
   done < <(jq -r '. as $l | .nodes.root.inputs | to_entries[] | select(.value | type == "string")
                   | .key as $k | $l.nodes[.value]
-                  | select(.original.type == "indirect" and .locked.type == "path")
-                  | [$k, .original.id, .locked.path, (.locked.narHash // "")] | @tsv' "$hm/flake.lock")
+                  | select(.locked.type == "path" and (.locked.path | startswith("/"))
+                           and (.original.type == "indirect" or .original.type == "path"))
+                  | [$k, .original.type, (.original.id // "-"), .locked.path, (.locked.narHash // "")] | @tsv' "$hm/flake.lock")
   if [ "${#stale[@]}" -gt 0 ]; then
     echo "relocking stale inputs: ${stale[*]}"
     if nix flake update --flake "$hm" "${stale[@]}"; then switch=1; else echo "relocking failed; flake.lock is as it was"; fi

@@ -1,8 +1,9 @@
 # Admin defaults (README, "Time zone and locale"; ADR 0015): the defaults directory is snapshotted, its
 # session.conf feeds the per-key time zone / locale / format chain (admin < user's webtop.* < System
 # Settings), its xdg/ joins Plasma's KConfig cascade, and a missing or broken source leaves the desktop
-# working. Also proves the assumptions the design rests on (RESULT lines in the log): A1 startplasma reads
-# plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
+# working. Its home.nix reaches the user's home-manager flake through the starter's `defaults` input (A3 on
+# real Nix: tests/defaults-input-test.sh). Also proves the assumptions the design rests on (RESULT lines
+# in the log): A1 startplasma reads plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
 # login's ~/.config/kdedefaults masks admin look-and-feel keys, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
 # Needs KVM to run; evaluates without.
 { pkgs, self }:
@@ -28,6 +29,13 @@ pkgs.testers.runNixOSTest {
   nodes.machine = { lib, options, ... }: {
     imports = [ self.nixosModules.webtop ];
     services.webtop.enable = true;
+    # The starter flake, whose `defaults` input imports the admin's home.nix. It is evaluated here and
+    # relocked by the setup unit, which is started by hand (a switch needs the network).
+    services.webtop.nixProfile.enable = true;
+    systemd.services.webtop-home-manager.wantedBy = lib.mkForce [ ];
+    nix.settings.substituters = lib.mkForce [ ];
+    # nixosSystem sets this registry entry; a test node does not.
+    nix.registry.nixpkgs.to = { type = "path"; path = "${self.inputs.nixpkgs}"; };
     # The module's own defaults, below the admin's.
     services.webtop.timeZone = "America/New_York";
     services.webtop.locale = "en_GB.UTF-8";
@@ -41,8 +49,16 @@ pkgs.testers.runNixOSTest {
       LC_MONETARY=nl_NL.UTF-8
     '';
     environment.etc."webtop/defaults/home.nix".text = ''
-      { lib, ... }: {
-        home.sessionVariables.SITE_DEFAULT = lib.mkDefault "admin";
+      { lib, pkgs, config, ... }: {
+        # The list is the option's default, so a user's `site.packages = [ ... ];` replaces it.
+        options.site.packages = lib.mkOption {
+          type = lib.types.listOf lib.types.package;
+          default = [ pkgs.hello ];
+        };
+        config = {
+          home.packages = config.site.packages;
+          home.sessionVariables.SITE_DEFAULT = lib.mkDefault "admin";
+        };
       }
     '';
     environment.etc."webtop/defaults/xdg/kdeglobals".text = ''
@@ -63,11 +79,11 @@ pkgs.testers.runNixOSTest {
       ''}"
     ];
     environment.systemPackages = [ pkgs.kdePackages.kconfig pkgs.kdePackages.qtdeclarative ];
-    virtualisation.memorySize = 4096;
+    virtualisation.memorySize = 6144;
     virtualisation.cores = 2;
   };
   testScript = ''
-    import base64, shlex, re
+    import base64, json, shlex, re
     ubus = "runuser -u user -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
     snap = "/run/webtop/defaults"
     problems: list[str] = []
@@ -79,7 +95,7 @@ pkgs.testers.runNixOSTest {
 
     def put(path, text, owner=None):
         b64 = base64.b64encode(text.encode()).decode()
-        machine.succeed(f"mkdir -p $(dirname {path}) && echo {b64} | base64 -d > {path}" + (f" && chown {owner} {path}" if owner else ""))
+        machine.succeed(f"mkdir -p $(dirname {path}) && rm -f {path} && echo {b64} | base64 -d > {path}" + (f" && chown {owner} {path}" if owner else ""))
 
     def ready():
         machine.wait_for_unit("webtop-session.service")
@@ -253,6 +269,75 @@ pkgs.testers.runNixOSTest {
         if qt_ok and glibc_ok:
             ok_cands.append(cand)
     check("A5: one candidate gives ISO dates with 24 h in Qt and glibc", bool(ok_cands), str(ok_cands))
+
+    # ---- home.nix: the starter flake imports the snapshot's through its `defaults` input ----
+    hm = "/home/user/.config/home-manager"
+    uh = "runuser -u user -- env HOME=/home/user"
+
+    def hm_eval(attr, apply=None):
+        a = f"--apply {shlex.quote(apply)} " if apply else ""
+        status, out = machine.execute(f"{uh} nix eval --json {a}'path:{hm}#homeConfigurations.user.config.{attr}' 2>/tmp/hm-eval.err")
+        err = machine.succeed("cat /tmp/hm-eval.err")
+        return (json.loads(out) if status == 0 else None), err
+
+    def hm_names():
+        names, err = hm_eval("home.packages", "ps: map (p: p.name) ps")
+        assert names is not None, err
+        return names
+
+    def hm_var():
+        v, err = hm_eval("home.sessionVariables.SITE_DEFAULT")
+        assert v is not None, err
+        return v
+
+    def run_setup():
+        """The setup unit once, to the end. The switch needs the network, so it ends in a failure; the relock comes before it."""
+        print("DIAG unit:", machine.execute("systemctl cat webtop-home-manager.service 2>&1; systemctl status webtop-home-manager.service --no-pager 2>&1")[1])
+        status, out = machine.execute("systemctl start webtop-home-manager.service 2>&1")
+        print("DIAG start webtop-home-manager:", status, out)
+        machine.wait_until_succeeds("case \"$(systemctl show -P ActiveState webtop-home-manager.service)\" in inactive|failed) exit 0;; *) exit 1;; esac", timeout=900)
+
+    machine.wait_until_succeeds(f"test -f {hm}/flake.nix", timeout=120)
+    starter = machine.succeed(f"cat {hm}/flake.nix")
+    check("home.nix: the starter has the defaults input and module", 'url = "path:/run/webtop/defaults";' in starter and '"''${defaults}/home.nix"' in starter)
+    check("home.nix: an admin mkDefault value applies", hm_var() == "admin")
+    check("home.nix: the admin's package applies", any(n.startswith("hello") for n in hm_names()), str(hm_names()))
+    lock = json.loads(machine.succeed(f"cat {hm}/flake.lock"))["nodes"]["defaults"]["locked"]
+    check("home.nix: the lock holds the snapshot as a path input with its narHash", lock["type"] == "path" and lock["path"] == snap and "narHash" in lock, str(lock))
+    put(f"{hm}/local.nix", "{ ... }: { home.sessionVariables.SITE_DEFAULT = \"user\"; site.packages = [ ]; }\n", "user:")
+    check("home.nix: the user's plain value beats the admin's mkDefault", hm_var() == "user")
+    check("home.nix: the user's site.packages replaces the admin's list", not any(n.startswith("hello") for n in hm_names()), str(hm_names()))
+    machine.succeed(f"rm {hm}/local.nix")
+
+    # A new snapshot changes the directory's hash; the setup unit relocks it.
+    put("/etc/webtop/defaults/home.nix", """{ lib, ... }: {
+      options.site.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+      config.home.sessionVariables.SITE_DEFAULT = lib.mkDefault "admin2";
+    }
+    """)
+    machine.succeed("systemctl restart webtop-defaults.service")
+    # The old copy is still in the store, so the lock holds: the flake keeps the previous module until it is relocked.
+    check("home.nix: a new snapshot is not picked up before the relock", hm_var() == "admin")
+    machine.succeed("rm -f /home/user/.local/state/webtop/home-manager-switch /home/user/.local/state/webtop/applied")
+    run_setup()
+    hmlog = machine.succeed("journalctl -u webtop-home-manager.service -o cat")
+    check("home.nix: the setup unit relocks the changed snapshot", "relocking stale inputs: defaults" in hmlog, hmlog[-600:])
+    check("home.nix: the new home.nix applies after the relock", hm_var() == "admin2" and not any(n.startswith("hello") for n in hm_names()))
+    run_setup()
+    check("home.nix: an unchanged snapshot is not relocked again", machine.succeed("journalctl -u webtop-home-manager.service -o cat | grep -c 'relocking stale inputs: defaults'").strip() == "1")
+
+    # A syntax error: replaced by { }, logged, and the user told once Plasma is up.
+    put("/etc/webtop/defaults/home.nix", "{ foo = ; }\n")
+    machine.succeed("systemctl restart webtop-defaults.service")
+    machine.succeed(f"test \"$(cat {snap}/home.nix)\" = '{{ }}'")
+    machine.succeed("journalctl -u webtop-defaults.service -o cat | grep -q 'home.nix does not parse'")
+    machine.succeed("head -n1 /run/webtop/defaults-notice | grep -qx 'Admin defaults: home.nix ignored'")
+    machine.succeed("systemctl restart webtop-defaults-notice.service")
+    machine.wait_until_succeeds("test \"$(systemctl show -P ActiveState webtop-defaults-notice.service)\" != active", timeout=300)
+    nlog = machine.succeed("journalctl -u webtop-defaults-notice.service -o cat")
+    check("home.nix: a syntax error is announced to the user", "notifying: Admin defaults: home.nix ignored" in nlog and "not delivered" not in nlog, nlog)
+    put("/etc/webtop/defaults/home.nix", "{ }\n")
+    machine.succeed("systemctl restart webtop-defaults.service; test ! -e /run/webtop/defaults-notice")
 
     # ---- A missing source: the module's defaults, the desktop works ----
     machine.succeed("rm -rf /etc/webtop")
