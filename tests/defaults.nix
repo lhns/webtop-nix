@@ -290,6 +290,13 @@ pkgs.testers.runNixOSTest {
         assert v is not None, err
         return v
 
+    def run_setup():
+        """The setup unit once, to the end. The switch needs the network, so it ends in a failure; the relock comes before it."""
+        status, out = machine.execute("systemctl reset-failed webtop-home-manager.service; systemctl start webtop-home-manager.service 2>&1")
+        print("DIAG start webtop-home-manager:", status, out)
+        machine.wait_until_succeeds("case \"$(systemctl show -P ActiveState webtop-home-manager.service)\" in inactive|failed) exit 0;; *) exit 1;; esac", timeout=900)
+        print("DIAG webtop-home-manager:", machine.execute("journalctl -u webtop-home-manager.service -o cat | tail -n 30")[1])
+
     machine.wait_until_succeeds(f"test -f {hm}/flake.nix", timeout=120)
     check("home.nix: the starter has the defaults input and module", 'url = "path:/run/webtop/defaults";' in machine.succeed(f"cat {hm}/flake.nix") and '"''${defaults}/home.nix"' in machine.succeed(f"cat {hm}/flake.nix"))
     check("home.nix: an admin mkDefault value applies", hm_var() == "admin")
@@ -311,14 +318,11 @@ pkgs.testers.runNixOSTest {
     # The old copy is still in the store, so the lock holds: the flake keeps the previous module until it is relocked.
     check("home.nix: a new snapshot is not picked up before the relock", hm_var() == "admin")
     machine.succeed("rm -f /home/user/.local/state/webtop/home-manager-switch /home/user/.local/state/webtop/applied")
-    machine.succeed("systemctl reset-failed webtop-home-manager.service; systemctl start webtop-home-manager.service")
-    # The switch itself needs the network: only the relock is asserted.
-    machine.wait_until_succeeds("test \"$(systemctl show -P ActiveState webtop-home-manager.service)\" != active && test \"$(systemctl show -P ExecMainExitTimestampMonotonic webtop-home-manager.service)\" != 0", timeout=900)
+    run_setup()
     hmlog = machine.succeed("journalctl -u webtop-home-manager.service -o cat")
     check("home.nix: the setup unit relocks the changed snapshot", "relocking stale inputs: defaults" in hmlog, hmlog[-600:])
     check("home.nix: the new home.nix applies after the relock", hm_var() == "admin2" and not any(n.startswith("hello") for n in hm_names()))
-    machine.succeed("systemctl start webtop-home-manager.service")
-    machine.wait_until_succeeds("test \"$(systemctl show -P ActiveState webtop-home-manager.service)\" != active", timeout=900)
+    run_setup()
     check("home.nix: an unchanged snapshot is not relocked again", machine.succeed("journalctl -u webtop-home-manager.service -o cat | grep -c 'relocking stale inputs: defaults'").strip() == "1")
 
     # A syntax error: replaced by { }, logged, and the user told once Plasma is up.
