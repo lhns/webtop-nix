@@ -10,7 +10,7 @@ let
   uid = toString webtop.uid;
   persist = overlay.persistPath;
   inherit (webtop.nixProfile) reinstall;
-  homesRoot = dirOf (webtop.nixProfile.homeStoragePath or "/home/user");
+  inherit (overlay) homesRoot;
 
   restore = pkgs.writeShellApplication {
     name = "webtop-nix-restore";
@@ -50,7 +50,7 @@ in
         };
       };
     }
-    (lib.mkIf (webtop.nixProfile.enable or false) {
+    {
     # The restore's work is the reinstall's first half: the switch waits for both.
     systemd.services.webtop-home-manager-template.before = [ "webtop-nix-reinstall.service" ];
     # After an image update the reinstall unit runs the setup instead, once the store paths are back.
@@ -99,6 +99,6 @@ in
         ExecStopPost = "+${pkgs.runtimeShell} -c '[ \"$$SERVICE_RESULT\" = success ] && [ \"$$EXIT_CODE\" = exited ] && ${pkgs.coreutils}/bin/rm -f ${persist}/reinstall/pending || true'";
       };
     };
-    })
+    }
   ]);
 }

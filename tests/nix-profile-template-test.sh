@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The starter flake's template upgrade (modules/nix-profile), without Nix: unmodified flakes follow the
-# template by recorded hash, edited ones are left alone. A consumer's image boot test can run the same
-# scripts with a frozen earlier template.
+# template by recorded hash, edited ones are left alone. nix-profile-image-test.sh runs them on the image
+# with a frozen earlier template.
 set -euo pipefail
 src=$(cd "$(dirname "$0")/../modules/nix-profile" && pwd)
 t=$(mktemp -d)
