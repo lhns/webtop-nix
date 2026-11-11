@@ -95,7 +95,7 @@ pkgs.testers.runNixOSTest {
 
     def put(path, text, owner=None):
         b64 = base64.b64encode(text.encode()).decode()
-        machine.succeed(f"mkdir -p $(dirname {path}) && echo {b64} | base64 -d > {path}" + (f" && chown {owner} {path}" if owner else ""))
+        machine.succeed(f"mkdir -p $(dirname {path}) && rm -f {path} && echo {b64} | base64 -d > {path}" + (f" && chown {owner} {path}" if owner else ""))
 
     def ready():
         machine.wait_for_unit("webtop-session.service")

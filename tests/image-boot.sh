@@ -109,7 +109,8 @@ admin '{ lib, pkgs, config, ... }: {
 }'
 [ "$(touser cat /home/user/.ci-admin-default)" = admin1 ] || fail "the admin's home.nix was not applied"
 touser figlet ok >/dev/null || fail "the admin's package is not on PATH"
-x journalctl -u webtop-home-manager --no-pager | grep -q 'relocking stale inputs: defaults' || fail "the new snapshot was not relocked"
+relog=$(x journalctl -u webtop-home-manager --no-pager) # not piped into grep -q: pipefail
+grep -q 'relocking stale inputs: defaults' <<<"$relog" || { echo "$relog" | tail -n 30; fail "the new snapshot was not relocked"; }
 touser sh -c "echo '{ home.file.\".ci-local-nix\".text = \"ok\"; home.file.\".ci-admin-default\".text = \"user\"; site.packages = [ ]; }' > $hm/local.nix"
 touser home-manager switch --flake "$hm" >/dev/null || fail "a switch with local.nix over the admin's home.nix failed"
 [ "$(touser cat /home/user/.ci-admin-default)" = user ] || fail "the user's value does not beat the admin's mkDefault"
