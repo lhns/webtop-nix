@@ -45,3 +45,8 @@ links that a settings page cannot write.
 
 The global theme is defaulted as a whole, with `[KDE] LookAndFeelPackage` in `xdg/kdeglobals`, from which
 startplasma regenerates `~/.config/kdedefaults`. Keys a theme sets are not defaulted one by one.
+
+## Amendment 2026-11-12 (2)
+
+A user's entry equal to the admin's value counts as following the admin: the session start removes it,
+because a settings page's Defaults saves the admin's value instead of removing the user's entry.

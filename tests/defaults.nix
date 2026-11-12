@@ -293,10 +293,16 @@ pkgs.testers.runNixOSTest {
     restart_session()
     e = penv()
     check("theme: Defaults in System Settings brings the admin's theme back", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    # The session start removes a user's entry equal to the admin's (webtop-follow-defaults), only in the
+    # group the admin sets it in.
+    machine.succeed("printf '\n[Elsewhere]\nAdminKey=admin\n[Webtop]\nAdminKey=admin\n' >> /home/user/.config/kdeglobals")
     admin_theme("org.kde.breeze.desktop")
     restart_session()
     e = penv()
-    check("theme: after Defaults the user keeps that theme when the admin changes it (documented limit)", theme(e) == dark(e) and user_lnf() == "LookAndFeelPackage=org.kde.breezedark.desktop", f"{theme(e)} {user_lnf()}")
+    check("theme: after Defaults the user follows the admin's next theme", theme(e) == light and user_lnf() == "", f"{theme(e)} {user_lnf()!r}")
+    uk = ini(machine.succeed("cat /home/user/.config/kdeglobals"))
+    check("follow: an entry equal to the admin's is removed, the same line in another group stays",
+          "AdminKey" not in uk.get("Webtop", {}) and uk.get("Elsewhere", {}).get("AdminKey") == "admin", str({g: uk.get(g) for g in ("Webtop", "Elsewhere")}))
     # KConfig's delete of a key a lower layer sets writes key[$d], which hides that layer too.
     kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage --delete", e)
     check("theme: kwriteconfig6 --delete masks the admin's key with [$d]", user_lnf() == "LookAndFeelPackage[$d]", user_lnf())
