@@ -4,7 +4,8 @@
 # working. Its home.nix reaches the user's home-manager flake through the starter's `defaults` input (A3 on
 # real Nix: tests/defaults-input-test.sh). Also proves the assumptions the design rests on (RESULT lines
 # in the log): A1 startplasma reads plasma-localerc through the cascade and exports it, A2 a write of one key keeps the others, A4 the first
-# login's ~/.config/kdedefaults masks admin look-and-feel keys, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
+# login's ~/.config/kdedefaults masks admin look-and-feel keys, so the admin defaults the global theme
+# ([KDE] LookAndFeelPackage) instead, A5 which LC_TIME renders ISO dates with 24 h in Qt and glibc.
 # Needs KVM to run; evaluates without.
 { pkgs, self }:
 
@@ -187,20 +188,68 @@ pkgs.testers.runNixOSTest {
     check("a Plasma app sees LC_TIME: ISO date, 24 h", isinstance(f, list) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", f[1]) is not None and re.fullmatch(r"\d{2}:\d{2}", f[2]) is not None, str(f))
 
     # ---- KDE settings through the cascade; A4 ----
-    print("DIAG kdedefaults after the first login:", machine.execute("ls -la /home/user/.config/kdedefaults 2>&1; head -40 /home/user/.config/kdedefaults/kdeglobals 2>&1")[1])
-    print("DIAG ~/.config/kdeglobals after the first login:", machine.execute("head -40 /home/user/.config/kdeglobals 2>&1")[1])
     seen = {k: kread("kdeglobals", g, k, e) for g, k in [("Webtop", "AdminKey"), ("KDE", "widgetStyle"), ("General", "ColorScheme")]}
     check("kdeglobals: admin key through KConfig", seen["AdminKey"] == "admin", str(seen))
     check("kdeglobals: other keys of /etc/xdg survive (lock screen)", kread("kdeglobals", "KDE Action Restrictions", "action/lock_screen", e) == "false")
     # A4, observed: the first login writes ~/.config/kdedefaults, which masks the admin's look-and-feel keys.
     kd = machine.succeed("ls /home/user/.config/kdedefaults").split()
     print(f"RESULT A4: kdedefaults written at first login: {kd}; admin widgetStyle/ColorScheme seen: {seen['widgetStyle']!r}/{seen['ColorScheme']!r}")
-    check("A4: first login writes kdedefaults and masks the admin's look-and-feel keys", "kdeglobals" in kd and seen["widgetStyle"] != "AdminStyle" and seen["ColorScheme"] != "AdminScheme", str(kd))
+    check("A4: first login writes kdedefaults and masks look-and-feel keys the admin sets directly", "kdeglobals" in kd and seen["widgetStyle"] != "AdminStyle" and seen["ColorScheme"] != "AdminScheme", str(kd))
     kwrite("--file kdeglobals --group Webtop --key Both user", e)
     after = ini(machine.succeed("cat /home/user/.config/kdeglobals"))
     check("kdeglobals: a user write lands in ~/.config only, with that key", after.get("Webtop") == {"Both": "user"} and "AdminKey" not in after.get("Webtop", {}) and after.get("KDE", {}).get("widgetStyle") != "AdminStyle", str(after.get("Webtop")))
     check("kdeglobals: user key wins, admin key stays", kread("kdeglobals", "Webtop", "Both", e) == "user" and kread("kdeglobals", "Webtop", "AdminKey", e) == "admin")
     machine.succeed("grep -q 'Both=admin' /run/webtop/defaults/xdg/kdeglobals")
+
+    # ---- The global theme: the admin's [KDE] LookAndFeelPackage; startplasma regenerates kdedefaults from it ----
+    admin_kdeglobals = machine.succeed("cat /etc/webtop/defaults/xdg/kdeglobals")
+
+    def admin_theme(pkg):
+        put("/etc/webtop/defaults/xdg/kdeglobals", admin_kdeglobals.replace("[KDE]
+", f"[KDE]
+LookAndFeelPackage={pkg}
+"))
+        machine.succeed("systemctl restart webtop-defaults.service")
+
+    def scheme_bg(scheme, env):
+        """[Colors:Window] BackgroundNormal of a colour scheme, from the session's data dirs."""
+        for d in env.get("XDG_DATA_DIRS", "").split(":"):
+            status, out = machine.execute(f"cat {d}/color-schemes/{scheme}.colors")
+            if status == 0:
+                return ini(out)["Colors:Window"]["BackgroundNormal"]
+        return None
+
+    def theme(env):
+        """The theme kdedefaults was made from, the colour scheme KConfig resolves, the palette in the user's kdeglobals (what apps paint with)."""
+        pkg = machine.execute("cat /home/user/.config/kdedefaults/package")[1].strip()
+        user = ini(machine.execute("cat /home/user/.config/kdeglobals")[1])
+        return (pkg, kread("kdeglobals", "General", "ColorScheme", env), user.get("Colors:Window", {}).get("BackgroundNormal"))
+
+    dark = lambda env: ("org.kde.breezedark.desktop", "BreezeDark", scheme_bg("BreezeDark", env))
+    admin_theme("org.kde.breezedark.desktop")
+    restart_session()
+    e = penv()
+    check("theme: the admin's LookAndFeelPackage replaces an existing home's kdedefaults and palette", dark(e)[2] is not None and theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    check("theme: keys the theme does not set still come from the admin", kread("kdeglobals", "Webtop", "AdminKey", e) == "admin")
+    machine.succeed("rm -rf /home/user/.config/kdedefaults /home/user/.config/kdeglobals")
+    restart_session()
+    e = penv()
+    check("theme: a first login applies the admin's theme", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage org.kde.breeze.desktop", e)
+    restart_session()
+    e = penv()
+    light = ("org.kde.breeze.desktop", "BreezeLight", scheme_bg("BreezeLight", e))
+    check("theme: the user's own LookAndFeelPackage wins", light[2] is not None and theme(e) == light, f"{theme(e)} want {light}")
+    kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage --delete", e)
+    restart_session()
+    e = penv()
+    check("theme: deleting the user's brings the admin's back", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    admin_theme("org.example.missing.desktop")
+    restart_session()
+    e = penv()
+    check("theme: an unknown package keeps the session and the theme it had", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    put("/etc/webtop/defaults/xdg/kdeglobals", admin_kdeglobals)
+    machine.succeed("systemctl restart webtop-defaults.service")
 
     # ---- A1: startplasma reads plasma-localerc through the cascade and exports it ----
     check("A1 precondition: user has no plasma-localerc, so nothing came from it", machine.execute("test -e /home/user/.config/plasma-localerc")[0] != 0,
