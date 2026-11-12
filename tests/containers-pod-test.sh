@@ -68,11 +68,11 @@ compose() { # <network lines for both services>
   xi runuser -l user -c 'cat > ~/proj/compose.yaml' <<EOF
 services:
   web:
-    build: .
+    image: docker.io/library/busybox:1
     command: ["sh", "-c", "mkdir -p /www && echo compose-ok > /www/index.html && httpd -f -p 18080 -h /www"]
 $1
   client:
-    image: docker.io/library/alpine:3
+    build: .
     depends_on: [web]
     command: ["sh", "-c", "for i in \$\$(seq 60); do wget -q -O- http://\$\${WEB_HOST}:18080/ && exit 0; sleep 1; done; exit 1"]
 $1

@@ -31,7 +31,8 @@ let
     out=$1
     containers=() engine=() runtimes=()
     # pasta needs the tun device; without it only the host's network works, which is then the default.
-    if ! { : <> /dev/net/tun; } 2>/dev/null; then
+    # -c first: <> would create a missing file.
+    if ! { [ -c /dev/net/tun ] && : <> /dev/net/tun; } 2>/dev/null; then
       echo "webtop-containers: no usable /dev/net/tun: containers default to the host network"
       containers+=('netns = "host"')
     fi
