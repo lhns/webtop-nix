@@ -112,7 +112,7 @@ rec {
   # (copyToRoot and the Nix DB). Every layer path is in the toplevel's closure (layersFile allows
   # nothing else), so the image's store is that closure plus what copyToRoot references.
   # builder: { flake; source ? flake.outPath; name; } where flake.nixosConfigurations.${name} is
-  # `nixos`; adds `.builder`, the same image plus systemBuilder in one more layer (ADR 0017).
+  # `nixos`; adds `.builder`, the same image with systemBuilder in its top layer (ADR 0017).
   buildImage = { name, tag ? null, nixos, copyToRoot ? [ ], config ? { }, extraGroups ? [ ], reference ? null
     , maxConfigMiB ? 128, initializeNixDatabase ? true, builder ? null }:
     let
@@ -130,8 +130,8 @@ rec {
         inherit name config initializeNixDatabase;
         tag = if tag == null then null else "${tag}-builder";
         copyToRoot = copyToRoot ++ [ builderRoot ];
-        # Only the outer layer: nix2container adds the nested `layer` itself (nestedLayers).
-        layers = [ (nix2container.buildLayer { deps = [ builderRoot ]; layers = [ layer ]; }) ];
+        # Its own content goes into the top layer: a layer of its own would change with `source` anyway.
+        layers = [ layer ];
       };
     in
     image // { inherit layerSplit; } // (if builder == null then { } else { builder = builderImage; });
