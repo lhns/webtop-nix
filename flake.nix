@@ -276,7 +276,8 @@
         containers = import ./tests/containers.nix { inherit pkgs self; };
         # seccomp/desktop.json is containerd's RuntimeDefault (the fixture) plus pivot_root (README, "Seccomp profile").
         seccomp-profile = pkgs.runCommand "seccomp-profile" { nativeBuildInputs = [ pkgs.jq ]; } ''
-          diff <(jq -S '.syscalls |= map(select(.names != ["pivot_root"]))' ${./seccomp/desktop.json})             <(jq -S . ${./tests/fixtures/runtime-default-seccomp.json})
+          diff <(jq -S '.syscalls |= map(select(.names != ["pivot_root"]))' ${./seccomp/desktop.json}) \
+            <(jq -S . ${./tests/fixtures/runtime-default-seccomp.json})
           [ "$(jq -c '[.syscalls[] | select(.names == ["pivot_root"]) | .action]' ${./seccomp/desktop.json})" = '["SCMP_ACT_ALLOW"]' ]
           touch $out
         '';
