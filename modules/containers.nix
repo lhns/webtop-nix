@@ -104,6 +104,9 @@ in
       };
     };
 
+    # image_copy_tmp_dir = "storage" is used as is: Podman does not create it.
+    systemd.user.tmpfiles.rules = [ "d %h/.local/share/containers/storage/tmp 0700 - - -" ];
+
     environment.etc."containers/containers.conf.d/90-webtop-runtime.conf".source = runtimeConf;
     systemd.tmpfiles.rules = [ "d /run/webtop 0755 root root -" "f ${runtimeConf} 0644 root root -" ];
     systemd.services.webtop-containers-runtime = {

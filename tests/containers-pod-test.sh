@@ -42,14 +42,14 @@ run() { # <scenario> [podman run args...]
   grep -q 'no_pivot_root = true' <<<"$conf" && grep -q 'keyring = false' <<<"$conf" \
     || fail "$scenario: the refused syscalls were not detected: $conf"
   [ "$(asuser 'echo $DOCKER_HOST')" = unix:///run/user/1000/podman/podman.sock ] || fail "$scenario: DOCKER_HOST"
-  asuser 'docker pull -q docker.io/library/alpine:3 >/dev/null' || fail "$scenario: docker pull"
+  out=$(asuser 'docker pull -q docker.io/library/alpine:3 2>&1') || { echo "$out"; fail "$scenario: docker pull"; }
   [ "$(asuser 'docker run --rm docker.io/library/alpine:3 echo ran')" = ran ] || fail "$scenario: docker run"
   asuser 'mkdir -p ~/bm && echo hi > ~/bm/in'
   [ "$(asuser 'docker run --rm -v ~/bm:/bm docker.io/library/alpine:3 sh -c "cat /bm/in; echo out > /bm/out"')" = hi ] \
     && [ "$(x stat -c %U /home/user/bm/out)" = user ] || fail "$scenario: bind mount"
   # RUN needs a network namespace for the build; the context's overlay must not sit on /var/tmp.
   asuser 'mkdir -p ~/proj && printf "FROM docker.io/library/alpine:3\nRUN echo built > /built\n" > ~/proj/Dockerfile'
-  asuser 'docker build -q -t localhost/built ~/proj >/dev/null' || fail "$scenario: docker build"
+  out=$(asuser 'docker build -q -t localhost/built ~/proj 2>&1') || { echo "$out" | tail -n 30; fail "$scenario: docker build"; }
   [ "$(asuser 'docker run --rm localhost/built cat /built')" = built ] || fail "$scenario: the built image"
   echo "$scenario: docker run, bind mount, docker build: ok"
 }
