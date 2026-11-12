@@ -1,0 +1,31 @@
+# Puts what webtop-system-build made into the stock image (ADR 0017): a Dockerfile RUN in that image,
+# run with the busybox beside this file, since the image has no shell:
+#   RUN --mount=type=bind,from=build,source=/webtop-system,target=/webtop-system ["/webtop-system/bin/sh", "/webtop-system/install"]
+# Copies the new store paths in, registers them in the image's Nix DB (the store overlay's lower
+# store reads it), points /sbin/init at the new system and derives a new /webtop-image-stamp, so a
+# desktop volume sees an image update (ADR 0013). A module that changes nothing changes nothing.
+set -eu
+d=${0%/*}
+export PATH="$d/bin"
+
+log() { echo "webtop-system-install: $*"; }
+
+[ "$(cat /webtop-image-stamp)" = "$(cat "$d/image-stamp")" ] || {
+  log "the builder is not from this image's build (/webtop-image-stamp differs)"
+  exit 1
+}
+toplevel=$(cat "$d/toplevel")
+if [ ! -s "$d/registration" ]; then
+  [ "$(readlink /sbin/init)" = "$toplevel/init" ] || { log "no new store paths, but $toplevel is not the image's system"; exit 1; }
+  log "the module changes nothing: the image is left as it is"
+  exit 0
+fi
+
+for p in "$d"/store/*; do cp -a "$p" /nix/store/; done
+# Root without build users or /etc/nix, as in the builder.
+HOME=/tmp NIX_CONFIG="build-users-group =" "$(cat "$d/nix-bin")/nix-store" --load-db <"$d/registration"
+ln -sfn "$toplevel/init" /sbin/init
+# Over the old stamp and the added paths with their NAR hashes, like the image's own stamp.
+cat /webtop-image-stamp "$d/registration" | sha256sum | cut -d' ' -f1 >/webtop-image-stamp.tmp
+mv /webtop-image-stamp.tmp /webtop-image-stamp
+log "$toplevel, stamp $(cat /webtop-image-stamp)"

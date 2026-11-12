@@ -75,20 +75,59 @@ rec {
   # Store paths of an image's system, for use as another image's reference.
   referencePaths = nixos: "${nixos.pkgs.closureInfo { rootPaths = [ nixos.config.system.build.toplevel ]; }}/store-paths";
 
+  # The builder image's extra root (ADR 0017): webtop-system-build, the flake source the image's system
+  # is evaluated from with its inputs, and the graft's replacements as built (ADR 0004; without them a
+  # rebuild reads their references and compiles KWin). copyToRoot: the image's, for its store path list.
+  systemBuilder = { nixos, copyToRoot, flake, source ? flake.outPath, name }:
+    let
+      p = nixos.pkgs;
+      c = nixos.config;
+      inherit (p) lib;
+      inputSources = f: lib.concatMap (i: [ i.outPath ] ++ inputSources i) (lib.attrValues (f.inputs or { }));
+      keep = p.writeText "webtop-builder-keep" (lib.concatLines (lib.unique ([ "${source}" ] ++ inputSources flake
+        ++ map (r: "${r.newDependency}") c.system.replaceDependencies.replacements)));
+      # What the image's Nix DB holds (and the copyToRoot entries themselves, which no system references).
+      imagePaths = "${p.closureInfo { rootPaths = [ c.system.build.toplevel ] ++ copyToRoot; }}/store-paths";
+      installer = p.writeText "webtop-system-install" (builtins.readFile ./system/webtop-system-install);
+      build = p.writeShellApplication {
+        name = "webtop-system-build";
+        runtimeInputs = [ p.coreutils p.findutils c.nix.package ];
+        text = ''
+          flake=${source} attr=${lib.escapeShellArg name} imagePaths=${imagePaths}
+          installer=${installer} busybox=${p.pkgsStatic.busybox} cacert=${p.cacert}/etc/ssl/certs/ca-bundle.crt
+        '' + builtins.readFile ./system/webtop-system-build.sh;
+      };
+    in
+    p.runCommand "webtop-builder" { } ''
+      mkdir -p $out/webtop-builder/bin
+      ln -s ${build}/bin/webtop-system-build $out/webtop-builder/bin/
+      ln -s ${keep} $out/webtop-builder/sources
+    '';
+
   # A nix2container image of `nixos`'s toplevel: the split layers, then the image's own layer
   # (copyToRoot and the Nix DB). Every layer path is in the toplevel's closure (layersFile allows
   # nothing else), so the image's store is that closure plus what copyToRoot references.
+  # builder: { flake; source ? flake.outPath; name; } where flake.nixosConfigurations.${name} is
+  # `nixos`; adds `.builder`, the same image plus systemBuilder in one more layer (ADR 0017).
   buildImage = { name, tag ? null, nixos, copyToRoot ? [ ], config ? { }, extraGroups ? [ ], reference ? null
-    , maxConfigMiB ? 128, initializeNixDatabase ? true }:
+    , maxConfigMiB ? 128, initializeNixDatabase ? true, builder ? null }:
     let
       layerSplit = splitLayers { inherit nixos extraGroups reference maxConfigMiB; };
+      layer = nix2container.buildLayer {
+        deps = [ nixos.config.system.build.toplevel ];
+        layersFile = "${layerSplit}/layers.json";
+      };
       image = nix2container.buildImage {
         inherit name tag copyToRoot config initializeNixDatabase;
-        layers = [ (nix2container.buildLayer {
-          deps = [ nixos.config.system.build.toplevel ];
-          layersFile = "${layerSplit}/layers.json";
-        }) ];
+        layers = [ layer ];
+      };
+      builderRoot = systemBuilder ({ inherit nixos copyToRoot; } // builder);
+      builderImage = nix2container.buildImage {
+        inherit name config initializeNixDatabase;
+        tag = if tag == null then null else "${tag}-builder";
+        copyToRoot = copyToRoot ++ [ builderRoot ];
+        layers = [ layer (nix2container.buildLayer { deps = [ builderRoot ]; layers = [ layer ]; }) ];
       };
     in
-    image // { inherit layerSplit; };
+    image // { inherit layerSplit; } // (if builder == null then { } else { builder = builderImage; });
 }

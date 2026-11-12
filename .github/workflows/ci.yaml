@@ -98,7 +98,7 @@ jobs:
         if: matrix.system == 'x86_64-linux'
         run: nix build .#checks.${{ matrix.system }}.{vm,defaults,relogin,lock,notices,power,software-center-run,app-screens,second-display,latest-owner,containers}.driver -L --no-link
       - name: build image
-        run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#layer-report -L --no-link
+        run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#image.builder .#image.builder.copyToDockerDaemon .#image.builder.copyTo .#layer-report -L --no-link
 
       # Everything built here, import-from-derivation outputs included, with its closure (a binary cache
       # refuses a path whose references it lacks): the test jobs then build nothing they share.
@@ -341,20 +341,71 @@ jobs:
           set -euo pipefail
           nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 --digestfile digest \
             --dest-creds "${{ github.actor }}:${GHCR_TOKEN}" "docker://${IMAGE}@@unknown-digest@@"
-          mkdir -p out && cp digest "out/${{ matrix.system }}"
+          # The builder (README, "System module"): the same layers plus one, so only that one is uploaded.
+          nix run .#image.builder.copyTo -- --dest-compress-format zstd --dest-compress-level 6 --digestfile digest-builder \
+            --dest-creds "${{ github.actor }}:${GHCR_TOKEN}" "docker://${IMAGE}@@unknown-digest@@"
+          mkdir -p out && cp digest "out/${{ matrix.system }}" && cp digest-builder "out/builder-${{ matrix.system }}"
           REGISTRY_AUTH="${{ github.actor }}:${GHCR_TOKEN}" nix run .#layer-report -- img img-1/groups.json \
             --previous "$IMAGE:main" --pushed "$IMAGE@$(cat digest)" | tee -a "$GITHUB_STEP_SUMMARY" || echo "layer report failed (informational)"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
           name: digest-${{ matrix.system }}
-          path: out/${{ matrix.system }}
+          path: out/
 
-  # One multi-arch index over the per-system images, tagged main and sha-<sha7>, signed keyless. After every
-  # test job, so main is tagged only when all of them pass.
+  # An admin's system.nix built into the image by image/system/Dockerfile from the builder (README, "System module").
+  # Its own job: the build realises the stock Plasma closure (the graft), which takes time and disk.
+  system-image:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell
+          sudo docker image prune --all --force > /dev/null
+      # A download can stall for good; a second attempt gets through.
+      - id: download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = file:///home/runner/build-cache
+            require-sigs = false
+      - name: load image and builder into docker
+        run: |
+          nix run .#image.copyToDockerDaemon
+          nix run .#image.builder.copyToDockerDaemon
+          rm -rf ~/build-cache && nix-collect-garbage > /dev/null
+          df -h /
+      - name: system.nix image test
+        timeout-minutes: 45
+        run: tests/system-image-test.sh "$IMAGE:dev" 300
+      - name: diagnostics
+        if: failure()
+        run: |
+          docker logs webtop-system 2>&1 | tail -n 80 || true
+          docker exec webtop-system systemctl --failed --no-pager || true
+          df -h /
+
+  # One multi-arch index over the per-system images, tagged main and sha-<sha7>, signed keyless; the same for
+  # the builders, tagged <tag>-builder. After every test job, so main is tagged only when all of them pass.
   image-index:
     if: github.event_name == 'push'
-    needs: [key-bar, build, nix-scripts, store-overlay, concurrency, vm, image]
+    needs: [key-bar, build, nix-scripts, store-overlay, concurrency, vm, image, system-image]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -376,12 +427,19 @@ jobs:
         id: index
         run: |
           set -euo pipefail
-          args=(-t "$IMAGE:main" -t "$IMAGE:sha-${GITHUB_SHA::7}")
-          for f in digests/*; do args+=("$IMAGE@$(cat "$f")"); done
-          docker buildx imagetools create "${args[@]}"
-          digest=$(docker buildx imagetools inspect "$IMAGE:sha-${GITHUB_SHA::7}" --format '{{json .Manifest}}' | jq -r .digest)
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "image: \`$IMAGE:sha-${GITHUB_SHA::7}@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          # digests/<system> and digests/builder-<system>
+          for kind in image builder; do
+            suffix=; [ "$kind" = image ] || suffix=-builder
+            args=(-t "$IMAGE:main$suffix" -t "$IMAGE:sha-${GITHUB_SHA::7}$suffix")
+            for f in digests/*-linux; do
+              case "${f##*/}" in builder-*) k=builder ;; *) k=image ;; esac
+              [ "$k" != "$kind" ] || args+=("$IMAGE@$(cat "$f")")
+            done
+            docker buildx imagetools create "${args[@]}"
+            digest=$(docker buildx imagetools inspect "$IMAGE:sha-${GITHUB_SHA::7}$suffix" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "$kind=$digest" >> "$GITHUB_OUTPUT"
+            echo "$kind: \`$IMAGE:sha-${GITHUB_SHA::7}$suffix@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: sigstore/cosign-installer@v3
         with:
           cosign-release: v2.4.1
@@ -391,7 +449,7 @@ jobs:
         run: |
           # Rekor/Fulcio fail transiently; retry the whole call.
           for i in 1 2 3 4 5; do
-            cosign sign --recursive "$IMAGE@${{ steps.index.outputs.digest }}" && exit 0
+            cosign sign --recursive "$IMAGE@${{ steps.index.outputs.image }}" "$IMAGE@${{ steps.index.outputs.builder }}" && exit 0
             echo "cosign sign failed (attempt $i)"; sleep $((i * 15))
           done
           exit 1

@@ -277,6 +277,30 @@ table (`nix build .#image.layerSplit`, `table.txt`); `nix run .#layer-report -- 
 shows which layers are new against a published image. Push with zstd at the level CI uses
 (`nix run .#image.copyTo -- --dest-compress-format zstd --dest-compress-level 6 docker://…`), so unchanged layers keep their blob.
 
+### System module
+
+An admin's NixOS module (`system.nix`) for the image's own system goes into a derived image, built with
+`docker build` ([ADR 0017](docs/adr/0017-an-admin-system-module-is-built-into-a-derived-image.md)). Every
+image build also publishes a builder, `<tag>-builder` (`main-builder`, `sha-<sha7>-builder`): the same image
+plus one layer with `webtop-system-build`, the flake's source and its inputs, and the KWin graft's replacements
+as built (about 180 MiB; without them the build compiles KWin). [image/system/Dockerfile](image/system/Dockerfile)
+builds the system with the module in the builder and installs it into the image:
+
+```sh
+cp my-system.nix image/system/system.nix
+docker build --build-arg IMAGE=ghcr.io/lhns/webtop-nix:sha-<sha7> -t my-webtop image/system
+```
+
+The result is the image's layers plus one: the new store paths, the Nix DB that registers them,
+`/sbin/init` on the new system and a new `/webtop-image-stamp`, so a desktop volume takes it like any image
+update ([Store overlay](#store-overlay)). `{ }` gives the image back unchanged. The build runs as root
+without a daemon and needs the network (cache.nixos.org, for the stock system the graft reads). Pin
+`IMAGE` and `BUILDER` by digest to one build: the installer refuses a builder from another. The
+entrypoint stays the image's, so the module cannot change what runs before systemd (the store overlay's options).
+A consumer's image gets a builder with `lib.buildImage { builder = { flake = self; source; name; }; }`,
+where `nixosConfigurations.${name}` is the image's system and `source` a filtered copy of the flake
+(`lib.fileset.toSource`) that a `{ }` module must evaluate to the same system from.
+
 ## Features and third-party changes
 
 What this flake provides, all without Kubernetes:
@@ -437,6 +461,7 @@ Update nixpkgs here first (`nix flake update nixpkgs`); consumers follow this fl
 `tests/nix-profile-template-test.sh` and `tests/nix-profile-reinstall-test.sh` run the starter's template upgrade and the reinstall without Nix; `tests/nixpkgs-unfree-test.sh` checks `nixpkgs-unfree` on real Nix. `tests/nix-profile-image-test.sh` runs the `nix profile` backends, hooks, rollback, settings mappings and the template lifecycle (including an earlier template, `tests/previous-template`) on the image.
 `tests/defaults-input-test.sh` runs the starter's `defaults` input and the relock on real Nix, stock and patched: a non-store `path:` input with `flake = false` locks and evaluates purely, a changed directory keeps evaluating the locked content (and fails on the narHash once that copy is gone from the store), and the setup script relocks it.
 `tests/nix-profile-concurrency.sh` runs concurrent `nix profile` commands with the patched Nix and home-manager, on a temporary home.
+`tests/system-image-test.sh` (CI, on the image and its builder) builds `image/system/Dockerfile` with `{ }` (no change) and with a module, boots that on a volume the stock image used and back, and asserts the store overlay is kept and that KWin is not compiled.
 CI also builds the image on both systems, boots it under docker (the admin's `home.nix` switched in, overridden and removed, Selkies page, KWin compositing, the lower store's DB = its store, the overlay, Sleep, `nix profile` into the declaration, `local.nix`, a restart on the same volumes) and prints its layer table; on `main` it pushes the image and the multi-arch index, signed with cosign.
 
 Licence: Apache-2.0 (this repo); the packaged software is MPL-2.0 (the pixelflux build also links GPL-2.0-or-later libx264 and x265, so the built extension is GPL-2.0-or-later).

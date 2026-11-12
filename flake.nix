@@ -85,9 +85,18 @@
         inherit system;
         modules = [ self.nixosModules.webtop self.nixosModules.container ./image/container.nix ];
       });
+      # What evaluating the standalone system reads, for its builder image (ADR 0017): a change to
+      # anything else leaves the builder as it is.
+      imageSource = nixpkgs.lib.fileset.toSource {
+        root = ./.;
+        fileset = nixpkgs.lib.fileset.unions [ ./flake.nix ./flake.lock ./overlay.nix ./image ./modules ./pkgs ./patches ];
+      };
     in
     {
       overlays.default = import ./overlay.nix;
+
+      # The standalone image's system, which the builder image extends with an admin's module.
+      nixosConfigurations = nixpkgs.lib.mapAttrs' (system: nixpkgs.lib.nameValuePair "standalone-${system}") standalone;
 
       # Image builder (ADR 0005, image/default.nix). buildImage classifies by this flake's standalone
       # image unless given another `reference` (or null).
@@ -153,6 +162,8 @@
             tag = "dev";
             nixos = sys;
             copyToRoot = [ rootfs entrypoint stamp ];
+            # image.builder, published as <tag>-builder (README, "System module").
+            builder = { flake = self; source = imageSource; name = "standalone-${system}"; };
             config = {
               Entrypoint = [ "/webtop-entrypoint" ];
               StopSignal = "SIGRTMIN+3";
