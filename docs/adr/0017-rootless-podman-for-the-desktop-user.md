@@ -23,15 +23,18 @@ works with fewer ids.
   namespace that no declared user or group, `nixbld` user or systemd dynamic user uses. A range that
   covers a declared id fails the evaluation: a container process would act as that user.
 - **What the runtime refuses is detected at boot**, not configured: without a usable `/dev/net/tun`
-  the host network is the default; a refused `pivot_root` makes containers start with `chroot`
-  (`no_pivot_root`); a refused `keyctl` drops the session keyring. With nothing refused, Podman's
-  defaults stay.
+  the host network is the default; a refused `keyctl` drops the session keyring. With nothing
+  refused, Podman's defaults stay.
+- **Containers keep `pivot_root`.** Where it is refused, the supported fix is the desktop's seccomp
+  profile ([ADR 0018](0018-a-seccomp-profile-for-unprivileged-desktops.md)); until then containers
+  fail with a message pointing to it. `containers.noPivotRoot` (off) starts them with `chroot`
+  instead, for setups that cannot install the profile.
 - Storage is native overlay below the user's home; temporary build data goes below the storage too.
 
 ## Consequences
 
-- Where `pivot_root` is refused, a process that escapes a container's `chroot` lands in the user's
-  own namespaces with the user's rights: acceptable for a user's own containers, weaker than stock.
+- With `noPivotRoot`, a process that escapes a container's `chroot` lands in the user's own
+  namespaces with the user's rights, which is weaker than stock; hence opt-in.
 - Without `/dev/net/tun` only the host network works: `docker run -p` and compose networks fail,
   compose needs `network_mode: host`. A deployment that can mount the device gives full networking.
 - An image file owned by an id outside the ranges (in the default, 57,416 and up, e.g. 65534) is

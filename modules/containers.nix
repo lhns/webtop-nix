@@ -7,29 +7,53 @@ let
   ccfg = cfg.containers;
   runtimeConf = "/run/webtop/containers-runtime.conf";
 
+  # Stands in for crun where pivot_root is refused: containers fail with a pointer to the fix
+  # instead of crun's bare EPERM. Everything but starting a container goes to crun.
+  refusedRuntime = pkgs.writeShellScript "webtop-pivot-root-refused" ''
+    for a in "$@"; do
+      case $a in
+        create|run)
+          echo "webtop: this desktop's seccomp profile refuses pivot_root, which containers need. Run the desktop with seccomp/desktop.json from webtop-nix (README, \"Seccomp profile\"), or set services.webtop.containers.noPivotRoot (weaker isolation)." >&2
+          exit 1 ;;
+      esac
+    done
+    exec ${pkgs.crun}/bin/crun "$@"
+  '';
+
   # Writes the containers.conf settings that depend on what the runtime grants. Each probe runs in a
   # fresh user namespace, as rootless Podman does; a seccomp filter answers EPERM.
+  # Usage: webtop-containers-detect [--no-pivot-root] <out>
   detect = pkgs.writeShellScript "webtop-containers-detect" ''
     set -u
     PATH=${lib.makeBinPath [ pkgs.util-linux pkgs.keyutils pkgs.coreutils pkgs.gnugrep ]}
+    noPivotRoot=
+    [ "$1" != --no-pivot-root ] || { noPivotRoot=1; shift; }
     out=$1
-    containers= engine=
+    containers=() engine=() runtimes=()
     # pasta needs the tun device; without it only the host's network works, which is then the default.
     if ! { : <> /dev/net/tun; } 2>/dev/null; then
       echo "webtop-containers: no usable /dev/net/tun: containers default to the host network"
-      containers+=$'netns = "host"\n'
+      containers+=('netns = "host"')
     fi
-    # Kubernetes' RuntimeDefault seccomp profile refuses pivot_root and keyctl.
+    # Kubernetes' RuntimeDefault seccomp profile refuses pivot_root (seccomp/desktop.json allows it) and keyctl.
     if unshare -Urm pivot_root /nonexistent /nonexistent 2>&1 | grep -q 'Operation not permitted'; then
-      echo "webtop-containers: pivot_root is refused: containers start with chroot (no_pivot_root)"
-      engine+=$'no_pivot_root = true\n'
+      if [ -n "$noPivotRoot" ]; then
+        echo "webtop-containers: pivot_root is refused: containers start with chroot (noPivotRoot)"
+        engine+=('no_pivot_root = true')
+      else
+        echo "webtop-containers: pivot_root is refused: containers cannot start; see README, \"Seccomp profile\""
+        engine+=('runtime = "webtop-pivot-root-refused"')
+        runtimes+=('webtop-pivot-root-refused = ["${refusedRuntime}"]')
+      fi
     fi
     if ! unshare -Ur keyctl session - true >/dev/null 2>&1; then
       echo "webtop-containers: keyctl is refused: containers get no session keyring"
-      containers+=$'keyring = false\n'
+      containers+=('keyring = false')
     fi
-    { [ -z "$containers" ] || printf '[containers]\n%s' "$containers"
-      [ -z "$engine" ] || printf '[engine]\n%s' "$engine"; } > "$out.tmp"
+    section() { [ $# -eq 1 ] || printf '%s\n' "$@"; }
+    { section '[containers]' "''${containers[@]}"
+      section '[engine]' "''${engine[@]}"
+      section '[engine.runtimes]' "''${runtimes[@]}"; } > "$out.tmp"
     mv "$out.tmp" "$out"
   '';
 
@@ -50,6 +74,12 @@ in
     enable = lib.mkEnableOption ''
       rootless Podman for the desktop user, with `docker` (Podman's docker-compatible CLI), `docker compose`
       (the docker-compose binary through Podman's API socket) and `DOCKER_HOST` set for the session'';
+
+    noPivotRoot = lib.mkEnableOption ''
+      starting containers with chroot where the desktop's seccomp profile refuses pivot_root (Kubernetes'
+      RuntimeDefault). A fallback for where seccomp/desktop.json cannot be installed: a process that
+      escapes a container's chroot has the desktop user's view and rights. Without it, containers fail
+      there with a pointer to the profile'';
 
     subIdRanges = lib.mkOption {
       type = lib.types.listOf rangeType;
@@ -117,7 +147,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        ExecStart = "${detect} ${runtimeConf}";
+        ExecStart = "${detect} ${lib.optionalString ccfg.noPivotRoot "--no-pivot-root "}${runtimeConf}";
       };
     };
 

@@ -101,11 +101,18 @@ pkgs.testers.runNixOSTest {
         u("docker build --no-cache -t localhost/built-host ~/proj")
         machine.succeed("mv /dev/net/tun.off /dev/net/tun && systemctl restart webtop-containers-runtime")
 
-    with subtest("seccomp refuses pivot_root and keyctl"):
-        machine.succeed(f"systemd-run --wait --pipe -p SystemCallFilter='~pivot_root keyctl' -p SystemCallErrorNumber=EPERM {detect} /run/webtop/containers-runtime.conf")
+    refused = "systemd-run --wait --pipe -p SystemCallFilter='~pivot_root keyctl' -p SystemCallErrorNumber=EPERM"
+    with subtest("seccomp refuses pivot_root and keyctl: containers fail with a pointer to the profile"):
+        machine.succeed(f"{refused} {detect} /run/webtop/containers-runtime.conf")
         conf = machine.succeed("cat /run/webtop/containers-runtime.conf")
-        assert "no_pivot_root = true" in conf and "keyring = false" in conf, conf
-        # Containers start with those settings.
+        assert 'runtime = "webtop-pivot-root-refused"' in conf and "keyring = false" in conf and "no_pivot_root" not in conf, conf
+        status, out = machine.execute(f"runuser -l user -c {shlex.quote(env + ' docker run --rm localhost/testbox echo started 2>&1')}")
+        assert status != 0 and "Seccomp profile" in out, out
+
+    with subtest("seccomp refuses pivot_root, noPivotRoot: containers start with chroot"):
+        machine.succeed(f"{refused} {detect} --no-pivot-root /run/webtop/containers-runtime.conf")
+        conf = machine.succeed("cat /run/webtop/containers-runtime.conf")
+        assert "no_pivot_root = true" in conf and "webtop-pivot-root-refused" not in conf, conf
         assert u("docker run --rm localhost/testbox echo started").strip() == "started"
         machine.succeed("systemctl restart webtop-containers-runtime")
   '';
