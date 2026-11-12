@@ -257,6 +257,7 @@
         vm = import ./tests/vm.nix { inherit pkgs self; };
         defaults = import ./tests/defaults.nix { inherit pkgs self; };
         relogin = import ./tests/relogin.nix { inherit pkgs self; };
+        software-center-run = import ./tests/software-center-run.nix { inherit pkgs self; };
         lock = import ./tests/lock.nix { inherit pkgs self; };
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
         app-screens = import ./tests/app-screens.nix { inherit pkgs self; };
