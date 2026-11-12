@@ -104,16 +104,21 @@ for f in "$state"/*; do
 done
 
 # Events: "F" a change in the directory, "A id name" an action, "C id reason" a close. Both sources
-# print whole lines at once.
+# print whole lines at once. When either source dies the other is stopped, so the loop sees the end and
+# the unit restarts; otherwise clicks would be lost while the scans go on.
 events() {
+  local p1 p2
   inotifywait -m -q -e close_write,moved_to,moved_from,delete,create --format F "$dir" &
+  p1=$!
   dbus-monitor --session "type='signal',interface='$bus'" | awk '
     /^signal / { m = ""; if ($0 ~ /member=ActionInvoked$/) m = "A"; else if ($0 ~ /member=NotificationClosed$/) m = "C"; n = 0; next }
     /^[a-z]/ { m = ""; next }
     m != "" && $1 == "uint32" { if (n++ == 0) id = $2; else if (m == "C") { print "C " id " " $2; fflush() } next }
     m == "A" && $1 == "string" { sub(/^ *string "/, ""); sub(/"$/, ""); print "A " id " " $0; fflush(); m = "" }
   ' &
-  wait
+  p2=$!
+  wait -n || true
+  kill "$p1" "$p2" 2>/dev/null || true
 }
 
 handle() { # one event line
