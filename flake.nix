@@ -59,6 +59,7 @@
               journalRelay.enable = true;
               adminTools.enable = true;
               containers.enable = true;
+              containers.noPivotRoot = true;
               # The extension points (README, "Extension points").
               sessionEnvironmentFiles = [ "-/run/test/session.env" ];
               sessionStopCommands = [ "+/run/test/session-stop" ];
@@ -213,7 +214,8 @@
           assert (c.users.users.user.subUidRanges == [ { startUid = 1001; count = 28999; } { startUid = 32768; count = 28416; } ]
             && !c.users.users.user.autoSubUidGidRange
             && c.environment.sessionVariables.DOCKER_HOST == "unix:///run/user/1000/podman/podman.sock"
-            && c.virtualisation.podman.dockerCompat) || throw "containers";
+            && c.virtualisation.podman.dockerCompat
+            && nixpkgs.lib.hasSuffix " --no-pivot-root /run/webtop/containers-runtime.conf" c.systemd.services.webtop-containers-runtime.serviceConfig.ExecStart) || throw "containers";
           assert (c.systemd.user.services.drkonqi-coredump-pickup.serviceConfig.RuntimeMaxSec == "infinity") || throw "drkonqi";
           # Extension points: the module's own stop first, then the consumer's; lists merge with older overrides.
           assert (let

@@ -22,6 +22,9 @@ xi() { P exec -i "$c" "$@"; }
 # A login shell: DOCKER_HOST from the session environment, as in a terminal.
 asuser() { x runuser -l user -c "export XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; $1"; }
 
+# Ubuntu's AppArmor refuses user namespaces to unprivileged processes of unconfined profiles; nodes
+# without that restriction are what is tested.
+sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
 docker save "$image" | P load >/dev/null
 caps=CHOWN,DAC_OVERRIDE,FOWNER,FSETID,KILL,NET_BIND_SERVICE,SETFCAP,SETGID,SETPCAP,SETUID,SYS_CHROOT,MKNOD,AUDIT_WRITE,NET_RAW,SYS_ADMIN,SYS_NICE
 
@@ -44,7 +47,7 @@ boot() { # <scenario> <seccomp profile> [podman run args...]
   conf=$(x cat /run/webtop/containers-runtime.conf)
   grep -q 'keyring = false' <<<"$conf" || fail "$scenario: the refused keyctl was not detected: $conf"
   [ "$(asuser 'echo $DOCKER_HOST')" = unix:///run/user/1000/podman/podman.sock ] || fail "$scenario: DOCKER_HOST"
-  out=$(asuser 'docker pull -q docker.io/library/alpine:3 2>&1') || { echo "$out"; fail "$scenario: docker pull"; }
+  out=$(asuser 'docker pull -q docker.io/library/alpine:3 2>&1') || { echo "$out"; x sh -c 'findmnt -o TARGET,FSTYPE,OPTIONS /run /run/wrappers; getcap /run/wrappers/bin/newuidmap; cat /etc/subuid'; fail "$scenario: docker pull"; }
 }
 
 # run, a bind mount, build
