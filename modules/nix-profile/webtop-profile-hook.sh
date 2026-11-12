@@ -55,7 +55,10 @@ if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 rc=0
-home-manager switch --flake "$dir" || rc=$?
+# Its errors also into a file, for the hint below.
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+{ home-manager switch --flake "$dir" 2>&1 >&3 3>&- | tee "$log" >&2; } 3>&1 || rc=$?
 [ "$rc" = 0 ] && exit 0
 cur=$(readlink -f "$gen" || true)
 if [ -n "$prev" ] && [ "$cur" != "$prev" ]; then
@@ -64,5 +67,8 @@ if [ -n "$prev" ] && [ "$cur" != "$prev" ]; then
   # generation, so activating that "changes nothing" and would leave the profile at the failed one.
   nix-env --profile "$gen" --set "$prev" || echo "webtop-profile-hook: pointing the profile at $prev failed" >&2
   WEBTOP_ACTIVATE_ANY=1 "$prev/activate" || echo "webtop-profile-hook: re-activating $prev failed" >&2
+fi
+if grep -q 'conflicting subpath' "$log"; then
+  echo "webtop-profile-hook: two packages collide; if your configuration installs a declared one itself (programs.<name>), list it in webtop.packages.replaced" >&2
 fi
 exit "$rc"

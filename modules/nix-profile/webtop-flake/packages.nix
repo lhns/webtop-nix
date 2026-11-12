@@ -39,6 +39,13 @@ let
       selected = if outputs == null then [ drv ]
         else map (o: drv.${o}) (if lib.elem "*" outputs then drv.outputs else outputs);
     in map (lib.setPrio (e.priority or 5)) selected;
+  elements = (lib.importJSON file).elements;
+  # "flake:nixpkgs" and "legacyPackages.<system>.firefox" -> "nixpkgs#firefox", as typed to
+  # `nix profile add`: unlike the element's name, which Nix may change, it stays the same.
+  ref = e:
+    let p = attrPath e;
+    in "${lib.removePrefix "flake:" (e.originalUrl or "")}#${lib.concatStringsSep "."
+      (if lib.length p > 2 && lib.elemAt p 1 == system then lib.drop 2 p else p)}";
   # The apply lock, the marker and the check below: ADR 0009.
   hash = builtins.hashFile "sha256" file;
   declared = "${config.xdg.configHome}/home-manager/packages.json";
@@ -47,10 +54,38 @@ let
 in
 {
   # The webtop.* options live here too, so the starter flake needs no further import.
-  imports = [ ./sso-logout.nix ./time-locale.nix ];
+  imports = [
+    ./sso-logout.nix
+    ./time-locale.nix
+    {
+      options.webtop.packages = {
+        installed = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          readOnly = true;
+          description = ''
+            What packages.json declares, keyed by flake ref and attribute as typed to `nix profile add`
+            ("nixpkgs#firefox"), to the element's name. Settings for an installed package:
+            `lib.mkIf (config.webtop.packages.installed ? "nixpkgs#firefox") { ... }`.
+          '';
+        };
+        replaced = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          description = ''
+            Keys of `installed` that this configuration installs itself (`programs.firefox` with a
+            wrapper): the declared package is left out, else the two collide.
+          '';
+        };
+      };
+    }
+  ];
+
+  # From the file alone, never from config: a mapping's lib.mkIf can read it without recursion.
+  webtop.packages.installed = lib.mapAttrs' (n: e: lib.nameValuePair (ref e) n) elements;
 
   # hiPrio: the locked home-manager replaces the real one in the profile.
-  home.packages = lib.concatMap package (lib.attrValues (lib.importJSON file).elements)
+  home.packages = lib.concatMap package
+    (lib.filter (e: !lib.elem (ref e) config.webtop.packages.replaced) (lib.attrValues elements))
     ++ [ (lib.hiPrio hmLocked) ];
 
   # Every install switches, and home-manager would notify about all its unread news on the desktop.
