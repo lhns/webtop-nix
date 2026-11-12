@@ -69,7 +69,7 @@ pkgs.testers.runNixOSTest {
         assert out.split() == ["0", "0", "1000", "1", "1", "1001", "28999", "29000", "32768", "28416"], out
         # Its own network namespace (pasta), not the host's.
         assert u("docker run --rm localhost/testbox readlink /proc/self/ns/net") != host_net
-        u("docker run --rm localhost/testbox chown 40000 /tmp")
+        u("docker run --rm localhost/testbox sh -c 'mkdir /x && chown 40000 /x'")
         mem = u("docker run --rm --memory 64m localhost/testbox cat /sys/fs/cgroup/memory.max").strip()
         assert mem == "67108864", mem
 

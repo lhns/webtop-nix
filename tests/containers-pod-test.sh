@@ -29,7 +29,7 @@ run() { # <scenario> [podman run args...]
   P run -d --name "$c" --systemd=always --cap-drop=all --cap-add="$caps" \
     --uidmap 0:1000000:65536 --gidmap 0:1000000:65536 \
     --security-opt seccomp="$here/fixtures/pod-seccomp.json" --security-opt apparmor=unconfined \
-    --security-opt unmask=ALL --shm-size=1g \
+    --security-opt unmask=ALL --shm-size=1g --tmpfs /run:rw,suid,dev,exec,mode=755 \
     -v webtop-pod-home:/home -v webtop-pod-persist:/persist "$@" "$image" >/dev/null
   local deadline=$(($(date +%s) + timeout))
   until x systemctl is-active -q user@1000.service 2>/dev/null && x systemctl is-active -q webtop-containers-runtime 2>/dev/null; do
@@ -42,7 +42,7 @@ run() { # <scenario> [podman run args...]
   grep -q 'no_pivot_root = true' <<<"$conf" && grep -q 'keyring = false' <<<"$conf" \
     || fail "$scenario: the refused syscalls were not detected: $conf"
   [ "$(asuser 'echo $DOCKER_HOST')" = unix:///run/user/1000/podman/podman.sock ] || fail "$scenario: DOCKER_HOST"
-  out=$(asuser 'docker pull -q docker.io/library/alpine:3 2>&1') || { echo "$out"; fail "$scenario: docker pull"; }
+  out=$(asuser 'docker pull -q docker.io/library/alpine:3 2>&1') || { echo "$out"; x sh -c 'findmnt -o TARGET,FSTYPE,OPTIONS /run /run/wrappers; getcap /run/wrappers/bin/newuidmap; cat /etc/subuid'; fail "$scenario: docker pull"; }
   [ "$(asuser 'docker run --rm docker.io/library/alpine:3 echo ran')" = ran ] || fail "$scenario: docker run"
   asuser 'mkdir -p ~/bm && echo hi > ~/bm/in'
   [ "$(asuser 'docker run --rm -v ~/bm:/bm docker.io/library/alpine:3 sh -c "cat /bm/in; echo out > /bm/out"')" = hi ] \
