@@ -292,9 +292,8 @@ pkgs.testers.runNixOSTest {
 
     def run_setup():
         """The setup unit once, to the end. The switch needs the network, so it ends in a failure; the relock comes before it."""
-        print("DIAG unit:", machine.execute("systemctl cat webtop-home-manager.service 2>&1; systemctl status webtop-home-manager.service --no-pager 2>&1")[1])
-        status, out = machine.execute("systemctl start webtop-home-manager.service 2>&1")
-        print("DIAG start webtop-home-manager:", status, out)
+        # No reset-failed first: on a unit that never ran it exits 1, and commands run under set -e.
+        machine.succeed("systemctl start webtop-home-manager.service")
         machine.wait_until_succeeds("case \"$(systemctl show -P ActiveState webtop-home-manager.service)\" in inactive|failed) exit 0;; *) exit 1;; esac", timeout=900)
 
     machine.wait_until_succeeds(f"test -f {hm}/flake.nix", timeout=120)
