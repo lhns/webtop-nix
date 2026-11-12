@@ -151,7 +151,9 @@ let
     name = "webtop-stop-session";
     runtimeInputs = [ pkgs.coreutils config.systemd.package ];
     text = ''
-      systemctl --user stop graphical-session.target
+      # plasma-core.target is not bound to it: after a Log Out with start jobs queued it stays up, and
+      # its stop at the next startplasma's daemon-reload races that start.
+      systemctl --user stop graphical-session.target plasma-core.target
       # It returns once the target is down, before its PartOf units are; the next startplasma's start
       # (mode "fail") is refused while their stop jobs are queued. A shutdown keeps jobs queued: no wait.
       for _ in $(seq 1 300); do
