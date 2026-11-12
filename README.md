@@ -141,6 +141,19 @@ The global theme is defaulted as a whole: `[KDE] LookAndFeelPackage=<id>` in `xd
 
 Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (`null`, the default, leaves the choice to the deployment): when the desktop's session is signed out (`onLogout`) or locked (`onLock`), the browser is also signed out at the login provider. With either set, `~/.config/webtop/session.conf` gets the matching `onLogout=true|false` / `onLock=true|false` lines, which a consumer's gateway can read at event time. The desktop itself only skips them in `webtop-locale`, so standalone the options are harmless no-ops. The options come with the `packages` home module, or alone as `webtop.homeModules.ssoLogout`.
 
+## Notices
+
+`/run/webtop/notices/` is a channel for messages to the user that come from outside the session ([ADR 0017](docs/adr/0017-notices-are-files-in-a-root-owned-directory.md)).
+It is owned by root and the desktop user cannot write it, so no app of the session can forge a notice. A notice is a file `<id>.json`:
+
+```json
+{"title": "Updates are ready", "body": "Restart your desktop to apply them.", "urgency": "normal", "action": "restart"}
+```
+
+`urgency` is `low`, `normal` (default) or `critical`. `action` is optional and `restart` is the only one: a button that runs Plasma's own Restart, with its confirmation; any other value gives a notice without a button. There are no URL actions and no commands. The title is up to 200 and the body up to 2000 characters, plain text (the body is escaped, so markup and links show as typed); the file is at most 16 KiB. Write a temporary name that does not end in `.json` in the directory, then rename it; remove the file to withdraw the notice.
+
+`webtop-notices` (a user service) shows each file as a KDE notification that stays until dismissed. It scans the directory at start, on every change and every 30 s. A notice is shown once per content: if the user dismisses it, it stays dismissed until the next login; if the file changes, it is shown again in place; if the file is removed, it is closed. Files that are invalid, too large or not regular files are skipped with a line in `journalctl --user -u webtop-notices`. On a standalone desktop an admin can drop files there (`/run` is cleared at boot); `tests/notices.nix` (`checks.<system>.notices`) covers it in a VM.
+
 ## Lock screen
 
 The greeter of KDE's screen locker cannot be used here (gray, and no password to enter), so a lock never stays: `webtop-lock-guard` (a user service) sees `org.freedesktop.ScreenSaver` `ActiveChanged`, writes the time to `$XDG_RUNTIME_DIR/webtop/lock` and unlocks through logind at once ([ADR 0010](docs/adr/0010-a-lock-is-recorded-and-cleared-at-once.md)). The session and its processes are not touched; only the marker tells that Lock was used, for a consumer to act on (`webtop.ssoLogout.onLock`). Whether Lock is offered in Plasma is chosen at each session start: `services.webtop.lockScreen` (`false`) is the default and `WEBTOP_LOCK_SCREEN=true|false` in a file of `services.webtop.lockEnvironmentFiles` overrides it. Off, the Lock action is hidden and blocked in `/etc/xdg/kdeglobals` (a user's own `~/.config/kdeglobals` can still override that, and the guard still clears the lock). Autolock and lock on resume are off in every case. Only the user's graphical logind session (`Class=user`) is unlocked, so no failure is logged for the manager session. Clearing needs KWin's screen locker on the current logind session, which holds because KWin starts again with every start of `webtop-session` (above).
