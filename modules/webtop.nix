@@ -149,6 +149,14 @@ let
     text = builtins.readFile ./webtop-lock-guard.sh;
   };
 
+  # Shows the files of /run/webtop/notices as notifications (ADR 0019).
+  notices = pkgs.writeShellApplication {
+    name = "webtop-notices";
+    runtimeInputs = [ pkgs.coreutils pkgs.dbus pkgs.gawk pkgs.inotify-tools pkgs.jq config.systemd.package ];
+    text = "restart_cmd=${lib.escapeShellArg cfg.notices.restartCommand}
+" + builtins.readFile ./webtop-notices.sh;
+  };
+
   # Plasma down as Log Out takes it down, after every end of the session unit. startplasma's own stop
   # on SIGTERM covers only plasma-workspace.target, and Plasma's stops (mode "fail") are refused while
   # start jobs are queued; `systemctl stop` replaces them.
@@ -287,6 +295,13 @@ in
         This is the default for each start: `WEBTOP_LOCK_SCREEN=true|false` in a file of
         `lockEnvironmentFiles` overrides it. Autolock and lock on resume stay off in every case.
       '';
+    };
+
+    notices.restartCommand = lib.mkOption {
+      type = lib.types.str;
+      internal = true;
+      default = "busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptReboot";
+      description = "What the `restart` action of a notice runs (ADR 0019): Plasma's Restart, with its confirmation. A test replaces it.";
     };
 
     lockEnvironmentFiles = lib.mkOption {
@@ -674,6 +689,21 @@ in
       };
     };
 
+    # Notices (ADR 0019): root writes files, this shows them. Not for the user to write: /run/webtop/notices is root's.
+    systemd.user.services.webtop-notices = {
+      description = "Show the files of /run/webtop/notices as notifications";
+      wantedBy = [ "plasma-workspace.target" ];
+      partOf = [ "plasma-workspace.target" ];
+      after = [ "plasma-plasmashell.service" ];
+      unitConfig.ConditionUser = uid;
+      environment.DBUS_SESSION_BUS_ADDRESS = "unix:path=%t/bus";
+      serviceConfig = {
+        ExecStart = lib.getExe notices;
+        Restart = "always";
+        RestartSec = 2;
+      };
+    };
+
     # With no crashes to hand off, this unit only watches the journal, and its 30-minute runtime limit
     # then counts as a failure: the session would report degraded half an hour after login.
     systemd.user.services.drkonqi-coredump-pickup = {
@@ -755,7 +785,7 @@ in
     services.webtop.sleep.init = sysPower;
 
     # webtop-power's state (the frozen units, the poweroff marker) and the consumers' env files.
-    systemd.tmpfiles.rules = [ "d /run/webtop 0755 root root -" ];
+    systemd.tmpfiles.rules = [ "d /run/webtop 0755 root root -" "d /run/webtop/notices 0755 root root -" ];
 
     # Saves the Plasma session on an external stop, where ksmserver does not. Stopped before the
     # session and the user manager (plasma-ksmserver.service runs there). The thaw first ("+": as
