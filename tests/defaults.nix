@@ -205,10 +205,7 @@ pkgs.testers.runNixOSTest {
     admin_kdeglobals = machine.succeed("cat /etc/webtop/defaults/xdg/kdeglobals")
 
     def admin_theme(pkg):
-        put("/etc/webtop/defaults/xdg/kdeglobals", admin_kdeglobals.replace("[KDE]
-", f"[KDE]
-LookAndFeelPackage={pkg}
-"))
+        put("/etc/webtop/defaults/xdg/kdeglobals", admin_kdeglobals.replace("[KDE]\n", f"[KDE]\nLookAndFeelPackage={pkg}\n"))
         machine.succeed("systemctl restart webtop-defaults.service")
 
     def scheme_bg(scheme, env):
