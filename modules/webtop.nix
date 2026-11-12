@@ -114,6 +114,11 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.findutils config.nix.package ];
     text = builtins.readFile ./webtop-defaults.sh;
   };
+  followDefaults = pkgs.writeShellApplication {
+    name = "webtop-follow-defaults";
+    runtimeInputs = [ pkgs.coreutils pkgs.gawk ];
+    text = builtins.readFile ./webtop-follow-defaults.sh;
+  };
 
   # Sleep and the session save (README, "Sleep and session save", ADR 0012).
   power = lib.getExe cfg.sessionSave.command;
@@ -190,6 +195,8 @@ let
         *":${xdgSessionDir}:"*) ;;
         *) export XDG_CONFIG_DIRS="${xdgSessionDir}:${defaultsSnapshot}/xdg:''${XDG_CONFIG_DIRS:-/etc/xdg}" ;;
       esac
+      # A user's entry equal to the admin's follows the admin again (ADR 0015).
+      ${lib.getExe followDefaults} ${defaultsSnapshot}/xdg "''${XDG_CONFIG_HOME:-''${HOME:-/nonexistent}/.config}" || true
       exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
     '';
   };

@@ -40,3 +40,13 @@ links that a settings page cannot write.
 - The first login writes `~/.config/kdedefaults` and a colour scheme into the user's `kdeglobals`, which
   mask admin look-and-feel keys; panel and widget layout is generated at first login and cannot be
   defaulted this way.
+
+## Amendment 2026-11-12
+
+The global theme is defaulted as a whole, with `[KDE] LookAndFeelPackage` in `xdg/kdeglobals`, from which
+startplasma regenerates `~/.config/kdedefaults`. Keys a theme sets are not defaulted one by one.
+
+## Amendment 2026-11-12 (2)
+
+A user's entry equal to the admin's value counts as following the admin: the session start removes it,
+because a settings page's Defaults saves the admin's value instead of removing the user's entry.
