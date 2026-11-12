@@ -1,4 +1,4 @@
-# 0017 — Notices are files in a root-owned directory, shown as KDE notifications
+# 0019 — Notices are files in a root-owned directory, shown as KDE notifications
 
 - Status: Accepted
 - Date: 2026-11-12

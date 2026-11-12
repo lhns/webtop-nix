@@ -1,6 +1,6 @@
-# The notice channel (ADR 0017): files in /run/webtop/notices become notifications. Needs KVM to run; evaluates without.
+# The notice channel (ADR 0019): files in /run/webtop/notices become notifications. Needs KVM to run; evaluates without.
 # The notification calls are read off the session bus; a click is a signal sent by hand, since a VM
-# test cannot press the button. The restart itself is stubbed (WEBTOP_NOTICES_RESTART).
+# test cannot press the button. The restart itself is stubbed (services.webtop.notices.restartCommand).
 { pkgs, self }:
 
 pkgs.testers.runNixOSTest {
@@ -9,7 +9,7 @@ pkgs.testers.runNixOSTest {
   nodes.machine = { ... }: {
     imports = [ self.nixosModules.webtop ];
     services.webtop.enable = true;
-    systemd.user.services.webtop-notices.environment.WEBTOP_NOTICES_RESTART = "${pkgs.coreutils}/bin/touch /tmp/notices-restart";
+    services.webtop.notices.restartCommand = "${pkgs.coreutils}/bin/touch /tmp/notices-restart";
     environment.systemPackages = [ pkgs.dbus ];
     virtualisation.memorySize = 4096;
     virtualisation.cores = 2;
@@ -74,6 +74,9 @@ pkgs.testers.runNixOSTest {
     # Dismissed stays dismissed: not on another notice, not on a rescan, not when the watcher restarts.
     machine.succeed(f"{ubus} busctl --user emit /org/freedesktop/Notifications org.freedesktop.Notifications NotificationClosed uu {nid} 2")
     machine.wait_until_succeeds(f"cat {state}/*/update-pending | grep -q ' 1 restart$'", timeout=30)
+    put("dash", {"title": "- Maintenance tonight", "body": "--help"})
+    seen('string "- Maintenance tonight"')
+    seen('string "--help"')
     put("plain", {"title": "Tom & Jerry", "body": "low", "urgency": "low", "action": "open-url"})
     seen('string "Tom & Jerry"')
     assert entry("plain")[3:] == [], "an unknown action gets no button"

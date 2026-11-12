@@ -1,9 +1,9 @@
-# Runs in the desktop user's manager (ADR 0017). Shows the files of /run/webtop/notices as KDE
+# Runs in the desktop user's manager (ADR 0019). Shows the files of /run/webtop/notices as KDE
 # notifications. The directory is the state: it is scanned at start and on every change, and every
 # 30 s (a login or a thaw from Sleep leaves no event). A notice is shown once per content: dismissing it
 # keeps it dismissed until the next login, a changed file shows it again in place, a removed one is
 # closed. Files: <id>.json {"title","body","urgency":"low|normal|critical","action":"restart"}.
-dir=${WEBTOP_NOTICES_DIR:-/run/webtop/notices}
+dir=/run/webtop/notices
 # State per login: a new invocation of webtop-session is a new login and starts with nothing dismissed.
 inv=$(systemctl show -P InvocationID webtop-session.service 2>/dev/null || true)
 state=$XDG_RUNTIME_DIR/webtop/notices/${inv:-none}
@@ -16,15 +16,8 @@ wait_s=30
 
 log() { echo "webtop-notices: $*"; }
 
-# The only action: Plasma's own Restart, which asks for confirmation. WEBTOP_NOTICES_RESTART
-# replaces it in tests.
-restart() {
-  if [ -n "${WEBTOP_NOTICES_RESTART:-}" ]; then
-    $WEBTOP_NOTICES_RESTART
-  else
-    busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptReboot
-  fi
-}
+# The only action: Plasma's own Restart, which asks for confirmation ($restart_cmd comes from the module).
+restart() { "$BASH" -c "$restart_cmd"; }
 
 save() { printf '%s %s %s %s\n' "${hash[$1]}" "${nid[$1]}" "${dismissed[$1]}" "${action[$1]}" >"$state/$1.new" && mv -T "$state/$1.new" "$state/$1"; }
 
@@ -35,9 +28,10 @@ show() { # id title body urgency action
   local u=1 args=() reply
   case $4 in low) u=0 ;; critical) u=2 ;; esac
   [ "$5" = restart ] && args=(restart Restart)
-  # expire_timeout 0: stays until it is dismissed.
-  if ! reply=$(busctl --user call "$bus" "$obj" "$bus" Notify 'susssasa{sv}i' \
-      Desktop "${nid[$1]:-0}" dialog-information "$2" "$(esc "$3")" ${#args[@]} "${args[@]}" 1 urgency y "$u" 0); then
+  # expire_timeout 0 and resident: stays until the user dismisses it, also after a click on Restart
+  # (they may cancel its confirmation). "--": a title may start with a dash.
+  if ! reply=$(busctl --user -- call "$bus" "$obj" "$bus" Notify 'susssasa{sv}i' \
+      Desktop "${nid[$1]:-0}" dialog-information "$2" "$(esc "$3")" ${#args[@]} "${args[@]}" 2 urgency y "$u" resident b true 0); then
     log "could not show $1"
     wait_s=3 # the notification server may not be up yet
     return 1
@@ -46,7 +40,7 @@ show() { # id title body urgency action
 }
 
 close() { # id
-  [ "${dismissed[$1]}" = 1 ] || busctl --user call "$bus" "$obj" "$bus" CloseNotification u "${nid[$1]}" >/dev/null 2>&1 || true
+  [ "${dismissed[$1]}" = 1 ] || busctl --user -- call "$bus" "$obj" "$bus" CloseNotification u "${nid[$1]}" >/dev/null 2>&1 || true
 }
 
 scan() {
@@ -118,35 +112,42 @@ events() {
   wait
 }
 
+handle() { # one event line
+  local name id reason k
+  case $1 in
+    "A "*)
+      read -r _ id name <<<"$1"
+      for k in "${!nid[@]}"; do
+        if [ "${nid[$k]}" = "$id" ] && [ "$name" = restart ] && [ "${action[$k]}" = restart ]; then
+          log "$k: restart"
+          restart || log "restart failed"
+        fi
+      done
+      ;;
+    "C "*)
+      read -r _ id reason <<<"$1"
+      # 3 is our own close; 1 and 2 are expiry and the user.
+      for k in "${!nid[@]}"; do
+        if [ "${nid[$k]}" = "$id" ] && [ "$reason" != 3 ] && [ "${dismissed[$k]}" = 0 ]; then
+          dismissed[$k]=1
+          save "$k"
+        fi
+      done
+      ;;
+  esac
+}
+
 trap 'exit 0' TERM INT
 scan
 while true; do
   if read -r -t "$wait_s" ev; then
-    case $ev in
-      F*)
-        while read -r -t 0.3 _; do :; done # a burst is one scan
-        scan
-        ;;
-      "A "*)
-        read -r _ id name <<<"$ev"
-        for k in "${!nid[@]}"; do
-          if [ "${nid[$k]}" = "$id" ] && [ "$name" = restart ] && [ "${action[$k]}" = restart ]; then
-            log "$k: restart"
-            restart || log "restart failed"
-          fi
-        done
-        ;;
-      "C "*)
-        read -r _ id reason <<<"$ev"
-        # 3 is our own close; 1 and 2 are expiry and the user.
-        for k in "${!nid[@]}"; do
-          if [ "${nid[$k]}" = "$id" ] && [ "$reason" != 3 ] && [ "${dismissed[$k]}" = 0 ]; then
-            dismissed[$k]=1
-            save "$k"
-          fi
-        done
-        ;;
-    esac
+    if [ "$ev" = F ]; then
+      # A burst of changes is one scan; clicks and closes that arrive meanwhile are still handled.
+      while read -r -t 0.3 more; do [ "$more" = F ] || handle "$more"; done
+      scan
+    else
+      handle "$ev"
+    fi
   else
     [ $? -gt 128 ] || { log "event sources ended"; exit 1; }
     scan

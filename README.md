@@ -143,7 +143,7 @@ Home-manager options `webtop.ssoLogout.onLogout` and `webtop.ssoLogout.onLock` (
 
 ## Notices
 
-`/run/webtop/notices/` is a channel for messages to the user that come from outside the session ([ADR 0017](docs/adr/0017-notices-are-files-in-a-root-owned-directory.md)).
+`/run/webtop/notices/` is a channel for messages to the user that come from outside the session ([ADR 0019](docs/adr/0019-notices-are-files-in-a-root-owned-directory.md)).
 It is owned by root and the desktop user cannot write it, so no app of the session can forge a notice. A notice is a file `<id>.json`:
 
 ```json

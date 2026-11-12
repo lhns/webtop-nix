@@ -149,11 +149,12 @@ let
     text = builtins.readFile ./webtop-lock-guard.sh;
   };
 
-  # Shows the files of /run/webtop/notices as notifications (ADR 0017).
+  # Shows the files of /run/webtop/notices as notifications (ADR 0019).
   notices = pkgs.writeShellApplication {
     name = "webtop-notices";
     runtimeInputs = [ pkgs.coreutils pkgs.dbus pkgs.gawk pkgs.inotify-tools pkgs.jq config.systemd.package ];
-    text = builtins.readFile ./webtop-notices.sh;
+    text = "restart_cmd=${lib.escapeShellArg cfg.notices.restartCommand}
+" + builtins.readFile ./webtop-notices.sh;
   };
 
   # Plasma down as Log Out takes it down, after every end of the session unit. startplasma's own stop
@@ -294,6 +295,13 @@ in
         This is the default for each start: `WEBTOP_LOCK_SCREEN=true|false` in a file of
         `lockEnvironmentFiles` overrides it. Autolock and lock on resume stay off in every case.
       '';
+    };
+
+    notices.restartCommand = lib.mkOption {
+      type = lib.types.str;
+      internal = true;
+      default = "busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptReboot";
+      description = "What the `restart` action of a notice runs (ADR 0019): Plasma's Restart, with its confirmation. A test replaces it.";
     };
 
     lockEnvironmentFiles = lib.mkOption {
@@ -681,7 +689,7 @@ in
       };
     };
 
-    # Notices (ADR 0017): root writes files, this shows them. Not for the user to write: /run/webtop/notices is root's.
+    # Notices (ADR 0019): root writes files, this shows them. Not for the user to write: /run/webtop/notices is root's.
     systemd.user.services.webtop-notices = {
       description = "Show the files of /run/webtop/notices as notifications";
       wantedBy = [ "plasma-workspace.target" ];
