@@ -9,6 +9,7 @@ admin=$1 cfg=$2
 [ -d "$admin" ] || exit 0
 for a in "$admin"/*; do
   if [ ! -f "$a" ]; then continue; fi
+  case $(basename -- "$a") in kdeglobals | *rc) ;; *) continue ;; esac
   u=$cfg/$(basename -- "$a")
   # Not a home-manager link or anything else the user did not write as a plain file.
   if [ ! -f "$u" ] || [ -L "$u" ] || [ ! -w "$u" ]; then continue; fi
