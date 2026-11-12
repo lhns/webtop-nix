@@ -23,6 +23,51 @@ let
       }
     }
   '';
+  # What the Global Theme page of System Settings does on Defaults + Apply: its LookAndFeelSettings is a
+  # KConfigSkeleton string item (kcms/lookandfeel/lookandfeelsettings.kcfg), reset with setDefaults() and saved.
+  kcmDefaults = pkgs.stdenv.mkDerivation {
+    name = "lnf-kcm-defaults";
+    dontUnpack = true;
+    dontConfigure = true;
+    dontWrapQtApps = true;
+    nativeBuildInputs = [ pkgs.cmake ];
+    buildInputs = [ pkgs.kdePackages.qtbase pkgs.kdePackages.kconfig ];
+    cmakeLists = pkgs.writeText "CMakeLists.txt" ''
+      cmake_minimum_required(VERSION 3.16)
+      project(lnf-kcm-defaults CXX)
+      set(CMAKE_CXX_STANDARD 17)
+      find_package(Qt6 REQUIRED COMPONENTS Core)
+      find_package(KF6Config REQUIRED)
+      add_executable(lnf-kcm-defaults main.cpp)
+      target_link_libraries(lnf-kcm-defaults Qt6::Core KF6::ConfigCore)
+    '';
+    mainCpp = pkgs.writeText "main.cpp" ''
+      #include <KCoreConfigSkeleton>
+      #include <KSharedConfig>
+      #include <QCoreApplication>
+      #include <cstdio>
+
+      int main(int argc, char **argv)
+      {
+          QCoreApplication app(argc, argv);
+          KCoreConfigSkeleton settings(KSharedConfig::openConfig(QStringLiteral("kdeglobals")));
+          settings.setCurrentGroup(QStringLiteral("KDE"));
+          QString lnf;
+          settings.addItemString(QStringLiteral("lookAndFeelPackage"), lnf, QStringLiteral("org.kde.breeze.desktop"), QStringLiteral("LookAndFeelPackage"));
+          settings.load();
+          settings.setDefaults();
+          std::printf("KCMDEFAULT %s\n", qPrintable(lnf));
+          return settings.save() ? 0 : 1;
+      }
+    '';
+    buildPhase = ''
+      cp $cmakeLists CMakeLists.txt
+      cp $mainCpp main.cpp
+      cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+      cmake --build build
+    '';
+    installPhase = "install -Dm755 build/lnf-kcm-defaults $out/bin/lnf-kcm-defaults";
+  };
 in
 pkgs.testers.runNixOSTest {
   name = "webtop-defaults";
@@ -232,19 +277,30 @@ pkgs.testers.runNixOSTest {
     restart_session()
     e = penv()
     check("theme: a first login applies the admin's theme", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
-    kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage org.kde.breeze.desktop", e)
+    user_lnf = lambda: machine.succeed("grep '^LookAndFeelPackage' /home/user/.config/kdeglobals || true").strip()
+    # The user picks Breeze: plasma-apply-lookandfeel saves through the same settings as System Settings.
+    status, out = user_run("plasma-apply-lookandfeel -a org.kde.breeze.desktop", e)
+    assert status == 0, out
     restart_session()
     e = penv()
     light = ("org.kde.breeze.desktop", "BreezeLight", scheme_bg("BreezeLight", e))
-    check("theme: the user's own LookAndFeelPackage wins", light[2] is not None and theme(e) == light, f"{theme(e)} want {light}")
-    # KConfig's delete of a key a lower layer sets writes key[$d], which hides that layer too.
-    kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage --delete", e)
-    lines = machine.succeed("grep '^LookAndFeelPackage' /home/user/.config/kdeglobals || true").strip()
-    check("theme: kwriteconfig6 --delete masks the admin's key with [$d]", lines == "LookAndFeelPackage[$d]", lines)
-    machine.succeed("sed -i '/^LookAndFeelPackage/d' /home/user/.config/kdeglobals")
+    check("theme: the user's own choice wins", light[2] is not None and theme(e) == light, f"{theme(e)} want {light} {user_lnf()}")
+    # Defaults + Apply in System Settings: the skeleton reads its default through the cascade (the admin's),
+    # and since a lower layer has the key it writes the value instead of removing it.
+    status, out = user_run("${kcmDefaults}/bin/lnf-kcm-defaults", e)
+    print(f"RESULT theme: Defaults in System Settings: {out.strip()}; the user's file then has {user_lnf()!r}")
+    check("theme: Defaults in System Settings resolves to the admin's theme", status == 0 and "KCMDEFAULT org.kde.breezedark.desktop" in out, out)
     restart_session()
     e = penv()
-    check("theme: removing the user's line brings the admin's back", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    check("theme: Defaults in System Settings brings the admin's theme back", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    admin_theme("org.kde.breeze.desktop")
+    restart_session()
+    e = penv()
+    check("theme: after Defaults the user keeps that theme when the admin changes it (documented limit)", theme(e) == dark(e) and user_lnf() == "LookAndFeelPackage=org.kde.breezedark.desktop", f"{theme(e)} {user_lnf()}")
+    # KConfig's delete of a key a lower layer sets writes key[$d], which hides that layer too.
+    kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage --delete", e)
+    check("theme: kwriteconfig6 --delete masks the admin's key with [$d]", user_lnf() == "LookAndFeelPackage[$d]", user_lnf())
+    machine.succeed("sed -i '/^LookAndFeelPackage/d' /home/user/.config/kdeglobals")
     admin_theme("org.example.missing.desktop")
     restart_session()
     e = penv()
