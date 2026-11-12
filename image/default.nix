@@ -75,7 +75,7 @@ rec {
   # Store paths of an image's system, for use as another image's reference.
   referencePaths = nixos: "${nixos.pkgs.closureInfo { rootPaths = [ nixos.config.system.build.toplevel ]; }}/store-paths";
 
-  # The builder image's extra root (ADR 0017): webtop-system-build, the flake source the image's system
+  # The builder image's extra root (ADR 0020): webtop-system-build, the flake source the image's system
   # is evaluated from with its inputs, and the graft's replacements as built (ADR 0004; without them a
   # rebuild reads their references and compiles KWin). copyToRoot: the image's, for its store path list.
   systemBuilder = { nixos, copyToRoot, flake, source ? flake.outPath, name }:
@@ -92,7 +92,7 @@ rec {
         grep -vxF ${lib.concatMapStringsSep " " (x: "-e ${x}") copyToRoot} \
           ${p.closureInfo { rootPaths = [ c.system.build.toplevel ] ++ copyToRoot; }}/store-paths > $out
       '';
-      installer = p.writeText "webtop-system-install" (builtins.readFile ./system/webtop-system-install);
+      installer = ./system/webtop-system-install;
       build = p.writeShellApplication {
         name = "webtop-system-build";
         runtimeInputs = [ p.coreutils p.findutils c.nix.package ];
@@ -112,7 +112,7 @@ rec {
   # (copyToRoot and the Nix DB). Every layer path is in the toplevel's closure (layersFile allows
   # nothing else), so the image's store is that closure plus what copyToRoot references.
   # builder: { flake; source ? flake.outPath; name; } where flake.nixosConfigurations.${name} is
-  # `nixos`; adds `.builder`, the same image with systemBuilder in its top layer (ADR 0017).
+  # `nixos`; adds `.builder`, the same image with systemBuilder in its top layer (ADR 0020).
   buildImage = { name, tag ? null, nixos, copyToRoot ? [ ], config ? { }, extraGroups ? [ ], reference ? null
     , maxConfigMiB ? 128, initializeNixDatabase ? true, builder ? null }:
     let

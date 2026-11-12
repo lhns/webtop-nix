@@ -1,4 +1,4 @@
-# The image with an admin's NixOS module, system.nix beside this file, in its system (ADR 0017,
+# The image with an admin's NixOS module, system.nix beside this file, in its system (ADR 0020,
 # README "System module"):
 #   docker build -t my-webtop image/system
 # IMAGE and BUILDER must come from one build of the image (its tag and <tag>-builder); the installer

@@ -1,4 +1,4 @@
-# 0017 — An admin's system module is built into a derived image
+# 0020 — An admin's system module is built into a derived image
 
 - Status: Accepted; amends ADR 0005 (a second, builder, image per build)
 - Date: 2026-11-12
@@ -37,4 +37,4 @@ store and a second start per change, in every desktop.
 - The builder and the image must come from one build; the installer checks the stamp.
 - The added layer is not bit-reproducible (the DB's registration times); its stamp is.
 - Rejected: rebuilding on the desktop at boot (a second start per change, every desktop pays the
-  build); the builder content in the image itself (about 70 MB more for every pull).
+  build); the builder content in the image itself (a larger top layer for every pull).

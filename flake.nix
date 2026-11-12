@@ -85,7 +85,7 @@
         inherit system;
         modules = [ self.nixosModules.webtop self.nixosModules.container ./image/container.nix ];
       });
-      # What evaluating the standalone system reads, for its builder image (ADR 0017): a change to
+      # What evaluating the standalone system reads, for its builder image (ADR 0020): a change to
       # anything else leaves the builder as it is.
       imageSource = nixpkgs.lib.fileset.toSource {
         root = ./.;

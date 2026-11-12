@@ -280,7 +280,7 @@ shows which layers are new against a published image. Push with zstd at the leve
 ### System module
 
 An admin's NixOS module (`system.nix`) for the image's own system goes into a derived image, built with
-`docker build` ([ADR 0017](docs/adr/0017-an-admin-system-module-is-built-into-a-derived-image.md)). Every
+`docker build` ([ADR 0020](docs/adr/0020-an-admin-system-module-is-built-into-a-derived-image.md)). Every
 image build also publishes a builder, `<tag>-builder` (`main-builder`, `sha-<sha7>-builder`): the same split
 layers and a larger top layer (74 MB compressed instead of 1 MB) with `webtop-system-build`, the flake's source
 and its inputs, and the KWin graft's replacements as built (without them the build compiles KWin). [image/system/Dockerfile](image/system/Dockerfile)

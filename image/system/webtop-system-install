@@ -1,4 +1,4 @@
-# Puts what webtop-system-build made into the stock image (ADR 0017): a Dockerfile RUN in that image,
+# Puts what webtop-system-build made into the stock image (ADR 0020): a Dockerfile RUN in that image,
 # run with the busybox beside this file, since the image has no shell:
 #   RUN --mount=type=bind,from=build,source=/webtop-system,target=/webtop-system ["/webtop-system/bin/sh", "/webtop-system/install"]
 # Copies the new store paths in, registers them in the image's Nix DB (the store overlay's lower

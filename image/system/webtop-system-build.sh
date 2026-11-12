@@ -1,5 +1,5 @@
 # Builds the image's NixOS system extended with an admin's module into <out>, for
-# webtop-system-install to put into the stock image (ADR 0017, README "System module"). Runs in the
+# webtop-system-install to put into the stock image (ADR 0020, README "System module"). Runs in the
 # builder image as root without a daemon: a Dockerfile RUN.
 #   webtop-system-build <module.nix> [<out>]      <out> defaults to /webtop-system
 # <out>: the new system's toplevel, its store paths the image lacks (store/) and their registration,

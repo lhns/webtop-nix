@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# An admin's system.nix built into the image with image/system/Dockerfile (ADR 0017), on the real image
+# An admin's system.nix built into the image with image/system/Dockerfile (ADR 0020), on the real image
 # and its builder (<image>-builder), with docker build:
 #   1. `{ }` gives the image back unchanged: the same system and stamp.
 #   2. a module adding an /etc file and a unit, booted on a volume the stock image used: the image update
