@@ -49,7 +49,7 @@ jq '.elements[].url = "path:/nix/store/00000000000000000000000000000000-gone?nar
 name=$(nix eval --raw --impure --expr "
   let
     pkgs = import $nixpkgs { system = \"$sys\"; };
-    m = import $PWD/modules/nix-profile/webtop-flake/packages.nix $t/gone.json { config = { }; inherit (pkgs) lib; inherit pkgs; };
+    m = import $PWD/modules/nix-profile/webtop-flake/packages.nix $t/gone.json { config.webtop.packages.replaced = [ ]; inherit (pkgs) lib; inherit pkgs; };
   in (builtins.head m.home.packages).name")
 [ "$name" = "$(nix eval --raw --impure --expr "(import $nixpkgs { system = \"$sys\"; config.allowUnfree = true; }).$attr.name")" ] \
   || fail "packages.nix resolved '$name'"
