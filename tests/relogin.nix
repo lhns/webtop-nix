@@ -116,6 +116,15 @@ pkgs.testers.runNixOSTest {
     ${import ./wait-compositing.nix}
     ready()
     assert kwin() not in ("0", old_kwin), "KWin survived the crash of the session"
+    # plasma-core.target (StopWhenUnneeded) is down before each restart. Left up, it is stopped at the next
+    # startplasma's daemon-reload, racing that start; the check below only catches a lost race.
+    up, late = False, []
+    for l in machine.succeed("journalctl -b -o cat --no-pager | grep -E 'Workspace Core[.]$|webtop-session.service: Scheduled restart job'").splitlines():
+        if "Scheduled restart job" in l:
+            late += [l] if up else []
+        else:
+            up = l.startswith("Reached")
+    assert not late, f"plasma-core.target still up at {len(late)} session restarts"
     # Each new session started at once: none raced the previous one's teardown.
     # startplasma logs to its logind scope, not to the unit.
     machine.fail("journalctl -b | grep -E 'Could not start (systemd managed )?Plasma session'")
