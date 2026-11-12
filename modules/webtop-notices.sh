@@ -22,7 +22,11 @@ restart() { "$BASH" -c "$restart_cmd"; }
 save() { printf '%s %s %s %s\n' "${hash[$1]}" "${nid[$1]}" "${dismissed[$1]}" "${action[$1]}" >"$state/$1.new" && mv -T "$state/$1.new" "$state/$1"; }
 
 # Body markup and links are rendered by Plasma, so the body is escaped; the title is plain text there.
-esc() { local s=${1//&/&amp;}; s=${s//</&lt;}; printf '%s' "${s//>/&gt;}"; }
+# Quoted replacements: bash 5.2 reads an unquoted & in them as the matched text.
+esc() {
+  local amp='&amp;' lt='&lt;' gt='&gt;' s=$1
+  s=${s//&/"$amp"}; s=${s//</"$lt"}; printf '%s' "${s//>/"$gt"}"
+}
 
 show() { # id title body urgency action
   local u=1 args=() reply
