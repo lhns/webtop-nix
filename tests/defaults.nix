@@ -303,6 +303,16 @@ pkgs.testers.runNixOSTest {
     uk = ini(machine.succeed("cat /home/user/.config/kdeglobals"))
     check("follow: an entry equal to the admin's is removed, the same line in another group stays",
           "AdminKey" not in uk.get("Webtop", {}) and uk.get("Elsewhere", {}).get("AdminKey") == "admin", str({g: uk.get(g) for g in ("Webtop", "Elsewhere")}))
+    # A file KConfig does not cascade over the user's is not touched, even with an equal line.
+    put("/etc/webtop/defaults/xdg/webtop-test.conf", "[Webtop]\nAdminKey=admin\n")
+    machine.succeed("systemctl restart webtop-defaults.service")
+    machine.succeed("printf '[Webtop]\nAdminKey=admin\n' > /home/user/.config/webtop-test.conf && chown user /home/user/.config/webtop-test.conf")
+    restart_session()
+    check("follow: a file that is not kdeglobals or *rc keeps its line equal to the admin's",
+          ini(machine.succeed("cat /home/user/.config/webtop-test.conf")).get("Webtop", {}).get("AdminKey") == "admin",
+          machine.succeed("cat /home/user/.config/webtop-test.conf"))
+    machine.succeed("rm -f /home/user/.config/webtop-test.conf /etc/webtop/defaults/xdg/webtop-test.conf")
+    machine.succeed("systemctl restart webtop-defaults.service")
     # KConfig's delete of a key a lower layer sets writes key[$d], which hides that layer too.
     kwrite("--file kdeglobals --group KDE --key LookAndFeelPackage --delete", e)
     check("theme: kwriteconfig6 --delete masks the admin's key with [$d]", user_lnf() == "LookAndFeelPackage[$d]", user_lnf())
