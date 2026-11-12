@@ -46,7 +46,7 @@ Status: pixelflux and pcmflux build from source at the commits that released the
 Options (`services.webtop.*`): `enable`, `user` (`"user"`), `uid` (`1000`), `port` (`8082`), `address` (`127.0.0.1`; Selkies auth is off, so expose it only behind an authenticating proxy),
 `openFirewall`, `softwareCenter.enable` (`false`; the standalone image sets it), `softwareRendering` (`true`: `LIBGL_ALWAYS_SOFTWARE`), `kwinSoftwarePresentation` (`true`: patched KWin, see below), `seat` (`""`: none; a seat needs a VT),
 `lockScreen` (`false`: Lock hidden and blocked, see "Lock screen"; autolock is always off), `waylandSocketIndex` (`1`), `clipboard` (`"true"`; also `"in"`, `"out"`, `"false"`),
-`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
+`fileTransfers` (`[ "upload" "download" ]`; `[ ]` disables), `fileManagerPath` (`~`: downloads are served from the whole home), `uploadPath` (`null`: the user's XDG download directory, see below), `environmentFiles` (`[ ]`), `userSettings` (allowlist, see below), `browserCursors` (`true`), `sudo.enable` (`false`, see "Container module"), `containers.enable` (`false`; the standalone image sets it, see "Containers"), `package`, `extraEnvironment` (extra `SELKIES_*` settings).
 
 File transfers: downloads (`/api/files/`) are served from `fileManagerPath`. Uploads go to `uploadPath` (`SELKIES_UPLOAD_PATH`,
 a patch in [pkgs/selkies](pkgs/selkies/upload-path.patch)). `null` resolves `xdg-user-dir DOWNLOAD` at each start of `selkies.service`, so
@@ -282,7 +282,7 @@ What this flake provides, all without Kubernetes:
 - Selkies + pixelflux + pcmflux stream a nested KWin/Plasma 6 session over HTTP ([ADR 0001](docs/adr/0001-selkies-with-kwin-nested-in-pixelflux.md)); a real logind session with standard power management ([0003](docs/adr/0003-a-real-logind-session-with-standard-power-management.md)); a null audio sink, clipboard, file upload and download, per-user Selkies settings (`userSettings`), several pages on one desktop, one app per screen.
 - GPU-less rendering through a patched KWin ([0004](docs/adr/0004-patched-kwin-grafted-in-for-gpu-less-hosts.md)).
 - Software installation from one declaration (`nixProfile`, the Software Center; [0006](docs/adr/0006-software-installation-in-this-flake.md), [0007](docs/adr/0007-nix-profile-commit-locks.md)).
-- The container module and its options (below, [0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)); Sleep that freezes the session and the session save on an external stop ([0012](docs/adr/0012-sleep-freezes-the-session-an-external-stop-saves-it.md)); the Nix store overlay that survives image updates ([0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)); the layered image builder `lib.buildImage` ([0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)); module defaults for cursors (`XCURSOR_*`), a 30 fps start and DrKonqi's crash pickup without a runtime limit.
+- The container module and its options (below, [0008](docs/adr/0008-container-module-and-options-for-standalone-use.md)); Sleep that freezes the session and the session save on an external stop ([0012](docs/adr/0012-sleep-freezes-the-session-an-external-stop-saves-it.md)); the Nix store overlay that survives image updates ([0013](docs/adr/0013-the-store-overlay-survives-image-updates.md)); the layered image builder `lib.buildImage` ([0005](docs/adr/0005-image-builder-with-a-layer-split-from-the-closure.md)); rootless Podman with the docker CLI and compose ([0017](docs/adr/0017-rootless-podman-for-the-desktop-user.md)); module defaults for cursors (`XCURSOR_*`), a 30 fps start and DrKonqi's crash pickup without a runtime limit.
 
 Every change to a third-party program, and why:
 
@@ -317,6 +317,22 @@ In a container the `webtop` module defaults `sleep.mode` to `freeze` and `sessio
 Not in this flake: whatever reports to or is driven by an orchestrator, such as an agent that reports power actions and boot progress, or a tray job that shows the restore.
 The software restore's progress (`nixProfile.progress`, default `webtop-restore-progress`) is written to `/run/webtop/restore/progress.json`
 (`active`, `done`, `total`, `current`, `failed`, `message`) with the Nix log beside it (the restore's copy phase counts roots, the reinstall's counts packages; a new phase restarts the file); this flake shows none of it; a consumer's agent can.
+
+## Containers
+
+`services.webtop.containers.enable` (`false`; the standalone image sets it, [ADR 0017](docs/adr/0017-rootless-podman-for-the-desktop-user.md)) gives the desktop user rootless Podman. `docker` is Podman's docker-compatible CLI; `docker compose` runs the docker-compose binary against the user's Podman API socket (`podman.socket`, started on first use), and the session sets `DOCKER_HOST=unix:///run/user/<uid>/podman/podman.sock` for other clients (IDEs, testcontainers). Images and containers live in `~/.local/share/containers`, build contexts and image copies below it.
+
+It works in an unprivileged container. At boot, `webtop-containers-runtime.service` writes `/run/webtop/containers-runtime.conf` (a `containers.conf` drop-in) with what the runtime refuses, and logs each:
+
+| refused | effect |
+| --- | --- |
+| `/dev/net/tun` missing or not openable | `netns = "host"`: containers use the desktop's network. `-p` and compose networks do not work; compose needs `network_mode: host` |
+| `pivot_root` (Kubernetes' RuntimeDefault seccomp) | `no_pivot_root`: containers start with `chroot` |
+| `keyctl` (the same) | `keyring = false`: no session keyring per container |
+
+`containers.subIdRanges` are the user's subordinate uids and gids, the ids a container's users map to. The default fits a 65,536-id user namespace (a pod with `hostUsers: false`): `uid+1` to 29999 and 32768 to 61183, leaving out `nixbld` and systemd's dynamic users; a range over a declared uid or gid fails the evaluation. A file in an image owned by a higher id (65534 is common) is unpacked as root (`ignore_chown_errors`), and a container cannot switch to such an id. Under a larger namespace (a VM, a host) set one range of 65,536 above the system's ids.
+
+Containers count against the desktop's memory and disk. In a pod, full networking needs the node's `/dev/net/tun` in the container (a `CharDevice` hostPath; the runtime's default device rules allow it).
 
 ## Sleep and session save
 
@@ -403,6 +419,7 @@ Evaluating the system realises the stock closure first (the graft), so the check
 `checks.<system>.power` boots the module with `sleep.mode = "freeze"` and asserts that Sleep freezes the session's units (not Selkies), runs the hooks, is woken by a new Selkies client but not by one that was there, that an external stop thaws before it saves, and that a `poweroff` Sleep saves the session. `checks.<system>.store-overlay-layout` runs the overlay scripts on a scratch directory and pins the names on the volume; `tests/store-overlay-docker.sh` runs `webtop-nix-restore` and `webtop-nix-lower`/`-partial` against real overlay stores in privileged containers (crash, failure and pause cases through the `WEBTOP_TEST_*` hooks of the scripts), and `tests/lower-swap-test.sh` (CI, on the image) is the update end to end. `go test ./...` in [pkgs/webtop-power](pkgs/webtop-power) runs with the package build.
 `checks.<system>.software-center-run` runs the software center backend's "Run without installing" (`nsc-backend-smoke --run`) on two offline fixture packages, an app with a desktop entry and a program, and asserts both start, and that the profile, `packages.json` and the GC roots are unchanged and the built paths are garbage. Needs KVM.
 `checks.<system>.second-display` opens a display2 page alone in headless Chromium and asserts the [one-app-per-screen](#one-app-per-screen) path: the screen appears and streams, input arrives at the page's coordinates, the app's windows (also later ones) land on it, and it goes away with the page. CI runs its driver outside the sandbox and uploads `summary.txt`, screenshots and logs as the `second-display` artifact.
+`checks.<system>.containers` runs `docker run` (pasta networking, a published port, a bind mount, `--memory`, the subordinate ids), `docker build` and `docker compose up --build` (two services, one built, the other reaching it by name) as the desktop user, then the fallbacks without `/dev/net/tun` and under a seccomp filter refusing `pivot_root` and `keyctl`. Offline, with an image built by `dockerTools`. `tests/containers-pod-test.sh` (CI, x86_64) runs the image as a pod runs it (rootful Podman: unprivileged, a 65,536-id user namespace, [that seccomp filter](tests/fixtures/pod-seccomp.json)), once without and once with `/dev/net/tun`, and runs pull, run, a bind mount, build and compose there.
 CI builds the packages and `module-eval` natively on both systems (GitHub's arm runners for aarch64); the VM tests run on x86_64 only (no KVM on the arm runners).
 
 Update nixpkgs here first (`nix flake update nixpkgs`); consumers follow this flake's nixpkgs.

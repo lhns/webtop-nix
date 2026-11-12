@@ -1,0 +1,6 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "syscalls": [
+    { "names": ["pivot_root", "keyctl", "add_key", "request_key"], "action": "SCMP_ACT_ERRNO", "errnoRet": 1 }
+  ]
+}

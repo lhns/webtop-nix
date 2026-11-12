@@ -58,6 +58,7 @@
               storeOverlay.enable = true;
               journalRelay.enable = true;
               adminTools.enable = true;
+              containers.enable = true;
               # The extension points (README, "Extension points").
               sessionEnvironmentFiles = [ "-/run/test/session.env" ];
               sessionStopCommands = [ "+/run/test/session-stop" ];
@@ -172,6 +173,7 @@
         webtop.imports = [
           ./modules/webtop.nix
           ./modules/restore-progress.nix
+          ./modules/containers.nix
           (import ./modules/nix-profile { inherit nixpkgs home-manager flake-registry; })
         ];
         # The desktop as a container (README, "Container module"); beside `webtop`.
@@ -207,6 +209,11 @@
           assert (c.nix.settings.store == "daemon") || throw "storeOverlay: store";
           assert (builtins.elem "wheel" c.users.users.user.extraGroups && !c.security.sudo.wheelNeedsPassword) || throw "sudo";
           assert (c.systemd.services.webtop-journal-relay.serviceConfig.ExecStart != "") || throw "journalRelay";
+          # Containers: subordinate ids inside a 65,536-id pod namespace, clear of nixbld and dynamic users.
+          assert (c.users.users.user.subUidRanges == [ { startUid = 1001; count = 28999; } { startUid = 32768; count = 28416; } ]
+            && !c.users.users.user.autoSubUidGidRange
+            && c.environment.sessionVariables.DOCKER_HOST == "unix:///run/user/1000/podman/podman.sock"
+            && c.virtualisation.podman.dockerCompat) || throw "containers";
           assert (c.systemd.user.services.drkonqi-coredump-pickup.serviceConfig.RuntimeMaxSec == "infinity") || throw "drkonqi";
           # Extension points: the module's own stop first, then the consumer's; lists merge with older overrides.
           assert (let
@@ -264,6 +271,7 @@
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
         app-screens = import ./tests/app-screens.nix { inherit pkgs self; };
         latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };
+        containers = import ./tests/containers.nix { inherit pkgs self; };
       });
     };
 }
