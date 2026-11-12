@@ -13,7 +13,7 @@ store and a second start per change, in every desktop.
 ## Decision
 
 - **A builder image per image build.** `lib.buildImage { builder = { flake; source; name; }; }` adds
-  `.builder`: the same image (the same split layers, so the same blobs) plus one layer with
+  `.builder`: the same image (the same split layers, so the same blobs) with a top layer that adds
   `webtop-system-build`, the flake's source (a filtered copy) and its inputs' sources, and the KWin
   graft's replacements as built (ADR 0004), without which the rebuild compiles KWin. Published as
   `<tag>-builder`. The image itself is unchanged.
@@ -37,4 +37,4 @@ store and a second start per change, in every desktop.
 - The builder and the image must come from one build; the installer checks the stamp.
 - The added layer is not bit-reproducible (the DB's registration times); its stamp is.
 - Rejected: rebuilding on the desktop at boot (a second start per change, every desktop pays the
-  build); the builder content in the image itself (about 180 MiB more for every pull).
+  build); the builder content in the image itself (about 70 MB more for every pull).
