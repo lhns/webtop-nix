@@ -123,7 +123,7 @@ A change is applied by restarting the desktop session (or at the next boot). A t
 
 ### Admin defaults
 
-`services.webtop.defaults.source` (default `/etc/webtop/defaults`; a bind mount, a ConfigMap or `environment.etc`; it may be missing) is a directory of defaults for every desktop. All of it is a default the user can override, none of it is enforced, and every user can read it, so it holds no secrets:
+`services.webtop.defaults.source` (default `/etc/webtop/defaults`; a bind mount, a ConfigMap or `environment.etc`; it may be missing) is a directory of defaults for every desktop. All of it is a default the user can override, none of it is enforced, and every user can read it, so it holds no secrets (the system itself takes a NixOS module through a derived image: [System module](#system-module)):
 
 | entry | what | user override |
 | --- | --- | --- |
