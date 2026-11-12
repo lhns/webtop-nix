@@ -239,6 +239,35 @@ put $hmdir/local.nix '{ home.file.".ci-local-nix".text = "ok"; }'
 as_user home-manager switch --flake $hmdir >/dev/null || fail "a switch with local.nix failed"
 as_user test -e /home/user/.ci-local-nix || fail "local.nix was not picked up"
 
+# Settings for an installed package (ADR 0016): a mapping applies while the package is declared, and
+# webtop.packages.replaced lets it install its own build without a collision.
+mapping() { # <body>
+  put $hmdir/local.nix "{ config, lib, pkgs, ... }: lib.mkIf (config.webtop.packages.installed ? \"nixpkgs#hello\") { $1 }"
+}
+own='home.file.".ci-mapping".text = "ok"; home.packages = [ (pkgs.writeShellScriptBin "hello" "echo mapped") ];'
+as_user nix profile remove hello >/dev/null || fail "removing hello failed"
+mapping "$own"
+out=$(as_user nix profile add nixpkgs#hello 2>&1) && fail "a colliding mapping did not fail the add"
+grep -q 'webtop.packages.replaced' <<<"$out" || fail "the collision gives no hint: $out"
+! as_user jq -e '.elements.hello' "$decl" >/dev/null || fail "a failed add kept hello in packages.json"
+mapping "$own webtop.packages.replaced = [ \"nixpkgs#hello\" ];"
+as_user nix profile add nixpkgs#hello >/dev/null || fail "adding hello with a mapping failed"
+as_user test -e /home/user/.ci-mapping || fail "the mapping did not apply"
+[ "$(as_user hello)" = mapped ] || fail "the declared hello was not replaced by the mapping's"
+as_user nix profile remove hello >/dev/null || fail "removing hello with a mapping failed"
+as_user test ! -e /home/user/.ci-mapping || fail "the mapping outlived the package"
+# A mapping that breaks while installed (a bad value) does not block removing its package. One that sets
+# an option that does not exist fails every switch, mkIf or not, and the error names it.
+as_user nix profile add nixpkgs#hello >/dev/null || fail "adding hello failed"
+mapping 'home.file.".ci-mapping".text = 42;'
+! as_user home-manager switch --flake $hmdir >/dev/null 2>&1 || fail "a broken mapping did not fail the switch"
+as_user nix profile remove hello >/dev/null || fail "a broken mapping blocked removing its package"
+mapping 'programs.noSuchProgramCi.enable = true;'
+out=$(as_user nix profile add nixpkgs#hello 2>&1) && fail "a mapping setting a missing option did not fail"
+grep -q 'noSuchProgramCi. does not exist' <<<"$out" && grep -q 'local.nix' <<<"$out" \
+  || fail "the error does not name the option and file: $out"
+put $hmdir/local.nix '{ home.file.".ci-local-nix".text = "ok"; }'
+
 # A `webtop` input locked to another store path is relocked, although that path is valid.
 want=$(lock | jq -r '.nodes.webtop.locked.path')
 sri=$(as_user nix hash convert --hash-algo sha256 --to sri "$(as_user nix-store -q --hash "$jqpath")")

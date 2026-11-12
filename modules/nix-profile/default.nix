@@ -48,7 +48,7 @@ let
   # profile-hook (the packages module): applies a changed packages.json.
   profileHook = pkgs.writeShellApplication {
     name = "webtop-profile-hook";
-    runtimeInputs = [ pkgs.coreutils pkgs.git pkgs.util-linux config.nix.package hmPackage ];
+    runtimeInputs = [ pkgs.coreutils pkgs.git pkgs.gnugrep pkgs.util-linux config.nix.package hmPackage ];
     text = builtins.readFile ./webtop-profile-hook.sh;
   };
   setup = pkgs.writeShellApplication {
