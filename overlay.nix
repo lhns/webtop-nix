@@ -8,10 +8,11 @@ final: prev: {
     })
   ];
 
-  # Not overrides of kdePackages.kwin or kguiaddons: those would rebuild everything that depends on them.
+  # Not overrides of kdePackages.kwin, kguiaddons or kded: those would rebuild everything that depends on them.
   # The module grafts them in instead.
   kwinSoftwarePresentation = final.callPackage ./pkgs/kwin.nix { };
   kguiaddonsClipboardFix = final.callPackage ./pkgs/kguiaddons.nix { };
+  kdedStartupSigterm = final.callPackage ./pkgs/kded.nix { };
 
   webtop-app-screen = final.callPackage ./pkgs/app-screen { };
 

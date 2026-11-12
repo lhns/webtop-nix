@@ -571,6 +571,9 @@ in
     system.replaceDependencies.replacements = [{
       oldDependency = pkgs.kdePackages.kguiaddons;
       newDependency = pkgs.kguiaddonsClipboardFix;
+    } {
+      oldDependency = pkgs.kdePackages.kded;
+      newDependency = pkgs.kdedStartupSigterm;
     }] ++ lib.optional cfg.kwinSoftwarePresentation {
       oldDependency = pkgs.kdePackages.kwin;
       newDependency = pkgs.kwinSoftwarePresentation;
