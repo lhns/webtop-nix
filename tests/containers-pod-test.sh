@@ -60,7 +60,9 @@ exercise() {
   asuser 'mkdir -p ~/proj && printf "FROM docker.io/library/alpine:3\nRUN echo built > /built\n" > ~/proj/Dockerfile'
   out=$(asuser 'docker build -q -t localhost/built ~/proj 2>&1') || { echo "$out" | tail -n 30; fail "$scenario: docker build"; }
   [ "$(asuser 'docker run --rm localhost/built cat /built')" = built ] || fail "$scenario: the built image"
-  echo "$scenario: docker run, bind mount, docker build: ok"
+  mem=$(asuser 'docker run --rm --memory 64m docker.io/library/alpine:3 cat /sys/fs/cgroup/memory.max' 2>&1) || true
+  [ "$mem" = 67108864 ] || fail "$scenario: --memory: $mem"
+  echo "$scenario: docker run, bind mount, docker build, --memory: ok"
 }
 
 # Compose through the API socket: a build, and a client reaching the server.

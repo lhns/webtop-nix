@@ -62,7 +62,8 @@ pkgs.testers.runNixOSTest {
         u("curl -sf --unix-socket /run/user/1000/podman/podman.sock http://d/_ping | grep -qx OK")
         info = u("podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}} {{.Host.NetworkBackend}}'")
         assert info.split() == ["overlay", "/home/user/.local/share/containers/storage", "netavark"], info
-        assert "mount_program" not in u("podman info --format '{{.Store.GraphOptions}}'")
+        opts = u("podman info --format '{{.Store.GraphOptions}}'")
+        assert "mount_program" not in opts and "overlay.ignore_chown_errors:true" in opts, opts
 
     with subtest("docker run"):
         out = u("docker run --rm localhost/testbox sh -c 'id -u; cat /proc/self/uid_map'")
