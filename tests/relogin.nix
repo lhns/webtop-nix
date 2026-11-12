@@ -31,7 +31,7 @@ pkgs.testers.runNixOSTest {
         ${import ./wait-session.nix}
     restarted = lambda old: machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
     def diag():
-        print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; ps -eo pid,ppid,etime,cmd | grep -E 'plasma|kwin|ksm' | head -30; journalctl -b --no-pager -o short-monotonic | grep -E 'transaction|startplasma|plasma-shutdown' | tail -20")[1])
+        print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; systemctl list-units --no-pager 'dbus-*helper*'; ps -eo pid,ppid,etime,wchan:20,cmd | grep -E 'plasma|kwin|ksm|powerdevil|helper' | head -40; journalctl -b --no-pager -o short-monotonic | grep -E 'transaction|startplasma|plasma-shutdown' | tail -20")[1])
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("selkies.service", "user")
