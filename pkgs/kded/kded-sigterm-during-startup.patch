@@ -1,0 +1,42 @@
+diff --git a/src/kded.cpp b/src/kded.cpp
+index a5482c1..b6bb729 100644
+--- a/src/kded.cpp
++++ b/src/kded.cpp
+@@ -21,6 +21,8 @@
+ #include <QLoggingCategory>
+ #include <QProcess>
+ 
++#include <csignal>
++
+ #include <QDBusConnection>
+ #include <QDBusConnectionInterface>
+ #include <QDBusServiceWatcher>
+@@ -475,8 +477,12 @@ void Kded::unregisterWindowId(qlonglong windowId, const QString &sender)
+     }
+ }
+ 
++// quit() does nothing before exec(): remembered for a stop that comes during startup.
++static volatile std::sig_atomic_t s_quitRequested = 0;
++
+ static void sighandler(int /*sig*/)
+ {
++    s_quitRequested = 1;
+     if (qApp) {
+         qApp->quit();
+     }
+@@ -594,6 +600,15 @@ int main(int argc, char *argv[])
+ 
+     runKonfUpdate(); // Run it once.
+ 
++    // Out before the loop: what it runs can fork children (xsettingsd) that the stop's SIGTERM never reached.
++    if (s_quitRequested) {
++        return 0;
++    }
++    QTimer::singleShot(0, &app, [] {
++        if (s_quitRequested) {
++            qApp->quit();
++        }
++    });
+     return app.exec(); // keep running
+ }
+ 

@@ -31,7 +31,7 @@ pkgs.testers.runNixOSTest {
         ${import ./wait-session.nix}
     restarted = lambda old: machine.wait_until_succeeds(f"test \"$(systemctl show -p MainPID --value webtop-session.service)\" -gt 0 && test \"$(systemctl show -p MainPID --value webtop-session.service)\" != {old}", timeout=120)
     def diag():
-        print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; ps -eo pid,ppid,etime,cmd | grep -E 'plasma|kwin|ksm' | head -30; journalctl -b --no-pager -o short-monotonic | grep -E 'transaction|startplasma|plasma-shutdown' | tail -20")[1])
+        print(machine.execute(f"systemctl status webtop-session.service --no-pager -l; {ubus} systemctl --user list-units --no-pager 'plasma-*' 'app-*'; systemctl list-units --no-pager 'dbus-*helper*'; ps -eo pid,ppid,etime,wchan:20,cmd | grep -E 'plasma|kwin|ksm|powerdevil|helper' | head -40; journalctl -b --no-pager -o short-monotonic | grep -E 'transaction|startplasma|plasma-shutdown' | tail -20")[1])
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("selkies.service", "user")
@@ -107,6 +107,21 @@ pkgs.testers.runNixOSTest {
     p = machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-plasmashell.service").strip()
     libs = set(machine.succeed(f"grep -o '/nix/store/[^/]*-kguiaddons-[^/]*' /proc/{p}/maps || true").split())
     assert libs == {"${pkgs.kguiaddonsClipboardFix}"}, f"plasmashell loads {libs}"
+
+    # kded6 stopped while its startup still runs kconf_update exits at once (pkgs/kded.nix); unpatched, it sat
+    # out its 5 s stop timeout until SIGKILL. A slow update script holds it there; removed before kded6 starts
+    # again, as a killed run is never marked done.
+    kded = "plasma-kded6.service"
+    upd = "/home/user/.local/share/kconf_update/webtop-test-slow"
+    machine.succeed(f"{ubus} systemctl --user stop {kded}")
+    machine.succeed(f"mkdir -p $(dirname {upd}) && printf 'Version=6\\nId=slow\\nScript=webtop-test-slow.sh,sh\\n' > {upd}.upd && echo 'exec sleep 61' > {upd}.sh && chown -R user: /home/user/.local")
+    machine.succeed(f"{ubus} systemctl --user restart {kded}")
+    machine.wait_until_succeeds("grep -q /plasma-kded6.service$ /proc/$(pgrep -xf 'sleep 61')/cgroup", timeout=60)
+    machine.succeed(f"{ubus} systemctl --user stop {kded}")
+    machine.succeed(f"rm {upd}.upd {upd}.sh")
+    kded_result = machine.succeed(f"{ubus} systemctl --user show -p Result --value {kded}").strip()
+    machine.succeed(f"{ubus} systemctl --user start {kded}")
+    assert kded_result == "success", f"kded6 stopped during its startup: {kded_result}"
 
     # A crash of the session process takes Plasma down too; the next start brings a new KWin.
     kwin = lambda: machine.succeed(f"{ubus} systemctl --user show -p MainPID --value plasma-kwin_wayland.service").strip()

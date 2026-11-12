@@ -6,8 +6,8 @@ Nothing here is site-specific; deployment wiring belongs in the consuming repo.
 
 ## Packages
 
-`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin,kguiaddons}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
-attributes, `kwin` as `kwinSoftwarePresentation` and `kguiaddons` as `kguiaddonsClipboardFix`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
+`packages.<system>.{pixelflux,pcmflux,selkies,webtop-app-screen,kwin,kguiaddons,kded}` for `x86_64-linux` and `aarch64-linux`, and `overlays.default` (adds the same
+attributes, `kwin` as `kwinSoftwarePresentation` and `kguiaddons` as `kguiaddonsClipboardFix`, `kded` as `kdedStartupSigterm`, and the Python packages in `pythonPackagesExtensions`; the top-level Python
 ones come from `python3Packages`, nixpkgs' default interpreter).
 
 | package | version | source |
@@ -158,7 +158,9 @@ not rebuilt, but evaluating the system builds the stock one first. The patch tar
 
 The module grafts `packages.<system>.kguiaddons` the same way, always: KGuiAddons with
 [a patch](pkgs/kguiaddons/kguiaddons-clipboard-thread-interruptible-lock.patch) to its Wayland clipboard
-thread, which could deadlock plasmashell's exit when the session was stopped in its first seconds.
+thread, which could deadlock plasmashell's exit when the session was stopped in its first seconds. Likewise
+`packages.<system>.kded`: kded6 with [a patch](pkgs/kded/kded-sigterm-during-startup.patch) that keeps a stop
+coming during its startup, which it otherwise ignored until its 5 s stop timeout.
 
 ## One app per screen
 

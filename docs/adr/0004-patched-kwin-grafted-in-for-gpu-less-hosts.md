@@ -39,3 +39,8 @@ confirm the screens it grows for Selkies' second display; it likewise only adds 
 
 KGuiAddons is patched and grafted the same way (`pkgs/kguiaddons.nix`), unconditionally: a bug fix with
 no option. Drop the patch once upstream fixes the clipboard thread's deadlock on exit.
+
+## Amendment 2026-11-12
+
+kded is patched and grafted the same way (`pkgs/kded.nix`), unconditionally. Drop the patch once kded
+keeps a SIGTERM taken before its event loop runs.
