@@ -248,7 +248,7 @@ pkgs.testers.runNixOSTest {
     admin_theme("org.example.missing.desktop")
     restart_session()
     e = penv()
-    check("theme: an unknown package keeps the session and the theme it had", theme(e) == dark(e), f"{theme(e)} want {dark(e)}")
+    check("theme: an unknown package gives Plasma's default, Breeze", theme(e) == light, f"{theme(e)} want {light}")
     put("/etc/webtop/defaults/xdg/kdeglobals", admin_kdeglobals)
     machine.succeed("systemctl restart webtop-defaults.service")
 
