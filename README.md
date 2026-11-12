@@ -256,6 +256,8 @@ docker run --rm --privileged --cgroupns=private --shm-size=1g -p 127.0.0.1:8082:
   -v webtop-persist:/persist -v webtop-home:/home ghcr.io/lhns/webtop-nix:main
 ```
 
+`--device /dev/net/tun` gives rootless Podman its container networking (`-p`, compose networks); without it the desktop falls back to host networking ([Containers](#containers)). In Compose: `devices: ["/dev/net/tun:/dev/net/tun"]`.
+
 Then open http://127.0.0.1:8082. Selkies' own authentication is off: publish the port on loopback,
 or put an authenticating proxy in front.
 
