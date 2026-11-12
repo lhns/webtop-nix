@@ -211,10 +211,11 @@ in
       };
     };
 
-    # The same for a defaults home.nix that webtop-defaults.service replaced because it does not parse.
+    # The same for a defaults home.nix that webtop-defaults.service replaced because it does not parse, or a
+    # system.nix that webtop-defaults-system.service could not build (it restarts this unit).
     # Plasma's notification server needs the session, hence not in the snapshot unit.
     systemd.services.webtop-defaults-notice = {
-      description = "Tell the user that the admin's home.nix was ignored";
+      description = "Tell the user that admin defaults were ignored";
       wantedBy = [ "multi-user.target" ];
       after = [ "webtop-session.service" "webtop-defaults.service" ];
       unitConfig.ConditionPathExists = defaultsNotice;
@@ -228,7 +229,7 @@ in
           text = ''
             echo "notifying: $(head -n1 ${defaultsNotice})"
             webtop-notify "$(head -n1 ${defaultsNotice})" \
-              "$(tail -n +2 ${defaultsNotice}) See: journalctl -u webtop-defaults" dialog-warning
+              "$(tail -n +2 ${defaultsNotice}) See: journalctl -u webtop-defaults -u webtop-defaults-system" dialog-warning
           '';
         });
       };

@@ -36,7 +36,7 @@ let
   '';
 in
 {
-  imports = [ ./store-overlay.nix ];
+  imports = [ ./store-overlay.nix ./defaults-system.nix ];
 
   options.services.webtop = {
     storeOverlay = {

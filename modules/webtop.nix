@@ -489,7 +489,8 @@ in
         Directory with the admin's defaults for every desktop, read once per boot (a bind mount, a
         ConfigMap or `environment.etc`; it may be missing). `session.conf` gives `timeZone`, `locale`,
         `language` and the `LC_*` formats, `xdg/<file>` KDE/XDG config below the user's own, `home.nix`
-        a home-manager module. All are defaults the user can override. Holds no secrets: every user can
+        a home-manager module (all defaults the user can override), `system.nix` a NixOS module
+        (`defaults.system`). Holds no secrets: every user can
         read it. See the README, "Time zone and locale".
       '';
     };

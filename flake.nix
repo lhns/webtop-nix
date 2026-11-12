@@ -81,11 +81,25 @@
       # The standalone image's system; also the reference other images' layers are classified by.
       standalone = nixpkgs.lib.genAttrs systems (system: nixpkgs.lib.nixosSystem {
         inherit system;
-        modules = [ self.nixosModules.webtop self.nixosModules.container ./image/container.nix ];
+        modules = [
+          self.nixosModules.webtop
+          self.nixosModules.container
+          ./image/container.nix
+          # The admin's system.nix rebuilds this configuration (README, "Admin defaults").
+          { services.webtop.defaults.system = { flake = self; source = "${imageSource}"; name = "standalone-${system}"; }; }
+        ];
       });
+      # What evaluating the standalone system reads: a docs-only change leaves the image as it is.
+      imageSource = nixpkgs.lib.fileset.toSource {
+        root = ./.;
+        fileset = nixpkgs.lib.fileset.unions [ ./flake.nix ./flake.lock ./overlay.nix ./image ./modules ./pkgs ./patches ];
+      };
     in
     {
       overlays.default = import ./overlay.nix;
+
+      # The standalone image's system, which the admin's system.nix extends at runtime.
+      nixosConfigurations = nixpkgs.lib.mapAttrs' (system: nixpkgs.lib.nameValuePair "standalone-${system}") standalone;
 
       # Image builder (ADR 0005, image/default.nix). buildImage classifies by this flake's standalone
       # image unless given another `reference` (or null).
@@ -133,7 +147,8 @@
               substitute ${./image/webtop-entrypoint} $out/webtop-entrypoint \
                 --subst-var-by busybox ${pkgs.pkgsStatic.busybox} \
                 --subst-var-by storeInit ${sys.config.services.webtop.storeOverlay.init} \
-                --subst-var-by sysPower ${sys.config.services.webtop.sleep.init}
+                --subst-var-by sysPower ${sys.config.services.webtop.sleep.init} \
+                --subst-var-by defaultsBoot ${sys.config.services.webtop.defaults.system.boot}
               chmod +x $out/webtop-entrypoint
             '';
             # Identifies the image's store (the overlay's lower): webtop-nix-lower compares it with the

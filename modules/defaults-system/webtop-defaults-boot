@@ -1,0 +1,21 @@
+#!@busybox@/bin/sh
+# The last step of a container entrypoint, after webtop-store-init (static busybox, before systemd):
+# execs the system webtop-defaults-system.service built from the admin's system.nix if it was built
+# for this image and for the system.nix now in the defaults source, else the image's /sbin/init.
+# A change to system.nix therefore boots the image's system until the unit has rebuilt it.
+export PATH=@busybox@/bin
+profile=@profile@
+module=@source@/system.nix
+
+init=/sbin/init
+if [ -f "$module" ] && [ -x "$profile/init" ]; then
+  # The key webtop-defaults-system writes: image stamp, then system.nix's hash.
+  key="$(cat "${STAMP_FILE:-/webtop-image-stamp}") $(sha256sum <"$module" | cut -d' ' -f1)"
+  if [ "$(cat "$profile.key" 2>/dev/null)" = "$key" ]; then
+    init=$profile/init
+  else
+    echo "webtop-defaults-boot: $profile was built for another image or system.nix"
+  fi
+fi
+echo "webtop-defaults-boot: exec $init"
+exec "$init"

@@ -1,7 +1,7 @@
 # Copies the admin's defaults directory (services.webtop.defaults.source) to a root-owned snapshot, so
 # its content is fixed for the life of the container: a ConfigMap update reaches the mount live.
 #   webtop-defaults <source> <snapshot>
-# Keeps session.conf, xdg/ and home.nix. Never fails on bad content: what is unusable is dropped
+# Keeps session.conf, xdg/, home.nix and system.nix. Never fails on bad content: what is unusable is dropped
 # and logged, and the desktop starts with the module's own defaults.
 # A home.nix that does not parse also leaves a notice for the user (title, then text) in
 # <parent of snapshot>/defaults-notice, which webtop-defaults-notice.service shows.
@@ -18,7 +18,7 @@ trap 'rm -rf -- "$tmp"' EXIT
 if [ -d "$src" ]; then
   # -L: ConfigMap files are links through ..data.
   if cp -rL -- "$src"/. "$tmp"/; then
-    find "$tmp" -mindepth 1 -maxdepth 1 ! -name session.conf ! -name xdg ! -name home.nix -exec rm -rf -- {} +
+    find "$tmp" -mindepth 1 -maxdepth 1 ! -name session.conf ! -name xdg ! -name home.nix ! -name system.nix -exec rm -rf -- {} +
     find "$tmp" -mindepth 1 ! -type f ! -type d -delete
   else
     log "could not copy $src: using empty defaults"

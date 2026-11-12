@@ -1,6 +1,7 @@
 #!@busybox@/bin/sh
 # Entrypoint of the standalone image (static busybox): /run, then the store overlay on the /persist
-# volume and the /sys/power stand-in that lets Sleep be offered, then systemd.
+# volume and the /sys/power stand-in that lets Sleep be offered, then systemd (the admin's system.nix
+# build when there is a current one: services.webtop.defaults.system.boot).
 export PATH=@busybox@/bin
 
 log() { echo "webtop-entrypoint: $*"; }
@@ -14,4 +15,4 @@ mount --make-rprivate / || fail "make / rprivate"
 @storeInit@/bin/webtop-store-init || fail "store overlay"
 @sysPower@/bin/webtop-sys-power || log "no /sys/power stand-in: the desktop will not offer sleep"
 
-exec /sbin/init
+exec @defaultsBoot@/bin/webtop-defaults-boot

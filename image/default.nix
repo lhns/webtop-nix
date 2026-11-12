@@ -40,10 +40,13 @@ rec {
       # closure. Any scope: a consumer with its own nix.package gets its own rewrites (reported).
       { name = "graft"; scope = "any"; refsOf = sp; dependentsOf = [ p.kwinSoftwarePresentation ]; sameAsReference = true; }
       { name = "kde"; buckets = 4; refsOf = sp; }
+      # The replacements as built, with their stock dependencies, kept for the admin's system.nix rebuild
+      # (modules/defaults-system.nix); in the closure only with services.webtop.defaults.system.
+      { name = "graft-sources"; scope = "any"; anchors = map (r: r.newDependency) c.system.replaceDependencies.replacements; }
     ];
 
   # Stable to volatile. A consumer's groups follow; "packages" and "config" are always the last two.
-  stackOrder = [ "base" "toolkits" "data" "nixpkgs" "kde" "firefox" "webtop" "graft" ];
+  stackOrder = [ "base" "toolkits" "data" "nixpkgs" "kde" "firefox" "webtop" "graft" "graft-sources" ];
 
   # nix2container layersFile for the closure of `nixos`'s toplevel, plus table.txt and groups.json.
   # extraGroups: the consumer's own groups ("own" scope by default), e.g. sources it bakes in.

@@ -344,11 +344,57 @@ jobs:
           name: digest-${{ matrix.system }}
           path: out/${{ matrix.system }}
 
+  # The admin's system.nix on the image, rebuilt and booted at the next start (README, "Admin defaults"). Its
+  # own job: each rebuild realises the stock Plasma closure (the graft), which takes time and disk.
+  defaults-system:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell
+          sudo docker image prune --all --force > /dev/null
+      # A download can stall for good; a second attempt gets through.
+      - id: download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        timeout-minutes: 10
+        with:
+          name: build-x86_64-linux
+          path: ~/build-cache
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = file:///home/runner/build-cache
+            require-sigs = false
+      - name: load image into docker
+        run: |
+          nix run .#image.copyToDockerDaemon
+          rm -rf ~/build-cache && nix-collect-garbage > /dev/null
+          df -h /
+      - name: admin system.nix test
+        run: tests/defaults-system-test.sh "$IMAGE:dev" 300 900
+      - name: diagnostics
+        if: failure()
+        run: |
+          docker logs webtop-defaults-system 2>&1 | tail -n 60 || true
+          docker exec webtop-defaults-system journalctl -b --no-pager -u webtop-defaults-system -u webtop-defaults 2>&1 | tail -n 200 || true
+          df -h /
+
   # One multi-arch index over the per-system images, tagged main and sha-<sha7>, signed keyless. After every
   # test job, so main is tagged only when all of them pass.
   image-index:
     if: github.event_name == 'push'
-    needs: [key-bar, build, nix-scripts, store-overlay, concurrency, vm, image]
+    needs: [key-bar, build, nix-scripts, store-overlay, concurrency, vm, image, defaults-system]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -38,8 +38,9 @@ add_root() {
     /nix/store/?*) t=${t#/nix/store/}; roots+=("/nix/store/${t%%/*}") ;;
   esac
 }
+# Not the system built from the admin's system.nix: it was built for the old image and is rebuilt.
 while IFS= read -r -d '' l; do add_root "$l"; done < <(
-  for d in "${olds[@]}"; do find "$d/var/gcroots" "$d/var/profiles" -type l -print0 2>/dev/null; done
+  for d in "${olds[@]}"; do find "$d/var/gcroots" "$d/var/profiles" -type l ! -name 'webtop-defaults-system*' -print0 2>/dev/null; done
   find "$HOMES"/*/.local/state/nix/profiles "$HOMES"/*/.local/state/home-manager/gcroots \
     -maxdepth 1 -type l -print0 2>/dev/null
 )
