@@ -34,7 +34,8 @@ pkgs.testers.runNixOSTest {
         return int(machine.succeed(f"grep -cF -- {shlex.quote(text)} {mon} || true").strip())
 
     def entry(name):
-        return machine.succeed(f"cat {state}/*/{name}").split()
+        # The state file is written just after the notification is sent.
+        return machine.wait_until_succeeds(f"cat {state}/*/{name}", timeout=30).split()
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("selkies.service", "user")
@@ -88,7 +89,8 @@ pkgs.testers.runNixOSTest {
     # Changed content shows again, in place.
     put("update-pending", {"title": "Updates are ready", "body": "Second text", "action": "restart"})
     seen('string "Second text"')
-    assert entry("update-pending")[1] == nid and entry("update-pending")[2] == "0"
+    machine.wait_until_succeeds(f"cat {state}/*/update-pending | grep -q ' 0 restart$'", timeout=30)
+    assert entry("update-pending")[1] == nid
 
     # A removed file withdraws its notification.
     machine.succeed(f"rm {notices}/update-pending.json")
