@@ -58,6 +58,8 @@
               storeOverlay.enable = true;
               journalRelay.enable = true;
               adminTools.enable = true;
+              containers.enable = true;
+              containers.noPivotRoot = true;
               # The extension points (README, "Extension points").
               sessionEnvironmentFiles = [ "-/run/test/session.env" ];
               sessionStopCommands = [ "+/run/test/session-stop" ];
@@ -172,6 +174,7 @@
         webtop.imports = [
           ./modules/webtop.nix
           ./modules/restore-progress.nix
+          ./modules/containers.nix
           (import ./modules/nix-profile { inherit nixpkgs home-manager flake-registry; })
         ];
         # The desktop as a container (README, "Container module"); beside `webtop`.
@@ -207,6 +210,12 @@
           assert (c.nix.settings.store == "daemon") || throw "storeOverlay: store";
           assert (builtins.elem "wheel" c.users.users.user.extraGroups && !c.security.sudo.wheelNeedsPassword) || throw "sudo";
           assert (c.systemd.services.webtop-journal-relay.serviceConfig.ExecStart != "") || throw "journalRelay";
+          # Containers: subordinate ids inside a 65,536-id pod namespace, clear of nixbld and dynamic users.
+          assert (c.users.users.user.subUidRanges == [ { startUid = 1001; count = 28999; } { startUid = 32768; count = 28416; } ]
+            && !c.users.users.user.autoSubUidGidRange
+            && c.environment.sessionVariables.DOCKER_HOST == "unix:///run/user/1000/podman/podman.sock"
+            && c.virtualisation.podman.dockerCompat
+            && nixpkgs.lib.hasSuffix " --no-pivot-root /run/webtop/containers-runtime.conf" c.systemd.services.webtop-containers-runtime.serviceConfig.ExecStart) || throw "containers";
           assert (c.systemd.user.services.drkonqi-coredump-pickup.serviceConfig.RuntimeMaxSec == "infinity") || throw "drkonqi";
           # Extension points: the module's own stop first, then the consumer's; lists merge with older overrides.
           assert (let
@@ -264,6 +273,14 @@
         second-display = import ./tests/second-display.nix { inherit pkgs self; };
         app-screens = import ./tests/app-screens.nix { inherit pkgs self; };
         latest-owner = import ./tests/latest-owner.nix { inherit pkgs self; };
+        containers = import ./tests/containers.nix { inherit pkgs self; };
+        # seccomp/desktop.json is containerd's RuntimeDefault (the fixture) plus pivot_root (README, "Seccomp profile").
+        seccomp-profile = pkgs.runCommand "seccomp-profile" { nativeBuildInputs = [ pkgs.jq ]; } ''
+          diff <(jq -S '.syscalls |= map(select(.names != ["pivot_root"]))' ${./seccomp/desktop.json}) \
+            <(jq -S . ${./tests/fixtures/runtime-default-seccomp.json})
+          [ "$(jq -c '[.syscalls[] | select(.names == ["pivot_root"]) | .action]' ${./seccomp/desktop.json})" = '["SCMP_ACT_ALLOW"]' ]
+          touch $out
+        '';
       });
     };
 }

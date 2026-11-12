@@ -11,6 +11,7 @@
     softwareCenter.enable = true;
     nixProfile.enable = true;
     adminTools.enable = true;
+    containers.enable = true;
     # The store survives container and image updates on the /persist volume (README, "Store overlay");
     # image/webtop-entrypoint mounts it.
     storeOverlay.enable = true;
