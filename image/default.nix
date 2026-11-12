@@ -86,8 +86,12 @@ rec {
       inputSources = f: lib.concatMap (i: [ i.outPath ] ++ inputSources i) (lib.attrValues (f.inputs or { }));
       keep = p.writeText "webtop-builder-keep" (lib.concatLines (lib.unique ([ "${source}" ] ++ inputSources flake
         ++ map (r: "${r.newDependency}") c.system.replaceDependencies.replacements)));
-      # What the image's Nix DB holds (and the copyToRoot entries themselves, which no system references).
-      imagePaths = "${p.closureInfo { rootPaths = [ c.system.build.toplevel ] ++ copyToRoot; }}/store-paths";
+      # What the image's Nix DB holds: the closure without the copyToRoot entries, which are copied to /
+      # and must not be referenced (nix2container's DB).
+      imagePaths = p.runCommand "webtop-image-paths" { } ''
+        grep -vxF ${lib.concatMapStringsSep " " (x: "-e ${x}") copyToRoot} \
+          ${p.closureInfo { rootPaths = [ c.system.build.toplevel ] ++ copyToRoot; }}/store-paths > $out
+      '';
       installer = p.writeText "webtop-system-install" (builtins.readFile ./system/webtop-system-install);
       build = p.writeShellApplication {
         name = "webtop-system-build";
@@ -126,7 +130,8 @@ rec {
         inherit name config initializeNixDatabase;
         tag = if tag == null then null else "${tag}-builder";
         copyToRoot = copyToRoot ++ [ builderRoot ];
-        layers = [ layer (nix2container.buildLayer { deps = [ builderRoot ]; layers = [ layer ]; }) ];
+        # Only the outer layer: nix2container adds the nested `layer` itself (nestedLayers).
+        layers = [ (nix2container.buildLayer { deps = [ builderRoot ]; layers = [ layer ]; }) ];
       };
     in
     image // { inherit layerSplit; } // (if builder == null then { } else { builder = builderImage; });

@@ -22,8 +22,12 @@ if [ ! -s "$d/registration" ]; then
 fi
 
 for p in "$d"/store/*; do cp -a "$p" /nix/store/; done
-# Root without build users or /etc/nix, as in the builder.
-HOME=/tmp NIX_CONFIG="build-users-group =" "$(cat "$d/nix-bin")/nix-store" --load-db <"$d/registration"
+# Root without build users or /etc/nix, as in the builder. Nix's GC reserve would be 8 MiB in the layer.
+[ -e /nix/var/nix/db/reserved ] && reserved=1 || reserved=
+h=/tmp/webtop-system-install
+HOME=$h NIX_CONFIG="build-users-group =" "$(cat "$d/nix-bin")/nix-store" --load-db <"$d/registration"
+rm -rf "$h"
+[ -n "$reserved" ] || rm -f /nix/var/nix/db/reserved
 ln -sfn "$toplevel/init" /sbin/init
 # Over the old stamp and the added paths with their NAR hashes, like the image's own stamp.
 cat /webtop-image-stamp "$d/registration" | sha256sum | cut -d' ' -f1 >/webtop-image-stamp.tmp
