@@ -341,7 +341,7 @@ Unprivileged, the desktop runs under its runtime's default seccomp profile, and 
 - Docker, unprivileged: `docker run --security-opt seccomp=seccomp/desktop.json --cap-add SYS_ADMIN --cap-add SYS_NICE …` (the `--privileged` run under "Image" has no seccomp filter and needs none).
 - Kubernetes: copy it to every node under the kubelet's seccomp directory (`<kubelet root>/seccomp/`, e.g. `/var/lib/kubelet/seccomp/webtop-desktop.json`; k0s: `/var/lib/k0s/kubelet/seccomp/`) and set the desktop container's `seccompProfile` to `{type: Localhost, localhostProfile: webtop-desktop.json}`. A pod whose profile is missing on its node does not start.
 
-`checks.<system>.seccomp-profile` asserts it is [the RuntimeDefault fixture](tests/fixtures/runtime-default-seccomp.json) plus `pivot_root`.
+`checks.<system>.seccomp-profile` asserts it is [the RuntimeDefault fixture](tests/fixtures/runtime-default-seccomp.json) plus `pivot_root`; [seccomp/gen](seccomp/gen/main.go) regenerates both from containerd's source after a containerd update. CI loads it with runc (Docker) on both architectures.
 
 ## Sleep and session save
 
