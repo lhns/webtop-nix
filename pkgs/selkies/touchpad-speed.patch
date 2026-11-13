@@ -1,7 +1,7 @@
 Selkies web client: a slower touchpad mode
 
 Against Selkies 2.1.0. Acceleration is capped at 1.5x instead of 3x and speeds go down to 0.1; the
-stock touchpad mode is far too fast. Upstream's touch gesture audit checks both. For upstream.
+stock touchpad mode is far too fast. Upstream's touch gesture audit checks both.
 -----
 
 --- a/addons/selkies-web-core/lib/input.js

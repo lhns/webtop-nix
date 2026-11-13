@@ -22,7 +22,8 @@ Web client changes, as patches against its source and files bundled with it ([se
 the sidebar and a handle at the same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); a special-key bar above
 the on-screen keyboard ([key-bar.js](pkgs/selkies/key-bar.js), [key-bar.css](pkgs/selkies/key-bar.css)); touchpad mode accelerates by at
 most 1.5x instead of 3x and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at
-0.5; a saved speed keeps working. The bundler names each asset by its content, so browsers do not reuse stale copies.
+0.5; a saved speed keeps working. The bundler names each asset by its content, so browsers do not reuse stale copies; its CSS
+target includes Safari 16, which keeps the `-webkit-` prefixes iOS needs (stock rules gain `-webkit-user-select`/`-webkit-hyphens`).
 
 Status: pixelflux, pcmflux and selkies build from source at the commits that released the PyPI wheels. The game controller database
 is pinned to the commit the 2.1.0 wheel was built with ([patch](pkgs/selkies/gamecontrollerdb-file.patch); upstream fetches the newest).
