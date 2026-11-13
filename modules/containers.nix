@@ -124,6 +124,13 @@ in
       # ignore_chown_errors: an image file owned by an id outside subIdRanges is unpacked as root
       # instead of failing the pull.
       storage.settings.storage.options.overlay.ignore_chown_errors = "true";
+      # Docker's short names: `hello-world` is docker.io/library/hello-world, not the shortnames
+      # table's quay.io/podman/hello.
+      shortnames.enable = false;
+      registries.settings = {
+        unqualified-search-registries = [ "docker.io" ];
+        short-name-mode = "permissive";
+      };
       containersConf.settings = {
         engine = {
           # Build contexts and image copies go below the storage (the home), not /var/tmp: an overlay
@@ -149,6 +156,21 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = "${detect} ${lib.optionalString ccfg.noPivotRoot "--no-pivot-root "}${runtimeConf}";
+      };
+    };
+
+    # Rootless Podman warns unless / is shared. A runtime starts the container's mounts private (the
+    # image's entrypoint makes them so for the store overlay) and systemd does not change that in a
+    # container. Early, so nothing mounted later stays private; mounts made before keep working.
+    systemd.services.webtop-rshared-root = {
+      description = "Make / a shared mount (rootless Podman)";
+      wantedBy = [ "sysinit.target" ];
+      before = [ "sysinit.target" ];
+      unitConfig.DefaultDependencies = false;
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.util-linux}/bin/mount --make-rshared /";
       };
     };
 
