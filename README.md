@@ -360,7 +360,7 @@ Short image names resolve as Docker's do: unqualified names search `docker.io` o
 
 `containers.subIdRanges` are the user's subordinate uids and gids, the ids a container's users map to. The default fits a 65,536-id user namespace (a pod with `hostUsers: false`): `uid+1` to 29999 and 32768 to 61183, leaving out `nixbld` and systemd's dynamic users; a range over a declared uid or gid fails the evaluation. A file in an image owned by a higher id (65534 is common) is unpacked as root (`ignore_chown_errors`), and a container cannot switch to such an id. Under a larger namespace (a VM, a host) set one range of 65,536 above the system's ids.
 
-Containers count against the desktop's memory and disk. `podman system reset` also removes `~/.local/share/containers/storage/tmp`, which a user tmpfiles rule makes at login: pulls and builds fail until the next login or `systemctl --user start systemd-tmpfiles-setup`. In a pod, full networking needs the node's `/dev/net/tun` in the container (a `CharDevice` hostPath; the runtime's default device rules allow it).
+Containers count against the desktop's memory and disk. `podman system reset` also removes `~/.local/share/containers/storage/tmp`, which a user tmpfiles rule makes at login: pulls and builds fail until the next login or `systemctl --user start systemd-tmpfiles-setup`. In a pod, full networking needs the node's `/dev/net/tun` in the container: a device plugin's allocation (kube-webtop-workspaces' `desktop.tunDevice`), since a user-namespaced pod cannot mount it as a hostPath.
 
 ## Seccomp profile
 
