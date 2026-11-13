@@ -62,7 +62,11 @@ exercise() {
   [ "$(asuser 'docker run --rm localhost/built cat /built')" = built ] || fail "$scenario: the built image"
   mem=$(asuser 'docker run --rm --memory 64m docker.io/library/alpine:3 cat /sys/fs/cgroup/memory.max' 2>&1) || true
   [ "$mem" = 67108864 ] || fail "$scenario: --memory: $mem"
-  echo "$scenario: docker run, bind mount, docker build, --memory: ok"
+  # Docker's short names (docker.io, not quay.io/podman/hello) and no warning about / not being shared.
+  out=$(asuser 'docker run --rm hello-world 2>&1') || { echo "$out"; fail "$scenario: docker run hello-world"; }
+  grep -q 'Hello from Docker!' <<<"$out" && ! grep -q 'not a shared mount' <<<"$out" || { echo "$out"; fail "$scenario: short name or shared-mount warning"; }
+  grep -q shared <<<"$(x findmnt -no PROPAGATION /)" || fail "$scenario: / is not shared"
+  echo "$scenario: docker run, bind mount, docker build, --memory, short name: ok"
 }
 
 # Compose through the API socket: a build, and a client reaching the server.

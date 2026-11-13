@@ -65,6 +65,13 @@ pkgs.testers.runNixOSTest {
         opts = u("podman info --format '{{.Store.GraphOptions}}'")
         assert "mount_program" not in opts and "overlay.ignore_chown_errors:true" in opts, opts
 
+    with subtest("short names and shared root"):
+        # Docker's short names: docker.io first, no shortnames table (hello-world would be quay.io/podman/hello).
+        machine.fail("test -e /etc/containers/registries.conf.d/000-shortnames.conf")
+        assert u("podman info --format '{{index .Registries \"search\"}}'").strip() == "[docker.io]"
+        assert "shared" in machine.succeed("findmnt -no PROPAGATION /")
+        assert "not a shared mount" not in u("docker run --rm localhost/testbox true 2>&1")
+
     with subtest("docker run"):
         out = u("docker run --rm localhost/testbox sh -c 'id -u; cat /proc/self/uid_map'")
         assert out.split() == ["0", "0", "1000", "1", "1", "1001", "28999", "29000", "32768", "28416"], out
