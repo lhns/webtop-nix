@@ -70,8 +70,7 @@ let
     '';
   };
 
-  # The classic dashboard with the core, assembled into selkies_web as scripts/ci/build-web.sh does.
-  # The wheel does not ship the Wish dashboard, so it is not built.
+  # The classic dashboard with the core. The wheel does not ship the Wish dashboard, so it is not built.
   web = buildNpmPackage {
     pname = "selkies-web";
     inherit version src;
@@ -80,18 +79,18 @@ let
     env.SELKIES_INJECT = "1";
     # Only sourceRoot is made writable.
     preBuild = ''
-      chmod u+w ../selkies-web-core
+      chmod u+w ../selkies-web-core ../../src/selkies
       cp -r --no-preserve=mode ${web-core} ../selkies-web-core/dist
     '';
+    # Upstream's own assembly into selkies_web: scripts/ci/build-web.sh from the step after the builds.
     installPhase = ''
       runHook preInstall
-      mkdir -p dist/src
-      cp ../selkies-web-core/dist/selkies-core.js ../universal-touch-gamepad/universalTouchGamepad.js dist/src/
-      printf '%s\n' '"""Bundled web client, served by the stream server as package data."""' > dist/__init__.py
-      printf '%s' '{"name":"Selkies","short_name":"Selkies","display":"fullscreen","background_color":"#000000","theme_color":"#000000","icons":[{"src":"icon-512.png","type":"image/png","sizes":"512x512"}],"start_url":"."}' > dist/manifest.json
-      cp ../../docs/assets/logo/icon-512x512.png dist/icon-512.png
-      cp ../../docs/assets/logo/favicon.ico dist/favicon.ico
-      cp -r dist $out
+      cd ../..
+      sed -n '/^mkdir -p addons\/selkies-dashboard\/dist\/src$/,$p' scripts/ci/build-web.sh > $TMPDIR/assemble.sh
+      [ -s $TMPDIR/assemble.sh ] || { echo "selkies: build-web.sh has no assembly step" >&2; exit 1; }
+      sh -eux $TMPDIR/assemble.sh
+      cp -r src/selkies/selkies_web $out
+      cd addons/selkies-dashboard
       runHook postInstall
     '';
     # key-bar.js drives these webrtcInput methods; several-second-displays.patch must leave no #display2
