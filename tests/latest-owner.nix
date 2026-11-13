@@ -283,7 +283,7 @@ let
             a = open_page("http://127.0.0.1:18082/", (1024, 640))
             check("browser: A shows the desktop", wait_aspect(a, (1024, 640)), f"{video_box(a)}")
             for kind in ("index-", "selkies-core-"):
-                loaded = {n: c for n, c in a.assets.items() if n.startswith(kind) and re.search(r"-[0-9a-f]{10}\.\w+$", n)}
+                loaded = {n: c for n, c in a.assets.items() if n.startswith(kind) and re.search(r"-[\w-]{8}\.\w+$", n)}
                 check(f"browser: the content-hashed {kind}* asset loaded", loaded and all(c == 200 for c in loaded.values()), f"{a.assets}")
             time.sleep(SPACING)
             b = open_page("http://127.0.0.1:8082/", (640, 640))

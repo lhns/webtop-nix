@@ -25,3 +25,7 @@ primary display.
 - Each visible screen costs a capture and an encoder (README, "Cost of app screens").
 - Two more edits to carry against the Selkies wheel; a new wheel fails the build until they are redone.
 - A second page of the same `<n>` takes that screen over.
+
+## Amendment 2026-11-13
+
+The two web client edits are hunks of the Selkies patches against the client source (ADR 0002).

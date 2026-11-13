@@ -1,5 +1,5 @@
-/* Special-key bar for touch screens, above the on-screen keyboard. Added to the Selkies web client by
-   pkgs/selkies.nix; it drives window.webrtcInput from outside and patches nothing in the client.
+/* Special-key bar for touch screens, above the on-screen keyboard. Bundled into the Selkies web client
+   (key-bar.patch); it drives window.webrtcInput from outside and patches nothing in the client.
    Held keys go through _sendKeyEvent, which is what puts them in _keyDownList: the client's `kh`
    heartbeat covers only that list, and the server releases a key whose heartbeat stops (2 s). */
 (function () {

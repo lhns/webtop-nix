@@ -1,0 +1,33 @@
+Selkies web client: bundle the special-key bar and the touch sidebar styles
+
+Against Selkies 2.1.0. pkgs/selkies.nix copies key-bar.js, key-bar.css and touch-handle.css into
+src/webtop/; the bundler content-hashes them with the rest of the client. Its CSS target includes Safari,
+so the minifier keeps the -webkit- prefixes iOS needs.
+-----
+
+--- a/addons/selkies-dashboard/src/main.jsx
++++ b/addons/selkies-dashboard/src/main.jsx
+@@ -24,6 +24,10 @@ import ReactDOM from 'react-dom/client';
+ import App from './App.jsx';
+ import PlayerGamepadButton from './components/PlayerGamepadButton.jsx';
+ import './index.css';
++// Copied in from webtop-nix's pkgs/selkies: imported after the stock styles, which they override.
++import './webtop/touch-handle.css';
++import './webtop/key-bar.css';
++import './webtop/key-bar.js';
+ import { getRoutePrefix } from '../../selkies-web-core/lib/util.js';
+ import { urlFragmentKeyword } from '../../selkies-web-core/lib/page-url.js';
+ import "../../universal-touch-gamepad/universalTouchGamepad.js";
+--- a/addons/selkies-dashboard/vite.config.js
++++ b/addons/selkies-dashboard/vite.config.js
+@@ -45,7 +45,9 @@ export default ({ mode }) => {
+       fs: { allow: ['.', '../universal-touch-gamepad'] },
+     },
+     build: {
+-      target: 'chrome94'
++      target: 'chrome94',
++      // With a Chrome-only target the CSS minifier drops -webkit-user-select, which iOS Safari needs.
++      cssTarget: ['chrome94', 'safari16']
+     },
+     plugins: [
+       react({

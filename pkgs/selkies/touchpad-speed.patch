@@ -1,0 +1,57 @@
+Selkies web client: a slower touchpad mode
+
+Against Selkies 2.1.0. Acceleration is capped at 1.5x instead of 3x and speeds go down to 0.1; the
+stock touchpad mode is far too fast. Upstream's touch gesture audit checks both.
+-----
+
+--- a/addons/selkies-web-core/lib/input.js
++++ b/addons/selkies-web-core/lib/input.js
+@@ -128,13 +128,13 @@ const TRACKPAD_HANDOFF_MS = 200;
+  */
+ const TRACKPAD_ACCEL_SLOW = 0.15;
+ const TRACKPAD_ACCEL_FAST = 1.2;
+-const TRACKPAD_ACCEL_MAX = 3;
++const TRACKPAD_ACCEL_MAX = 1.5;
+ 
+ /** Time constant, in milliseconds, over which a trackpad finger's speed is smoothed. */
+ const TRACKPAD_SPEED_TAU_MS = 25;
+ 
+ /** The range `Input.setTrackpadSpeed` takes. */
+-const TRACKPAD_SPEED_MIN = 0.25;
++const TRACKPAD_SPEED_MIN = 0.1;
+ const TRACKPAD_SPEED_MAX = 4;
+ 
+ /**
+--- a/addons/selkies-web-core/lib/touch-controls.js
++++ b/addons/selkies-web-core/lib/touch-controls.js
+@@ -19,7 +19,7 @@
+  */
+ 
+ /** The trackpad speeds offered, 1 being the handler's own curve. */
+-export const TRACKPAD_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3];
++export const TRACKPAD_SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3];
+ 
+ /** The storage key, under the dashboards' prefix, of the trackpad speed (the cores keep it). */
+ export const TRACKPAD_SPEED_KEY = 'trackpad_speed';
+--- a/tests/tools/touch_gesture_audit.mjs
++++ b/tests/tools/touch_gesture_audit.mjs
+@@ -534,8 +534,8 @@ function accelSwipe(px, n, dt, speed) {
+     check('a slow finger (0.1 px/ms) moves the pointer as far as it travels', slow === 100, `${slow} of 100`);
+     const speeds = [0.1, 0.2, 0.4, 0.8, 1.6, 3.2];
+     const far = speeds.map((v) => accelSwipe(100, 20, 100 / 20 / v));
+-    check('faster fingers move it further, up to three times', far.every((d, i) => i === 0 || d >= far[i - 1])
+-          && far[0] === 100 && far[far.length - 1] >= 290 && far[far.length - 1] <= 300,
++    check('faster fingers move it further, up to one and a half times', far.every((d, i) => i === 0 || d >= far[i - 1])
++          && far[0] === 100 && far[far.length - 1] >= 145 && far[far.length - 1] <= 150,
+           speeds.map((v, i) => `${v} px/ms: ${far[i]}`).join(', '));
+     const ten = accelSwipe(200, 10, 20);
+     const fifty = accelSwipe(200, 50, 4);
+@@ -544,6 +544,8 @@ function accelSwipe(px, n, dt, speed) {
+     check('the fraction of a pixel each slow report leaves is carried', creep === 90, `${creep} of 90`);
+     const doubled = accelSwipe(100, 50, 20, 2);
+     check('the trackpad speed setting scales the travel', doubled === 200, `${doubled} of 200`);
++    const slowest = accelSwipe(100, 50, 20, 0.1);
++    check('the slowest trackpad speed is a tenth', slowest === 10, `${slowest} of 10`);
+ }
+ 
+ // --- a stylus is handled once ------------------------------------------------

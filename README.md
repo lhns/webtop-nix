@@ -14,17 +14,19 @@ ones come from `python3Packages`, nixpkgs' default interpreter).
 | --- | --- | --- |
 | pixelflux | 2.2.1 | built from source (Rust, `setuptools-rust`), GPL flavor with libx264/x265 |
 | pcmflux | 2.2.0 | built from source (Rust, `setuptools-rust`) |
-| selkies | 2.1.0 | PyPI wheel (bundles the built web client), with four patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch), [several second displays](pkgs/selkies/several-second-displays.patch) |
+| selkies | 2.1.0 | built from source, the Python package and the web client (Vite, `buildNpmPackage`), with patches: [second display](pkgs/selkies/second-display-without-primary.patch), [upload path](pkgs/selkies/upload-path.patch), [latest page owns the display](pkgs/selkies/latest-owner.patch), [several second displays](pkgs/selkies/several-second-displays.patch), [touchpad speed](pkgs/selkies/touchpad-speed.patch), [key bar](pkgs/selkies/key-bar.patch) |
 | Nix | 2.34 | built from source for `nixProfile`, with [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch), [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) and [no kill of a builder that closes its output early](modules/nix-profile/nix/daemon-eof-wait.patch) (`builder-exit-timeout`) |
 | webtop-app-screen | — | this repo: keeps an app's windows on one screen ([below](#one-app-per-screen)) |
 
-Web client edits made in `postInstall` ([selkies.nix](pkgs/selkies.nix)): a larger left padding for the sidebar and a handle at the
-same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard
-([key-bar.js](pkgs/selkies/key-bar.js), [key-bar.css](pkgs/selkies/key-bar.css)); touchpad mode accelerates by at most 1.5x instead of 3x
-and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at 0.5; a saved speed keeps
-working. The changed assets are renamed by content hash so browsers do not reuse stale copies.
+Web client changes, as patches against its source and files bundled with it ([selkies.nix](pkgs/selkies.nix)): a larger left padding for
+the sidebar and a handle at the same edge on touch screens ([touch-handle.css](pkgs/selkies/touch-handle.css)); a special-key bar above
+the on-screen keyboard ([key-bar.js](pkgs/selkies/key-bar.js), [key-bar.css](pkgs/selkies/key-bar.css)); touchpad mode accelerates by at
+most 1.5x instead of 3x and offers speeds down to 0.1 (stock: 0.25 to 4 and a 3x cap), because the stock pointer was too fast even at
+0.5; a saved speed keeps working. The bundler names each asset by its content, so browsers do not reuse stale copies; its CSS
+target includes Safari 16, which keeps the `-webkit-` prefixes iOS needs (stock rules gain `-webkit-user-select`/`-webkit-hyphens`).
 
-Status: pixelflux and pcmflux build from source at the commits that released the PyPI wheels; selkies is still the prebuilt wheel, building it from source is planned.
+Status: pixelflux, pcmflux and selkies build from source at the commits that released the PyPI wheels. The game controller database
+is pinned to the commit the 2.1.0 wheel was built with ([patch](pkgs/selkies/gamecontrollerdb-file.patch); upstream fetches the newest).
 
 ## Usage
 
@@ -318,13 +320,14 @@ Every change to a third-party program, and why:
 | KWin 6.7 | [output device globals](pkgs/kwin/kwin-6.7-output-device-globals.patch) (LinuxServer's, vendored) | pixelflux confirms a second display by a `kde_output_device_v2` global |
 | Selkies | [second display without primary](pkgs/selkies/second-display-without-primary.patch) | a page for one app's screen connects on its own |
 | Selkies | [upload path](pkgs/selkies/upload-path.patch) | downloads serve the whole home while uploads land in one inbox |
-| Selkies | [several second displays](pkgs/selkies/several-second-displays.patch), plus a [web client edit](pkgs/selkies/display-n.sed) for `#display<n>` | Selkies drives one secondary at a time; each app page needs its own |
-| Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), plus a web client edit that tells a reconnect from a new page | with several pages open, the one opened last drives the primary display |
-| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard on touch screens ([js](pkgs/selkies/key-bar.js), [css](pkgs/selkies/key-bar.css), [test](tests/key-bar-test.py)); touchpad acceleration capped at 1.5x, speeds down to 0.1; changed assets renamed by hash | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; the on-screen keyboard has no Esc, Tab, Ctrl, arrows or F-keys; stale browser copies would hide the change |
+| Selkies | [several second displays](pkgs/selkies/several-second-displays.patch), server and web client (`#display<n>`) | Selkies drives one secondary at a time; each app page needs its own |
+| Selkies | [latest page owns the display](pkgs/selkies/latest-owner.patch), server and web client (which tells a reconnect from a new page) | with several pages open, the one opened last drives the primary display |
+| Selkies web client | sidebar padding and handle for touch ([css](pkgs/selkies/touch-handle.css)); a special-key bar above the on-screen keyboard on touch screens ([js](pkgs/selkies/key-bar.js), [css](pkgs/selkies/key-bar.css), [bundled](pkgs/selkies/key-bar.patch), [test](tests/key-bar-test.py)); [touchpad](pkgs/selkies/touchpad-speed.patch) acceleration capped at 1.5x, speeds down to 0.1 | the stock sidebar crowds the handle on touch and the stock touchpad is too fast; the on-screen keyboard has no Esc, Tab, Ctrl, arrows or F-keys |
 | Nix 2.34 | [`nix profile` backends](modules/nix-profile/nix/profile-backends.patch) | `nix profile` edits `packages.json` and runs home-manager |
 | Nix 2.34 | [cacheable `path:` inputs](modules/nix-profile/nix/path-input-fingerprint.patch) | a locked `path:` input (the registry's nixpkgs) otherwise copies all of nixpkgs into the store on each evaluation; drop it once upstream has a fingerprint |
 | Nix Software Center | [fork `lhns/nix-software-center`](pkgs/nix-software-center.nix), pinned | no network probe (`onlineCheckUrl = ""`), no system package set (`systemPackages = false`), unfree apps through the `nixpkgs-unfree` registry flake, apps of the image shown as "Included with desktop" |
 | pixelflux, pcmflux | none | built from source at the commits that released the PyPI wheels |
+| Selkies web client build | [game controller database from a file](pkgs/selkies/gamecontrollerdb-file.patch) | the build is offline; upstream fetches the database's newest commit |
 
 ## Container module
 

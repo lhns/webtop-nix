@@ -1,6 +1,6 @@
 Selkies: lay out a second display when no primary page is connected (Wayland)
 
-Against Selkies 2.1.0 (unchanged on main 58b6c35). Applied to the wheel by pkgs/selkies.nix;
+Against Selkies 2.1.0 (unchanged on main 58b6c35). Applied by pkgs/selkies.nix;
 written for upstream, see docs/upstream/selkies-second-display-without-primary.md.
 -----
 

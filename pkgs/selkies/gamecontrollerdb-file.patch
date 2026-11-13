@@ -1,0 +1,27 @@
+Selkies web client build: read the game controller database from a file
+
+Against Selkies 2.1.0. gendb.js fetches the newest SDL_GameControllerDB at build time; a Nix build is
+offline, so pkgs/selkies.nix pins a commit and names the file in SELKIES_GAMECONTROLLERDB. Not for upstream.
+-----
+
+--- a/addons/selkies-web-core/gendb.js
++++ b/addons/selkies-web-core/gendb.js
+@@ -123,6 +123,10 @@ async function main() {
+   let commit;
+   let body;
+   let blob;
++  // An offline build names a pinned copy of the database instead of fetching the branch's newest.
++  if (process.env.SELKIES_GAMECONTROLLERDB) {
++    fileContent = fs.readFileSync(process.env.SELKIES_GAMECONTROLLERDB, 'utf8');
++  } else {
+   try {
+     commit = (await (await fetchOk(`${API}/repos/${DB_REPO}/commits/${DB_BRANCH}`, headers)).json()).sha;
+     blob = (await (await fetchOk(`${API}/repos/${DB_REPO}/contents/${DB_FILE}?ref=${commit}`, headers)).json()).sha;
+@@ -141,6 +145,7 @@ async function main() {
+   }
+   fileContent = body.toString('utf8');
+   console.log(`Fetched controller DB at ${commit} (blob ${blob}).`);
++  }
+   
+   console.log('Starting conversion...');
+ 

@@ -20,8 +20,7 @@ fixes pages that joined beside the owner.
 Reconnects in place would otherwise take the display from a background page after a network blip, and
 the server cannot tell them from a reload: both name the same tab, and the old socket may still look
 open. The web client now sends `reconnecting: true` in the first SETTINGS of every socket but its page's
-first, and such a page joins beside the owner. Here that is one expression substituted into the built
-bundle (`pkgs/selkies.nix`); upstream it belongs in the client source.
+first, and such a page joins beside the owner (the patch's `selkies-ws-core.js` hunk).
 
 Upstream may prefer this behind an option: a page opened on a phone now resizes the desktop of
 whoever is working at it.

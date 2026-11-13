@@ -1,6 +1,6 @@
 Selkies: a separate upload directory (upload_path / SELKIES_UPLOAD_PATH)
 
-Against Selkies 2.1.0. Applied to the wheel by pkgs/selkies.nix; written for upstream,
+Against Selkies 2.1.0. Applied by pkgs/selkies.nix; written for upstream,
 see docs/upstream/selkies-upload-path.md.
 Uploads (HTTP /api/upload, the websockets and WebRTC data-channel paths) go to upload_path when it
 is set, else to file_manager_path as before. Downloads and the file browser keep file_manager_path.
