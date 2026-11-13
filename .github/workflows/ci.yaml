@@ -96,7 +96,7 @@ jobs:
       # The drivers hold the test systems; the vm jobs run the tests.
       - name: build VM test drivers
         if: matrix.system == 'x86_64-linux'
-        run: nix build .#checks.${{ matrix.system }}.{vm,defaults,relogin,lock,notices,power,software-center-run,app-screens,second-display,latest-owner,containers}.driver -L --no-link
+        run: nix build .#checks.${{ matrix.system }}.{vm,defaults,relogin,lock,notices,power,software-center-run,app-screens,second-display,latest-owner,containers,fhs-launcher}.driver -L --no-link
       - name: build image
         run: nix build .#image .#image.layerSplit .#image.copyToDockerDaemon .#image.copyTo .#image.builder .#image.builder.copyToDockerDaemon .#image.builder.copyTo .#layer-report -L --no-link
 
@@ -193,7 +193,7 @@ jobs:
       matrix:
         # power: sleep freezes the session, a new client wakes it; an external stop thaws, then saves.
         # containers: docker run, build and compose against rootless Podman, and the detected fallbacks.
-        test: [vm, defaults, relogin, lock, notices, power, software-center-run, containers]
+        test: [vm, defaults, relogin, lock, notices, power, software-center-run, containers, fhs-launcher]
         # Run outside the sandbox, so that their screenshots and logs survive a failure as an artifact.
         include:
           # Several app screens at once; summary.txt has the measured cost.

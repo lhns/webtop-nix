@@ -224,6 +224,8 @@ in
 
     softwareCenter.enable = lib.mkEnableOption "the Nix Software Center, a GUI over `nix profile`";
 
+    nixLd.enable = lib.mkEnableOption "nix-ld with an AppImage library set, for generic-Linux binaries started outside their FHS app (README, \"Generic Linux binaries\")";
+
     uid = lib.mkOption {
       type = lib.types.int;
       default = 1000;
@@ -861,6 +863,13 @@ in
     # Nix's default search path names a channels directory NixOS without channels lacks, and warns on every
     # impure evaluation. The registry's nixpkgs also keeps `<nixpkgs>` and `nix-shell -p` working.
     nix.settings.nix-path = lib.mkDefault "nixpkgs=flake:nixpkgs";
+
+    # jetbrains-toolbox's FHS libraries (appimageTools' list, icu, libappindicator) and libsecret for keyrings:
+    # what such an app installs into the home must run when the menu starts it outside the app.
+    programs.nix-ld = lib.mkIf cfg.nixLd.enable {
+      enable = true;
+      libraries = pkgs.appimageTools.defaultFhsEnvArgs.multiPkgs pkgs ++ (with pkgs; [ icu libappindicator libsecret ]);
+    };
 
     environment.systemPackages = [ cfg.package pkgs.webtop-app-screen ]
       ++ lib.optional cfg.softwareCenter.enable pkgs.nix-software-center;
