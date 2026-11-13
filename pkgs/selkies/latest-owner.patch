@@ -1,6 +1,6 @@
 Selkies: the page opened last owns the primary display, the one before stays beside it
 
-Against Selkies 2.1.0 (with this repo's other patches). Applied to the wheel by pkgs/selkies.nix;
+Against Selkies 2.1.0 (with this repo's other patches), server and web client. Applied by pkgs/selkies.nix;
 written for upstream, see docs/upstream/selkies-latest-owner.md.
 -----
 
@@ -168,3 +168,15 @@ written for upstream, see docs/upstream/selkies-latest-owner.md.
                              continue
  
                          if self.input_handler and hasattr(
+--- a/addons/selkies-web-core/selkies-ws-core.js
++++ b/addons/selkies-web-core/selkies-ws-core.js
+@@ -7960,6 +7960,9 @@ class WorkerWebSocket {
+       settingsToSend['useCssScaling'] = useCssScaling;
+       settingsToSend['displayId'] = displayId;
+       settingsToSend['tabId'] = pageTabId();
++      // Set from the page's second settings message on: a reconnect in place claims no display.
++      settingsToSend['reconnecting'] = window.__selkiesSettingsSent === true;
++      window.__selkiesSettingsSent = true;
+       const ccStart = recalledCcStart(displayId);
+       if (ccStart !== null) settingsToSend['ccStartKbps'] = ccStart;
+       settingsToSend['displayScale'] = currentDisplayScale(dpr);

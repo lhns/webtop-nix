@@ -32,3 +32,8 @@ is still a wheel, and it is pure Python. The overlay keeps Python 3.13 as the te
 
 The Python 3.13 pin is lifted: the overlay uses the default `python3Packages`. The selkies wheel is
 `py3-none-any` (Python >= 3.9) and pixelflux and pcmflux build from source.
+
+## Amendment 2026-11-13
+
+selkies is built from source too, at the commit that released 2.1.0, web client included; the wheel is
+gone, and changes to the web client are patches against its source.

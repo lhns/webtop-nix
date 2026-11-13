@@ -226,13 +226,11 @@ def built(p, web):
     browser = p.chromium.launch()
     page = browser.new_context(**p.devices["Pixel 7"]).new_page()
     missing = []
-    page.on("response", lambda r: missing.append(r.url) if r.status == 404 and "key-bar" in r.url else None)
+    page.on("response", lambda r: missing.append(r.url) if r.status == 404 and "/assets/" in r.url else None)
     page.goto(f"http://127.0.0.1:{srv.server_address[1]}/index.html")
-    html = open(os.path.join(web, "index.html")).read()
-    check("index.html names key-bar-<hash>.js", "assets/key-bar-" in html and "key-bar.js" not in html)
     page.wait_for_selector(".kb-root", state="attached", timeout=20000)
     check("the real client builds the bar", True)
-    check("key-bar script found", missing, [])
+    check("no missing assets", missing, [])
     check("styles in the client stylesheet", page.evaluate(
         "[...document.styleSheets].some(s => { try { return [...s.cssRules].some(r => (r.selectorText||'').includes('kb-root')); }"
         " catch (e) { return false; } })"))
