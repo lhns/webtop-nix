@@ -50,7 +50,7 @@ wait_setup
   || { x journalctl -u webtop-home-manager --no-pager | tail -n 50; fail "webtop-home-manager failed"; }
 
 ! x sh -c 'command -v discover' || fail "Discover is installed"
-x sh -c 'nix-store -qR /run/current-system | grep -q -- -knewstuff-' || fail "KNewStuff is not in the system"
+grep -q -- -knewstuff- <<<"$(x nix-store -qR /run/current-system)" || fail "KNewStuff is not in the system"
 [ "$(as_user sh -c 'command -v nix')" = /run/current-system/sw/bin/nix ] || fail "nix on the user's PATH is not the system's"
 backend=$(as_user nix config show profile-backend)
 [ "$backend" = "declaration:$decl" ] || fail "profile-backend is '$backend'"
@@ -141,7 +141,7 @@ as_user nix profile remove --regex '.*ci-flake.*' >/dev/null || fail "removing t
 # A flake dir that is a git repo: packages.json is added with --intent-to-add; a git-ignored one is refused.
 as_user sh -c "cd $hmdir && git init -q && git add -A && git rm -q --cached packages.json"
 as_user nix profile add nixpkgs#tree || fail "nix profile add in a git flake dir failed"
-as_user git -C "$hmdir" ls-files | grep -qx packages.json || fail "packages.json was not added to git"
+grep -qx packages.json <<<"$(as_user git -C "$hmdir" ls-files)" || fail "packages.json was not added to git"
 as_user sh -c "cd $hmdir && echo packages.json > .gitignore && git rm -q --cached packages.json"
 sum=$(as_user sha256sum "$decl")
 out=$(as_user nix profile remove tree 2>&1 || true)
@@ -229,7 +229,7 @@ since=$(now)
 x systemctl start webtop-home-manager
 wait_setup
 [ "$(x systemctl show -P Result webtop-home-manager)" = exit-code ] || fail "a failing switch did not fail the unit"
-x journalctl -u webtop-home-manager --no-pager | grep -q 'home-manager switch failed' \
+grep -q 'home-manager switch failed' <<<"$(x journalctl -u webtop-home-manager --no-pager)" \
   || fail "a failing switch was not reported"
 as_user cp /tmp/decl.bak "$decl"
 as_user ln -sfn "$link" "$gen"

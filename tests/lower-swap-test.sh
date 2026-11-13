@@ -71,7 +71,7 @@ g=$(x nix-build --no-out-link -E "$(nixexpr ci-gone 'echo g > \$out')")
 ug=$(x nix-build --out-link /nix/var/nix/gcroots/ci-ug -E "$(nixexpr ci-ug "echo \${builtins.storePath \"$g\"} > \$out")")
 us=$(x nix-build --out-link /nix/var/nix/gcroots/ci-us -E "$(nixexpr ci-us "echo \${builtins.storePath \"$bb\"} > \$out")")
 x nix-store --check-validity "$g" "$ug" "$us"
-x nix-store -q --references "$ug" | grep -qx "$g" || fail "ug does not reference g"
+grep -qx "$g" <<<"$(x nix-store -q --references "$ug")" || fail "ug does not reference g"
 stop
 
 # Offline: g "was in the old image" (its files gone with it), and the image changed.
