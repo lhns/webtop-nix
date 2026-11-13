@@ -9,6 +9,7 @@
 #
 # Usage: system-image-test.sh <image> <timeout-seconds-per-boot>
 set -euo pipefail
+# Not `cmd | grep -q`: grep exits at the first match, cmd can die of SIGPIPE, and pipefail fails the test.
 
 image=$1
 timeout=$2
@@ -75,7 +76,7 @@ init=$(peek webtop-system-module readlink /sbin/init)
 [ "$init" != "$stock_init" ] || fail "the module did not change /sbin/init"
 [ "$(peek webtop-system-module cat /webtop-image-stamp)" != "$stock_stamp" ] || fail "the module did not change the stamp"
 boot webtop-system-module
-docker logs "$c" 2>&1 | grep -q 'store overlay kept' || { docker logs "$c" 2>&1 | grep webtop- | tail -n 30; fail "the image update did not keep the store overlay"; }
+grep -q 'store overlay kept' <<<"$(docker logs "$c" 2>&1)" || { docker logs "$c" 2>&1 | grep webtop- | tail -n 30; fail "the image update did not keep the store overlay"; }
 [ "$(current)/init" = "$init" ] || fail "booted $(current), not ${init%/init}"
 x nix-store --check-validity "$(current)" || fail "the system is not valid in the overlay store"
 [ "$(x nix-store --store 'local?root=/.lower&read-only=true' -q --hash "$(current)")" = "$(x nix-store -q --hash "$(current)")" ] ||
@@ -93,7 +94,7 @@ stop
 
 echo "== 3: the stock image again"
 boot "$image"
-docker logs "$c" 2>&1 | grep -q 'store overlay kept' || fail "the update back did not keep the store overlay"
+grep -q 'store overlay kept' <<<"$(docker logs "$c" 2>&1)" || fail "the update back did not keep the store overlay"
 [ "$(current)/init" = "$stock_init" ] || fail "booted $(current), not the stock system"
 ! x test -e /etc/webtop-admin-test || fail "/etc/webtop-admin-test is still there"
 echo "back to the stock image: ok"
